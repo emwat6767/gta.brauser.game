@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open City — браузерный открытый мир</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Three.js подключается с CDN через import map: в модулях пишем import * as THREE from 'three'. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud">
+    <div id="fps" data-level="good">FPS --</div>
+    <div id="help-hint"><b>H</b> — управление</div>
+    <div id="help" class="hidden">
+      <h3>Управление</h3>
+      <table>
+        <tr><td>W A S D</td><td>движение / газ, тормоз, руль</td></tr>
+        <tr><td>Мышь</td><td>камера (колесо — зум)</td></tr>
+        <tr><td>Shift</td><td>бег</td></tr>
+        <tr><td>Space</td><td>прыжок / ручник</td></tr>
+        <tr><td>E</td><td>сесть в машину / выйти</td></tr>
+        <tr><td>Esc</td><td>пауза</td></tr>
+      </table>
+    </div>
+    <div id="minimap-wrap"><canvas id="minimap"></canvas></div>
+    <div id="speedometer" class="hidden"><span id="speed-value">0</span><small>км/ч</small></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="bubbles"></div>
+  </div>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>OPEN CITY</h1>
+      <p class="subtitle">фундамент браузерного открытого мира</p>
+      <table class="controls">
+        <tr><td>W A S D</td><td>движение, в машине — газ / тормоз / руль</td></tr>
+        <tr><td>Мышь</td><td>обзор, колесо — приблизить / отдалить</td></tr>
+        <tr><td>Shift</td><td>бег (разбегитесь — и прохожие падают)</td></tr>
+        <tr><td>Space</td><td>прыжок, в машине — ручник</td></tr>
+        <tr><td>E</td><td>сесть в ближайшую машину / выйти</td></tr>
+        <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
+      </table>
+      <p id="overlay-status">Загрузка…</p>
+      <button id="play" disabled>Играть</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+  <script>
+    // Если модули не загрузились (нет интернета для CDN или страница открыта через file://).
+    setTimeout(function () {
+      if (!window.__gameReady) {
+        document.getElementById('overlay-status').textContent =
+          'Не удалось запустить игру. Нужен локальный веб-сервер (не file://) и доступ к cdn.jsdelivr.net — см. README.';
+      }
+    }, 12000);
+  </script>
+</body>
+</html>
