@@ -1056,3 +1056,45 @@ body.touch #objective {
   color: #ff6b6b;
   font-weight: 800;
 }
+
+/* ---------- Лента событий города ---------- */
+
+#news {
+  position: absolute;
+  top: calc(40px + env(safe-area-inset-top, 0px));
+  left: calc(10px + env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: min(360px, 40vw);
+  pointer-events: none;
+}
+
+.news-item {
+  padding: 4px 8px;
+  border-left: 4px solid #ffd54a;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  font: 700 12px/1.3 Arial, sans-serif;
+  color: #f2f2f2;
+  text-shadow: 1px 1px 0 #000;
+  animation: news-in 0.3s ease-out;
+  transition: opacity 1s;
+}
+
+.news-item.old {
+  opacity: 0;
+}
+
+@keyframes news-in {
+  from { transform: translateX(-20px); opacity: 0; }
+}
+
+body.touch #news {
+  top: calc(156px + env(safe-area-inset-top, 0px));
+  max-width: 44vw;
+}
+
+body.touch .news-item {
+  font-size: 10px;
+}

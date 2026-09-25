@@ -46,6 +46,7 @@ export const NPC_STATE = {
   TALK: 'talk',       // разговаривает с другим NPC (partner)
   GOTO_CAR: 'gotocar', // идёт к припаркованной машине, чтобы уехать на ней
   RETREAT: 'retreat', // ранен — отступает от противника, потом возвращается
+  GOTO: 'goto',       // идёт к точке (охранник — к своему посту), затем стоит
 };
 
 // Места в строю отряда: [вправо, назад] от игрока, м. По бокам, а не прямо за спиной —
@@ -73,6 +74,11 @@ export const LINES = {
   phone: ['Алло? Да, иду', 'Перезвоню позже', 'Ты где?', 'Да-да, понял', 'Скоро буду'],
   gangChat: ['Тихо сегодня', 'Смотри в оба', 'Чужие рядом были', 'Держим район', 'Где наши?'],
   retreat: ['Меня зацепило!', 'Отходим!', 'Прикройте!', 'Я ранен!'],
+  brawl: ['Ну всё, держись!', 'Сам напросился!', 'Получай!', 'Ты кого толкнул?!'],
+  crash: ['Ты куда смотрел?!', 'Мою машину разбил!', 'Права купил?!', 'Кто платить будет?!'],
+  mugger: ['Кошелёк давай!', 'Тихо, без глупостей!', 'Деньги, быстро!'],
+  mugged: ['Помогите! Грабят!', 'Держи вора!', 'Полиция!'],
+  cheer: ['Давай, давай!', 'Бей его!', 'Ого!', 'Снимайте, снимайте!'],
   squadAttack: ['Мочи их!', 'Огонь!', 'Валим их!', 'За Грув!'],
   police: ['Стоять! Полиция!', 'Руки за голову!', 'Ни с места!'],
   carjacked: ['Моя машина!', 'Эй! Вор!', 'Верни тачку!'],
@@ -86,11 +92,16 @@ export function randomCivilianLook(rng) {
   };
 }
 
+// Бандиты тоже разные: майка цвета банды или тёмная с банданой, иногда кепка.
 export function gangLook(rng, color) {
+  const dark = rng.chance(0.3);
+  const cap = !dark && rng.chance(0.25);
   return {
-    skin: rng.pick(PALETTE.skin), hair: '#141414', shirt: color, bandana: color,
-    pants: rng.pick(['#1c1c1c', '#2b3a55', '#3a3a3a']), shoes: rng.pick(['#111111', '#eeeeee']),
-    scale: rng.range(0.97, 1.08),
+    skin: rng.pick(PALETTE.skin), hair: rng.pick(['#141414', '#141414', '#3b2a1a']),
+    shirt: dark ? rng.pick(['#1e1e1e', '#2d2d2d', '#e8e8e8']) : color,
+    bandana: cap ? null : color, hat: cap ? color : null,
+    pants: rng.pick(['#1c1c1c', '#2b3a55', '#3a3a3a', '#4a3b2a']), shoes: rng.pick(['#111111', '#eeeeee', '#8a1c1c']),
+    scale: rng.range(0.95, 1.1),
   };
 }
 
@@ -233,8 +244,8 @@ export class NPC {
       const p = this.game.player.position;
       const d = (n) => (n.x - p.x) ** 2 + (n.z - p.z) ** 2;
       next = pool.reduce((best, n) => (d(n) > d(best) ? n : best), pool[0]);
-    } else if (this.dest && !this.allowedNodes && this.rng.chance(0.8)) {
-      // Идёт по своим делам: к узлу, который ближе к цели.
+    } else if (this.dest && this.rng.chance(0.8)) {
+      // Идёт по своим делам (или к посту/на налёт): к узлу, который ближе к цели.
       const d = (n) => (n.x - this.dest.x) ** 2 + (n.z - this.dest.z) ** 2;
       next = pool.reduce((best, n) => (d(n) < d(best) ? n : best), pool[0]);
     } else {
@@ -261,6 +272,7 @@ export class NPC {
   // Дошёл до узла: иногда остановиться — постоять, поговорить по телефону, оглядеться.
   _arrive() {
     if (this.panic > 0) return false;
+    if (this.role !== 'civilian' && this.node === this.dest) this.dest = null;
     if (this.role === 'civilian') {
       if (!this.dest || this.node === this.dest || this.rng.chance(0.02)) this._pickDestination();
       if (this.jogger || !this.rng.chance(this.node?.mid ? 0.1 : this.idleChance)) return false;
@@ -270,7 +282,7 @@ export class NPC {
       this._enter(NPC_STATE.IDLE);
       return true;
     }
-    if (!this.rng.chance(this.idleChance)) return false;
+    if (this.dest || !this.rng.chance(this.idleChance)) return false; // идёт по делу (к посту, на налёт) — не стоит
     this.activity = null;
     this.idleTime = this.role === 'gang' ? this.rng.range(3, 9) : this.rng.range(1, 4);
     this._enter(NPC_STATE.IDLE);
@@ -332,6 +344,30 @@ export class NPC {
     this.position.x += Math.sin(this.heading) * step;
     this.position.z += Math.cos(this.heading) * step;
     return this.walkSpeed * 1.15;
+  }
+
+  // Идти прямо к точке (недалеко, в пределах квартала); дошёл — стоит idle секунд лицом к face.
+  goTo(x, z, idle, face = null) {
+    this.gotoPoint = { x, z, idle, face };
+    this._enter(NPC_STATE.GOTO);
+  }
+
+  _updateGoto(dt) {
+    const g = this.gotoPoint;
+    const dx = g.x - this.position.x, dz = g.z - this.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.35 || this.stateTime > 20) {
+      if (g.face) this.heading = Math.atan2(g.face.x - this.position.x, g.face.z - this.position.z);
+      this.idleTime = g.idle;
+      this.activity = null;
+      this._enter(NPC_STATE.IDLE);
+      return 0;
+    }
+    this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 8, dt);
+    const step = Math.min(this.walkSpeed * dt, d);
+    this.position.x += Math.sin(this.heading) * step;
+    this.position.z += Math.cos(this.heading) * step;
+    return this.walkSpeed;
   }
 
   // Ранен и не храбрец — отходит от противника к своим, потом возвращается в бой.
@@ -417,6 +453,9 @@ export class NPC {
       case NPC_STATE.RETREAT:
         speed = this._updateRetreat(dt);
         break;
+      case NPC_STATE.GOTO:
+        speed = this._updateGoto(dt);
+        break;
       case NPC_STATE.FIGHT:
         speed = this._updateFight(dt);
         break;
@@ -469,13 +508,13 @@ export class NPC {
     this.model.root.rotation.y = this.heading;
     if (this.lod) return; // вдали — упрощённая фигура без анимации (crowd.js)
     const pose = this.isDown ? 'down' : this.state === NPC_STATE.STUMBLE ? 'stumble' : 'normal';
-    // Оружие видно только в драке (в остальное время "в кармане").
-    this.model.setWeapon(this.gun && this.state === NPC_STATE.FIGHT ? this.gun.type : null);
+    // Оружие видно только в драке (в остальное время "в кармане"); грабитель им угрожает.
+    this.model.setWeapon(this.menace ?? (this.gun && this.state === NPC_STATE.FIGHT ? this.gun.type : null));
     this.model.animate(dt, {
       speed, pose, fall: this.fall,
       guard: !this.gun && this.state === NPC_STATE.FIGHT && speed < 1,
       attack: this.melee.t, attackSide: this.melee.side,
-      aim: this.shooting ? this.aimPitch : null,
+      aim: this.shooting ? this.aimPitch : this.menace && this.state === NPC_STATE.IDLE ? 0.08 : null,
       reload: this.gun?.reloadProgress ?? 0,
       gesture: this.state === NPC_STATE.IDLE || this.state === NPC_STATE.TALK ? this.activity
         : this.state === NPC_STATE.WALK && this.panic > 0 && this.role === 'civilian' && this.rng.chance(0.002) ? 'hands' : null,
@@ -489,7 +528,7 @@ export class NPC {
     if (this.target === target && this.state === NPC_STATE.FIGHT) return;
     this.target = target;
     this.panic = 0;
-    if ([NPC_STATE.WALK, NPC_STATE.IDLE, NPC_STATE.FOLLOW, NPC_STATE.TALK, NPC_STATE.GOTO_CAR, NPC_STATE.RETREAT].includes(this.state)) {
+    if ([NPC_STATE.WALK, NPC_STATE.IDLE, NPC_STATE.FOLLOW, NPC_STATE.TALK, NPC_STATE.GOTO_CAR, NPC_STATE.RETREAT, NPC_STATE.GOTO].includes(this.state)) {
       this.partner = null;
       this.activity = null;
       this._enter(NPC_STATE.FIGHT);
@@ -587,7 +626,7 @@ export class NPC {
   }
 
   _recover(afterFall) {
-    if (this.target && !this.target.isDead && this.role !== 'civilian') {
+    if (this.target && !this.target.isDead && (this.role !== 'civilian' || this.brawler)) {
       this._enter(NPC_STATE.FIGHT);
       return;
     }
@@ -645,6 +684,11 @@ export class NPC {
   _onAttacked(attacker) {
     const who = attacker?.driver ?? attacker; // удар машиной — виноват водитель
     if (!who || who === this || !who.position) return;
+    if (this.role === 'civilian' && this.brawler && who !== this.game.player) {
+      // Участник уличной драки (incidents.js) даёт сдачи, а не убегает.
+      this.aggro(who, this.rng.pick(LINES.brawl));
+      return;
+    }
     if (this.role === 'civilian') {
       this.panic = 6;
       this.say(this.rng.pick(LINES.hit));

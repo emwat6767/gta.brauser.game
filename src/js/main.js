@@ -27,6 +27,7 @@ import { GangProgress } from './progress.js';
 import { TurfSystem } from './turf.js';
 import { MissionSystem } from './missions.js';
 import { GangMenu } from './ui/gang-menu.js';
+import { IncidentDirector } from './incidents.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
@@ -78,6 +79,7 @@ class Game {
     this.heists = new HeistSystem(this);
     this.turf = new TurfSystem(this);
     this.missions = new MissionSystem(this);
+    this.incidents = new IncidentDirector(this);
     this.pickups = new PickupSystem(this);
     this.wallet = new Wallet(this);
     this.save = new SaveSystem(this);
@@ -278,6 +280,7 @@ class Game {
       this.lights.update(frameTime, this.player);
       this.heists.update(frameTime);
       this.turf.update(frameTime);
+      this.incidents.update(frameTime);
       this.missions.update(frameTime);
       this.effects.update(frameTime);
       this.save.update(frameTime);

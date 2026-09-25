@@ -128,7 +128,7 @@ export class Minimap {
     }
     ctx.globalAlpha = 1;
     // Район, за который идёт война (или на который напали), мигает красной рамкой.
-    const hot = this.game.turf?.hotBlock;
+    const hot = this.game.turf?.hotBlock ?? this.game.gangs?.hotBlock;
     if (hot && Math.floor(performance.now() / 300) % 2 === 0) {
       ctx.strokeStyle = '#ff3b3b';
       ctx.lineWidth = 6;

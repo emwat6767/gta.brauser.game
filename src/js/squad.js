@@ -13,7 +13,8 @@ import { Gun } from './weapons.js';
 //   3. полицию, пока у игрока есть розыск;
 //   4. враждебные банды рядом.
 // Игрок в машине — бойцы садятся к нему пассажирами и стреляют из окон.
-// Отставших далеко (или застрявших за домом) отряд "подтягивает" к игроку вне поля зрения.
+// Толпой к игроку никто не телепортируется: отставший далеко (игрок уехал без него)
+// через leaveAfter секунд возвращается в свою банду.
 
 const _f = new THREE.Vector3(), _o = new THREE.Vector3();
 
@@ -232,15 +233,17 @@ export class Squad {
 
     const p = game.player;
     const lead = p.vehicle ? p.vehicle.position : p.position;
-    const cam = game.camera.getWorldDirection(_f);
     let attackLine = false;
-    for (const m of this.members) {
-      // Отстал или застрял — появляется рядом с игроком вне поля зрения.
+    for (const m of [...this.members]) {
+      // Отстал далеко (игрок уехал/убежал) — не телепортируется, а через некоторое время
+      // возвращается в свою банду. Позвать снова — T.
       const d = m.position.distanceTo(lead);
-      m._stuck = m.state === NPC_STATE.FOLLOW && d > 10 && m._lastD !== undefined && d > m._lastD - 0.3
-        ? (m._stuck ?? 0) + 0.25 : 0;
-      m._lastD = d;
-      if (!m.vehicle && !m.isDown && (d > S.catchUpDistance || m._stuck > 4)) this._catchUp(m, cam);
+      m._far = !m.vehicle && d > S.leaveDistance ? (m._far ?? 0) + 0.25 : 0;
+      if (m._far > S.leaveAfter && !game.inView(m.position.x, 1, m.position.z, 1)) {
+        this._release(m);
+        game.hud.news('Боец отстал и вернулся на район', this.home.color);
+        continue;
+      }
 
       // Цель.
       if (m.isDown || m.state === NPC_STATE.STUMBLE) continue;
@@ -261,27 +264,20 @@ export class Squad {
     }
   }
 
-  // Подтянуть бойца: в свободное место машины игрока или на тротуар позади игрока.
-  _catchUp(m, cam) {
-    const { game } = this;
-    const p = game.player;
-    if (p.vehicle) {
-      const seat = p.vehicle.passengers.indexOf(null);
-      if (seat >= 0 && m.position.distanceTo(p.vehicle.position) > CONFIG.squad.catchUpDistance) {
-        m.target = null;
-        m.enterAsPassenger(p.vehicle, seat);
-      }
-      return;
-    }
-    const spot = game.npcs.randomSidewalkSpot(p.position.x, p.position.z, 8, 22, true);
-    if (!spot) return;
-    // Не телепортируем на глазах у игрока.
-    const dx = spot.x - p.position.x, dz = spot.z - p.position.z;
-    if ((dx * cam.x + dz * cam.z) / Math.hypot(dx, dz) > 0.3) return;
-    m.position.set(spot.x, game.world.getGroundHeight(spot.x, spot.z), spot.z);
-    m.visualY = m.position.y;
-    m.knock.set(0, 0, 0);
-    m._stuck = 0;
-    m._lastD = undefined;
+  // Отпустить одного бойца в его банду.
+  _release(m) {
+    const i = this.members.indexOf(m);
+    if (i >= 0) this.members.splice(i, 1);
+    if (m.vehicle) m.exitPassenger();
+    m.follower = false;
+    m.leader = null;
+    if (m.removed || m.isDead) return;
+    m.allowedNodes = this.home.nodes;
+    m.target = null;
+    this.home.members.push(m);
+    m.gangRole = 'patrol';
+    m.prevNode = null;
+    m._setTarget(m._nearestAllowedNode());
+    if (!m.isDown) m._enter(NPC_STATE.WALK);
   }
 }

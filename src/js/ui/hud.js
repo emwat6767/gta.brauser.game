@@ -47,6 +47,7 @@ export class HUD {
     this.moneyPopEl = document.getElementById('money-pop');
     this._money = -1;
     this.objectiveEl = document.getElementById('objective');
+    this.newsEl = document.getElementById('news');
     this._objective = '';
     this.heistEl = document.getElementById('heist');
     this.heistLabel = document.getElementById('heist-label');
@@ -103,6 +104,18 @@ export class HUD {
 
   hideBigMessage() {
     this.bigEl.classList.add('hidden');
+  }
+
+  // Лента событий города (слева вверху): перестрелки, налёты, погони. Последние 4, гаснут сами.
+  news(text, color = '#ffd54a') {
+    const el = document.createElement('div');
+    el.className = 'news-item';
+    el.style.borderLeftColor = color;
+    el.textContent = text;
+    this.newsEl.prepend(el);
+    while (this.newsEl.children.length > 4) this.newsEl.lastChild.remove();
+    setTimeout(() => el.classList.add('old'), 7000);
+    setTimeout(() => el.remove(), 8000);
   }
 
   // Текущая цель (задание, война за район) сверху по центру; '' — скрыть. Можно <b>.

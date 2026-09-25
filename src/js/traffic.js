@@ -384,9 +384,21 @@ export class TrafficManager {
     const { game } = this;
     const { rng, roads } = game;
     const p = near ?? game.player.position;
+    // Отрезки дорог, которые могут попасть в кольцо (по середине отрезка с запасом).
+    const segs = [];
+    for (let i = 0; i < roads.n; i++) {
+      for (let j = 0; j < roads.n; j++) {
+        for (const b of [[i + 1, j], [i, j + 1]]) {
+          if (!roads.inBounds(b)) continue;
+          const A = roads.pos([i, j]), B = roads.pos(b);
+          const d = Math.hypot((A.x + B.x) / 2 - p.x, (A.z + B.z) / 2 - p.z);
+          if (d > minR - 55 && d < maxR + 55) segs.push(rng.chance(0.5) ? [[i, j], b] : [b, [i, j]]);
+        }
+      }
+    }
+    if (!segs.length) return null;
     for (let attempt = 0; attempt < 40; attempt++) {
-      const a = [rng.int(0, roads.n - 1), rng.int(0, roads.n - 1)];
-      const b = rng.pick(roads.neighbors(a));
+      const [a, b] = rng.pick(segs);
       const t = rng.range(0.25, 0.75);
       const A = roads.pos(a), B = roads.pos(b);
       const x = A.x + (B.x - A.x) * t, z = A.z + (B.z - A.z) * t;
