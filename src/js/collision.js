@@ -55,6 +55,74 @@ export class CollisionGrid {
   }
 }
 
+// 3D-луч против препятствий (коробка от земли до box.height). Обходит ячейки сетки
+// вдоль луча (алгоритм Amanatides-Woo) и останавливается у первого попадания.
+// (dx, dy, dz) — единичное направление. Возвращает { t, box, nx, ny, nz } или null.
+CollisionGrid.prototype.raycast = function raycast(ox, oy, oz, dx, dy, dz, maxT) {
+  const cs = this.cellSize;
+  let cx = Math.floor((ox - this.minX) / cs);
+  let cz = Math.floor((oz - this.minZ) / cs);
+  const stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
+  const tDeltaX = dx !== 0 ? cs / Math.abs(dx) : Infinity;
+  const tDeltaZ = dz !== 0 ? cs / Math.abs(dz) : Infinity;
+  let tMaxX = dx !== 0 ? ((this.minX + (cx + (dx > 0 ? 1 : 0)) * cs) - ox) / dx : Infinity;
+  let tMaxZ = dz !== 0 ? ((this.minZ + (cz + (dz > 0 ? 1 : 0)) * cs) - oz) / dz : Infinity;
+  const stamp = ++this._stamp;
+  let best = maxT, hit = null;
+  let t = 0;
+  while (t <= best) {
+    if (cx < 0 || cz < 0 || cx >= this.cols || cz >= this.cols) break;
+    const cell = this.cells[cz * this.cols + cx];
+    if (cell) {
+      for (const box of cell) {
+        if (box._stamp === stamp) continue;
+        box._stamp = stamp;
+        const r = rayBox(ox, oy, oz, dx, dy, dz, box.minX, 0, box.minZ, box.maxX, box.height, box.maxZ, best);
+        if (r) {
+          best = r.t;
+          hit = { ...r, box };
+        }
+      }
+    }
+    if (tMaxX < tMaxZ) {
+      t = tMaxX;
+      tMaxX += tDeltaX;
+      cx += stepX;
+    } else {
+      t = tMaxZ;
+      tMaxZ += tDeltaZ;
+      cz += stepZ;
+    }
+  }
+  return hit;
+};
+
+// Луч против AABB (метод плит). Возвращает { t, nx, ny, nz } точки входа или null
+// (в том числе если начало луча внутри коробки).
+const _slab = { t: 0, nx: 0, ny: 0, nz: 0 };
+export function rayBox(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1, maxT) {
+  let tmin = 0, tmax = maxT, axis = -1, sign = 0;
+  const o = [ox, oy, oz], d = [dx, dy, dz], lo = [x0, y0, z0], hi = [x1, y1, z1];
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(d[i]) < 1e-9) {
+      if (o[i] < lo[i] || o[i] > hi[i]) return null;
+      continue;
+    }
+    let t1 = (lo[i] - o[i]) / d[i], t2 = (hi[i] - o[i]) / d[i];
+    let s = -1;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; s = 1; }
+    if (t1 > tmin) { tmin = t1; axis = i; sign = s; }
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
+  }
+  if (axis < 0) return null; // начало внутри
+  _slab.t = tmin;
+  _slab.nx = axis === 0 ? sign : 0;
+  _slab.ny = axis === 1 ? sign : 0;
+  _slab.nz = axis === 2 ? sign : 0;
+  return { ..._slab };
+}
+
 // Выталкивает круг (pos.x, pos.z, r) из AABB. Меняет pos.
 // Возвращает true при столкновении; нормаль и глубина — в out.
 export function pushCircleOutOfBox(pos, r, box, out) {

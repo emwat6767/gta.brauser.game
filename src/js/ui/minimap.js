@@ -4,8 +4,8 @@ import { damp } from '../utils.js';
 // Статичная карта города рисуется один раз во внеэкранный canvas (1 px ≈ 1 м),
 // каждый кадр — только кусок вокруг игрока + метки.
 //
-// Добавить новый тип меток: допишите цикл в _drawBlips() (например, полиция
-// или маркер задания) — функция toScreen() переводит мир в пиксели миникарты.
+// Добавить новый тип меток: допишите цикл в _drawBlips() (например, маркер задания) —
+// функция toScreen() переводит мир в пиксели миникарты.
 
 const COLORS = {
   background: '#3f5236',
@@ -158,6 +158,22 @@ export class Minimap {
     const d = this.dpr;
 
     const flash = Math.floor(performance.now() / 250) % 2 === 0;
+
+    // Оружие на земле — цветные ромбики.
+    for (const it of this.game.pickups?.items ?? []) {
+      if (!it.active) continue;
+      const [x, y] = this.toScreen(it.x, it.z);
+      if ((x - R) ** 2 + (y - R) ** 2 > R * R) continue;
+      const s = 4 * d;
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.moveTo(x, y - s - d); ctx.lineTo(x + s + d, y); ctx.lineTo(x, y + s + d); ctx.lineTo(x - s - d, y);
+      ctx.fill();
+      ctx.fillStyle = '#' + it.ring.material.color.getHexString();
+      ctx.beginPath();
+      ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y);
+      ctx.fill();
+    }
     const gangColor = (id) => this.game.gangs?.byId.get(id)?.color ?? '#ffe27a';
 
     // NPC: прохожие — светлые точки, бандиты — цвет банды, полиция мигает, погибшие — серые.

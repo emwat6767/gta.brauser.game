@@ -31,6 +31,18 @@ export class HUD {
     this._flash = 0;
     this._health = -1;
 
+    this.weaponNameEl = document.getElementById('weapon-name');
+    this.weaponAmmoEl = document.getElementById('weapon-ammo');
+    this.reloadBar = document.getElementById('reload-bar');
+    this.reloadFill = document.getElementById('reload-fill');
+    this.crosshair = document.getElementById('crosshair');
+    this.hitEl = document.getElementById('hitmarker');
+    this.hitText = this.hitEl.querySelector('span');
+    this.toastEl = document.getElementById('toast');
+    this._hitTimer = 0;
+    this._toastTimer = 0;
+    this._weaponText = '';
+
     game.events.on('wanted:changed', ({ level, up }) => {
       this.stars.forEach((star, i) => star.classList.toggle('on', i < level));
       if (up) {
@@ -49,6 +61,19 @@ export class HUD {
     game.events.on('character:damaged', ({ target, amount }) => {
       if (target === game.player) this._flash = Math.min(1, 0.35 + amount / 30);
     });
+  }
+
+  // Индикатор попадания в центре экрана: белый — попал, красный — убил.
+  hitMarker(killed, headshot) {
+    this._hitTimer = killed ? 0.35 : 0.15;
+    this.hitEl.style.color = killed ? '#ff4d4d' : '#ffffff';
+    this.hitText.textContent = headshot ? 'В ГОЛОВУ' : '';
+  }
+
+  toast(text, seconds = 2) {
+    this.toastEl.textContent = text;
+    this.toastEl.classList.add('show');
+    this._toastTimer = seconds;
   }
 
   showBigMessage(text, color) {
@@ -108,6 +133,28 @@ export class HUD {
     this._flash = Math.max(0, this._flash - dt * 1.5);
     this.flashEl.style.opacity = this._flash.toFixed(2);
     if (this._zoneTimer > 0 && (this._zoneTimer -= dt) <= 0) this.zoneEl.classList.remove('show');
+
+    // Оружие: название, патроны (магазин / запас), перезарядка, перекрестье.
+    const gun = player.gun;
+    const wText = gun ? `${gun.def.name}|${gun.mag}|${gun.reserve}` : 'fists';
+    if (wText !== this._weaponText) {
+      this._weaponText = wText;
+      this.weaponNameEl.textContent = gun ? gun.def.name : 'Кулаки';
+      this.weaponAmmoEl.textContent = gun ? `${gun.mag} | ${gun.reserve}` : '';
+      this.weaponAmmoEl.classList.toggle('empty', !!gun && gun.mag === 0);
+    }
+    this.reloadBar.classList.toggle('hidden', !gun?.reloading);
+    if (gun?.reloading) this.reloadFill.style.width = `${Math.round(gun.reloadProgress * 100)}%`;
+    const showCross = !!gun && !player.vehicle && !player.isDead &&
+      (player.aiming || player.shootTimer > 0 || this.game.input.touchActive || this.game.input.pointerLocked);
+    this.crosshair.classList.toggle('hidden', !showCross);
+    if (showCross) {
+      const px = 3 + gun.spread(player.horizontalSpeed > 0.5) * (player.aiming ? 0.45 : 1) * window.innerHeight * 0.9;
+      this.crosshair.style.setProperty('--gap', `${Math.min(40, px).toFixed(1)}px`);
+    }
+    this._hitTimer = Math.max(0, this._hitTimer - dt);
+    this.hitEl.style.opacity = this._hitTimer > 0 ? '1' : '0';
+    if (this._toastTimer > 0 && (this._toastTimer -= dt) <= 0) this.toastEl.classList.remove('show');
 
     // Спидометр.
     if (player.vehicle) {

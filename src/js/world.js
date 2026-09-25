@@ -207,13 +207,15 @@ export class World {
 
   _buildGround() {
     // Большая плоскость травы — выходит за границы мира, чтобы горизонт не обрывался.
+    // Разбита на клетки ~50 м: огромные треугольники дают ошибки глубины у камеры
+    // (трава "просвечивает" сквозь дорогу).
     const size = this.size * 3;
-    const geo = new THREE.PlaneGeometry(size, size);
+    const geo = new THREE.PlaneGeometry(size, size, 60, 60);
     geo.rotateX(-Math.PI / 2);
     const uv = geo.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (size / 8), uv.getY(i) * (size / 8));
     const mesh = this._addMesh(geo, this.mats.ground, { name: 'ground' });
-    mesh.position.y = -0.04;
+    mesh.position.y = -0.06;
     mesh.updateMatrix();
   }
 

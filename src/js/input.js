@@ -15,7 +15,15 @@ export const BINDINGS = {
   jump: ['Space'],
   handbrake: ['Space'],
   interact: ['KeyE'],
-  attack: ['KeyF', 'Mouse0'],
+  attack: ['KeyF', 'Mouse0'],         // удар / выстрел
+  aim: ['Mouse2', 'KeyC'],            // прицеливание (удерживать)
+  reload: ['KeyR'],
+  nextWeapon: ['KeyQ'],
+  weaponFists: ['Digit1'],
+  weaponPistol: ['Digit2'],
+  weaponShotgun: ['Digit3'],
+  weaponSmg: ['Digit4'],
+  mute: ['KeyM'],
   toggleHelp: ['KeyH'],
 };
 

@@ -2,13 +2,21 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { Humanoid } from './humanoid.js';
 import { Melee, findTargetInFront } from './combat.js';
+import { Arsenal } from './weapons.js';
+import { fireShot, aimPoint, lineOfSight } from './ballistics.js';
+import { Ragdoll } from './ragdoll.js';
 import { LINES } from './npc.js';
 import { clamp, damp, dampAngle } from './utils.js';
 
-// Игрок: ходьба/бег относительно камеры, прыжок, удары, посадка в машину и угон.
-// Пока игрок в машине, его модель прикреплена к сиденью, а позиция
-// повторяет позицию машины (для миникарты, NPC и других систем).
-// Здоровье: урон от кулаков и машин, восстановление вне боя, смерть -> game.onPlayerDied().
+// Игрок: ходьба/бег относительно камеры, прыжок, кулаки и оружие (прицел, отдача,
+// перезарядка), посадка в машину и угон. Пока игрок в машине, его модель прикреплена
+// к сиденью, а позиция повторяет позицию машины.
+// Здоровье: урон от кулаков, пуль и машин, восстановление вне боя; смерть — рэгдолл
+// и game.onPlayerDown('wasted').
+
+const _o = new THREE.Vector3(), _f = new THREE.Vector3(), _m = new THREE.Vector3(), _dir = new THREE.Vector3();
+const _eye = new THREE.Vector3(), _aimAt = new THREE.Vector3(), _camF = new THREE.Vector3();
+const WEAPON_KEYS = { weaponFists: 'fists', weaponPistol: 'pistol', weaponShotgun: 'shotgun', weaponSmg: 'smg' };
 
 export class Player {
   constructor(game) {
@@ -29,7 +37,15 @@ export class Player {
     this.maxHealth = P.health;
     this.health = P.health;
     this.isDead = false;
+    this.ragdoll = null;
     this.melee = new Melee(this, { damage: P.punchDamage, cooldown: 0.12 });
+    this.arsenal = new Arsenal();
+    this.arsenal.reset(P.startWeapons);
+    this.model.setWeapon(this.arsenal.current);
+    this.aiming = false;
+    this.aimPitch = 0;
+    this.shootTimer = 0;      // > 0 — недавно стрелял: смотрит туда же, куда камера
+    this.kick = 0;            // отдача в анимации
     this.combatTimer = 0;     // > 0 — кулаки подняты
     this.sinceDamage = 99;    // секунд с последнего урона (для восстановления)
     this.stunTime = 0;        // оглушён: управление отключено
@@ -53,12 +69,27 @@ export class Player {
     return Math.hypot(this.velocity.x, this.velocity.z);
   }
 
+  get gun() {
+    return this.arsenal.gun;
+  }
+
   update(dt) {
     const P = CONFIG.player;
     this.sinceDamage += dt;
     this.combatTimer = Math.max(0, this.combatTimer - dt);
+    this.shootTimer = Math.max(0, this.shootTimer - dt);
+    this.kick = Math.max(0, this.kick - dt * 8);
     if (!this.isDead && this.sinceDamage > P.regenDelay && this.health < this.maxHealth) {
       this.health = Math.min(this.maxHealth, this.health + P.regenRate * dt);
+    }
+
+    if (this.ragdoll) {
+      // Мёртв: телом управляет физика, камера следит за тазом.
+      this.ragdoll.step(dt);
+      this.position.copy(this.ragdoll.pelvis);
+      this.visualY = this.game.world.getGroundHeight(this.position.x, this.position.z);
+      this.model.applyRagdoll();
+      return;
     }
 
     if (this.vehicle) {
@@ -74,12 +105,9 @@ export class Player {
     this.melee.update(dt, this.game);
     this.stunTime = Math.max(0, this.stunTime - dt);
 
-    // Лежит (сбит машиной) или мёртв: fall 0..1 управляет анимацией падения.
+    // Сбит машиной: fall 0..1 управляет анимацией падения и подъёма.
     let pose = 'normal';
-    if (this.isDead) {
-      this.fall = Math.min(1, this.fall + dt / 0.4);
-      pose = 'down';
-    } else if (this.downTime > 0) {
+    if (this.downTime > 0) {
       this.downTime -= dt;
       const t = this.downDuration - this.downTime;
       this.fall = this.downTime < 0.7 ? clamp(this.downTime / 0.7, 0, 1) : Math.min(1, t / 0.3);
@@ -89,6 +117,21 @@ export class Player {
       pose = 'stumble';
     }
     const control = pose === 'normal';
+
+    // --- Оружие: смена, прицел, перезарядка ---
+    if (control) {
+      if (input.wasPressed('nextWeapon')) this.arsenal.cycle(1);
+      for (const [action, type] of Object.entries(WEAPON_KEYS)) if (input.wasPressed(action)) this.arsenal.select(type);
+      this.model.setWeapon(this.arsenal.current);
+    }
+    const gun = this.gun;
+    gun?.update(dt);
+    this.aiming = !!gun && control && this.grounded && input.isDown('aim');
+    cameraRig.aiming = this.aiming;
+    if (this.aiming || this.shootTimer > 0) {
+      cameraRig.forward(_f);
+      this.aimPitch = -Math.asin(clamp(_f.y, -1, 1));
+    }
 
     // Направление ввода относительно камеры.
     const f = control ? input.axis('backward', 'forward') : 0;
@@ -103,16 +146,21 @@ export class Player {
       mx /= l;
       mz /= l;
     }
-    // Джойстик даёт неполное отклонение — идём медленнее; во время удара — почти стоим.
+    // Джойстик даёт неполное отклонение — идём медленнее; при ударе/прицеле — медленно.
     const amount = Math.min(1, Math.hypot(f, s));
-    let targetSpeed = (input.isDown('run') ? P.runSpeed : P.walkSpeed) * amount;
+    let targetSpeed = (input.isDown('run') && !this.aiming ? P.runSpeed : P.walkSpeed) * amount;
     if (this.melee.active) targetSpeed *= 0.3;
+    if (this.aiming) targetSpeed *= 0.5;
+    const moving = amount > 0.1;
 
-    // Удар: разворачиваемся к ближайшему противнику перед собой (удобно на телефоне).
-    if (control && this.grounded && input.wasPressed('attack')) {
-      const target = findTargetInFront(this.game, this, 3, -0.3);
-      if (target) this.heading = Math.atan2(target.position.x - this.position.x, target.position.z - this.position.z);
-      if (this.melee.start()) this.combatTimer = 3;
+    if (control) {
+      if (gun) this._handleGun(gun, input, moving || !this.grounded);
+      else if (this.grounded && input.wasPressed('attack')) {
+        // Удар: разворачиваемся к ближайшему противнику перед собой (удобно на телефоне).
+        const target = findTargetInFront(this.game, this, 3, -0.3);
+        if (target) this.heading = Math.atan2(target.position.x - this.position.x, target.position.z - this.position.z);
+        if (this.melee.start()) this.combatTimer = 3;
+      }
     }
 
     // Разгон к желаемой скорости.
@@ -128,7 +176,7 @@ export class Player {
     this.velocity.x += dvx;
     this.velocity.z += dvz;
 
-    if (control && this.grounded && input.wasPressed('jump')) {
+    if (control && this.grounded && !this.aiming && input.wasPressed('jump')) {
       this.velocity.y = P.jumpSpeed;
       this.grounded = false;
     }
@@ -157,31 +205,128 @@ export class Player {
       this.grounded = false;
     }
 
-    if ((mx || mz) && !this.melee.active) this.heading = dampAngle(this.heading, Math.atan2(mx, mz), P.turnSpeed, dt);
+    // Куда смотрит модель: при прицеле/стрельбе — туда же, куда камера (стрейф),
+    // иначе — по направлению движения.
+    if (this.aiming || this.shootTimer > 0) this.heading = dampAngle(this.heading, cameraRig.yaw, 25, dt);
+    else if ((mx || mz) && !this.melee.active) this.heading = dampAngle(this.heading, Math.atan2(mx, mz), P.turnSpeed, dt);
 
     this.visualY = this.grounded ? damp(this.visualY, this.position.y, 25, dt) : this.position.y;
     this.model.root.position.set(this.position.x, this.visualY, this.position.z);
     this.model.root.rotation.y = this.heading;
     this.model.animate(dt, {
       speed: this.horizontalSpeed, airborne: !this.grounded, pose, fall: this.fall,
-      guard: this.combatTimer > 0 && control, attack: this.melee.t, attackSide: this.melee.side,
+      guard: !gun && this.combatTimer > 0 && control, attack: this.melee.t, attackSide: this.melee.side,
+      aim: this.aiming || this.shootTimer > 0 ? this.aimPitch : null,
+      reload: gun?.reloadProgress ?? 0, kick: this.kick,
     });
+  }
+
+  // --- Оружие ----------------------------------------------------------------
+
+  _handleGun(gun, input, moving) {
+    const trigger = gun.def.auto ? input.isDown('attack') : input.wasPressed('attack');
+    if (trigger) {
+      if (gun.canFire()) this._shoot(gun, moving);
+      else if (gun.mag === 0 && !gun.reloading && input.wasPressed('attack') && !this.reload()) {
+        this.game.audio.empty(this.position);
+      }
+    }
+    // Автоперезарядка, когда магазин пуст.
+    if (gun.mag === 0 && gun.reserve > 0 && !gun.reloading && gun.cooldown <= 0) this.reload();
+    if (input.wasPressed('reload')) this.reload();
+  }
+
+  reload() {
+    const gun = this.gun;
+    if (!gun || !gun.startReload()) return false;
+    this.game.audio.reload(gun.type, this.position, gun.def.reload);
+    return true;
+  }
+
+  _shoot(gun, moving) {
+    const { game } = this;
+    const { cameraRig, camera, input } = game;
+    gun.consume();
+    const h = this.heading;
+    // Пуля вылетает из груди (чуть правее) — так не застревает в стене у дула.
+    const origin = _o.set(this.position.x - Math.cos(h) * 0.2, this.visualY + 1.42, this.position.z + Math.sin(h) * 0.2);
+
+    // Цель: на телефоне без прицела — автонаведение на ближайшего противника,
+    // иначе — точка под перекрестьем (луч из камеры, начинаем от игрока, а не от камеры).
+    let target = null;
+    if (input.touchActive && !this.aiming) {
+      const t = this.findAssistTarget();
+      if (t) target = t.model.getJoints().chest.clone();
+    }
+    if (!target) {
+      cameraRig.forward(_f);
+      const start = camera.position.clone().addScaledVector(_f, cameraRig.distance);
+      target = aimPoint(game, start, _f, this);
+    }
+    _dir.subVectors(target, origin).normalize();
+    this.heading = Math.atan2(_dir.x, _dir.z);
+
+    const muzzle = this.model.muzzleWorld(_m);
+    const spread = gun.spread(moving) * (this.aiming ? 0.45 : 1);
+    const res = fireShot(game, { shooter: this, origin, dir: _dir, weapon: gun.type, spread, muzzle, weaponMesh: this.model.weaponMesh });
+    cameraRig.addRecoil(gun.def.recoil * (this.aiming ? 0.7 : 1));
+    this.shootTimer = 1.5;
+    this.kick = 1;
+    this.combatTimer = 0;
+    if (res.hits) game.hud.hitMarker(res.killed, res.headshot);
+  }
+
+  // Автонаведение (телефон): ближайший противник в конусе перед камерой, в прямой видимости.
+  findAssistTarget() {
+    const { game } = this;
+    const f = game.cameraRig.forward(_camF);
+    const cos = Math.cos(0.4);
+    let best = null, bestScore = Infinity;
+    for (const n of game.npcs.list) {
+      if (n.vehicle || n.isDead || !n.model.root.visible) continue;
+      const dx = n.position.x - this.position.x, dz = n.position.z - this.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 35 || d < 0.5) continue;
+      const fl = Math.hypot(f.x, f.z) || 1;
+      const dot = (dx * f.x + dz * f.z) / (d * fl);
+      if (dot < cos) continue;
+      const hostile = n.target === this || (n.role === 'police' && game.wanted.level > 0) ||
+        (n.role === 'gang' && !game.gangs.isFriendlyToPlayer(n.gang));
+      const score = (1 - dot) * 40 + d * 0.15 - (hostile ? 3 : 0);
+      if (score >= bestScore) continue;
+      _eye.set(this.position.x, this.visualY + 1.4, this.position.z);
+      _aimAt.set(n.position.x, n.position.y + 1.3, n.position.z);
+      if (!lineOfSight(game, _eye, _aimAt)) continue;
+      best = n;
+      bestScore = score;
+    }
+    return best;
+  }
+
+  // Подобрать оружие/патроны. Новый ствол сразу берётся в руки, если в руках кулаки.
+  giveWeapon(type, ammo) {
+    const isNew = this.arsenal.give(type, ammo);
+    if (isNew && this.arsenal.current === 'fists') this.arsenal.select(type);
+    if (!this.vehicle) this.model.setWeapon(this.arsenal.current);
+    return isNew;
   }
 
   // --- Здоровье --------------------------------------------------------------
 
-  takeDamage(amount, attacker, dirX = 0, dirZ = 0, kind = 'punch') {
+  // info (для пуль): { zone, point, dir, impulse }
+  takeDamage(amount, attacker, dirX = 0, dirZ = 0, kind = 'punch', info = null) {
     if (this.isDead) return;
     this.health -= amount;
     this.sinceDamage = 0;
-    this.combatTimer = 3;
-    if (kind === 'punch' && !this.vehicle) {
-      this.velocity.x += dirX * 2;
-      this.velocity.z += dirZ * 2;
-      this.stunTime = Math.max(this.stunTime, 0.15);
+    if (!this.gun) this.combatTimer = 3;
+    if ((kind === 'punch' || kind === 'bullet') && !this.vehicle) {
+      const k = kind === 'punch' ? 2 : 0.6;
+      this.velocity.x += dirX * k;
+      this.velocity.z += dirZ * k;
+      if (kind === 'punch') this.stunTime = Math.max(this.stunTime, 0.15);
     }
     this.game.events.emit('character:damaged', { target: this, attacker, amount, kind });
-    if (this.health <= 0) this.die(attacker, kind);
+    if (this.health <= 0) this.die(attacker, kind, info);
   }
 
   // Сбит машиной: отлетает и лежит пару секунд.
@@ -199,26 +344,38 @@ export class Player {
     this.stunTime = Math.max(this.stunTime, seconds);
   }
 
-  die(attacker, kind) {
+  die(attacker, kind, info = null) {
     if (this.isDead) return;
     if (this.vehicle) this.exitVehicle();
     this.health = 0;
     this.isDead = true;
-    this.fall = 0;
+    this.aiming = false;
+    this.game.cameraRig.aiming = false;
     this.melee.cancel();
+    // Тело — под управление физики.
+    this.ragdoll = new Ragdoll(this.game, this.model.getJoints(), this.velocity);
+    if (info?.point) this.ragdoll.impulse(info.point, info.dir, info.impulse * 1.5);
+    this.model.startRagdoll(this.ragdoll);
     this.game.events.emit('character:killed', { target: this, attacker, kind });
     this.game.onPlayerDown('wasted');
   }
 
   respawn({ x, z, heading }) {
     if (this.vehicle) this.exitVehicle();
+    if (this.ragdoll) {
+      this.ragdoll = null;
+      this.model.resetPose();
+    }
     this.isDead = false;
     this.health = this.maxHealth;
     this.fall = 0;
     this.downTime = 0;
     this.stunTime = 0;
     this.combatTimer = 0;
+    this.shootTimer = 0;
     this.sinceDamage = 99;
+    this.arsenal.reset(CONFIG.player.startWeapons); // после смерти/ареста — только стартовое оружие
+    this.model.setWeapon(this.arsenal.current);
     this.position.set(x, this.game.world.getGroundHeight(x, z), z);
     this.visualY = this.position.y;
     this.velocity.set(0, 0, 0);
@@ -262,9 +419,12 @@ export class Player {
     vehicle.seatAnchor.add(this.model.root);
     this.model.root.position.set(0, 0, 0);
     this.model.root.rotation.set(0, 0, 0);
+    this.model.setWeapon(null); // в машине оружие не в руках
     this.velocity.set(0, 0, 0);
     this.melee.cancel();
     this.combatTimer = 0;
+    this.aiming = false;
+    this.game.cameraRig.aiming = false;
     this.game.events.emit('vehicle:enter', { vehicle, who: this });
   }
 
@@ -282,6 +442,7 @@ export class Player {
     this.grounded = true;
     this.model.root.position.copy(this.position);
     this.model.root.rotation.set(0, this.heading, 0);
+    this.model.setWeapon(this.arsenal.current);
     this.game.events.emit('vehicle:exit', { vehicle, who: this });
   }
 }

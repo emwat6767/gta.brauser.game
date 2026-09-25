@@ -35,6 +35,7 @@ export const CONFIG = {
     regenDelay: 8,          // через сколько секунд без урона начинает восстанавливаться здоровье
     regenRate: 3,           // ед. здоровья в секунду
     respawnDelay: 4,        // "ПОТРАЧЕНО" / "АРЕСТОВАН" на экране, секунд
+    startWeapons: { pistol: 48 },                    // оружие и патроны при старте/возрождении
     hospital: { x: -3, z: 40.5, heading: 0 },      // где появляемся после смерти
     policeStation: { x: 40.5, z: -40.5, heading: Math.PI }, // после ареста
   },
@@ -87,12 +88,51 @@ export const CONFIG = {
     runKnockSpeed: 5,       // игрок быстрее этого сбивает NPC с ног, медленнее — просто толкает
     downTime: [2.2, 3.4],   // сколько лежит сбитый NPC
     corpseTime: 25,         // через сколько секунд тело исчезает (если игрок далеко)
-    // Здоровье и урон кулаком по ролям.
+    // Здоровье, урон кулаком и оружие (вероятности) по ролям.
     roles: {
-      civilian: { health: 40, damage: 7, cooldown: 0.6 },
-      gang: { health: 60, damage: 8, cooldown: 0.35 },
-      police: { health: 70, damage: 9, cooldown: 0.4 },
+      civilian: { health: 40, damage: 7, cooldown: 0.6, weapons: {} },
+      gang: { health: 60, damage: 8, cooldown: 0.35, weapons: { pistol: 0.55, smg: 0.2, shotgun: 0.1 } },
+      police: { health: 70, damage: 9, cooldown: 0.4, weapons: { pistol: 1 } },
     },
+    // Стрельба NPC: разброс умножается, урон по игроку уменьшается (иначе слишком жёстко).
+    gunSpreadScale: 4,
+    gunDamageToPlayer: 0.35,
+    gunReaction: 0.7,       // сек от появления цели в прямой видимости до первого выстрела
+    gunFireRateScale: 0.45, // NPC стреляют реже, чем позволяет оружие
+    panicRadius: 35,        // прохожие в этом радиусе от выстрела разбегаются
+  },
+
+  // Оружие. damage — за пулю (у обреза pellets дробинок), fireRate — выстрелов в секунду,
+  // spread — базовый разброс (рад), bloom — прирост разброса за выстрел, recoil — подброс
+  // камеры (рад), range — дальность (м), reload — секунд, impulse — толчок тела при попадании.
+  weapons: {
+    pistol: {
+      name: 'Пистолет', damage: 24, pellets: 1, fireRate: 4, auto: false, magazine: 12,
+      spread: 0.008, bloom: 0.02, recoil: 0.03, range: 80, reload: 1.3, impulse: 3, twoHanded: false,
+    },
+    shotgun: {
+      name: 'Обрез', damage: 11, pellets: 9, fireRate: 1.3, auto: false, magazine: 2,
+      spread: 0.075, bloom: 0.03, recoil: 0.12, range: 28, reload: 1.9, impulse: 7, twoHanded: true,
+    },
+    smg: {
+      name: 'Автомат', damage: 16, pellets: 1, fireRate: 11, auto: true, magazine: 30,
+      spread: 0.018, bloom: 0.011, recoil: 0.018, range: 70, reload: 1.8, impulse: 3.5, twoHanded: true,
+    },
+  },
+  // Множители урона по зонам тела.
+  hitZones: { head: 3, torso: 1, limb: 0.65 },
+
+  // Оружие и патроны, лежащие в городе (подбираются, появляются снова через respawn секунд).
+  pickups: {
+    respawn: 60,
+    radius: 1.3,
+    spots: [
+      { x: 8, z: 32, weapon: 'pistol', ammo: 24 },
+      { x: -41, z: -2, weapon: 'shotgun', ammo: 10 },       // центральный парк
+      { x: 200, z: -40.5, weapon: 'smg', ammo: 90 },        // территория "Пурпурных королей"
+      { x: -240.5, z: -200, weapon: 'smg', ammo: 60 },      // территория "Лос Амарильос"
+      { x: 58.5, z: 108, weapon: 'shotgun', ammo: 12 },
+    ],
   },
 
   // Банды: территории — это кварталы [i, j] (см. world.blocks). friendly — банда игрока.
@@ -144,6 +184,10 @@ export const CONFIG = {
     targetHeightOnFoot: 1.55,
     targetHeightVehicle: 1.5,
     shoulderOffset: 0.35,   // смещение камеры вправо (как в GTA V)
+    aimDistance: 2.4,       // прицеливание (ПКМ / ПРИЦЕЛ): камера ближе, за плечом, с зумом
+    aimShoulder: 0.75,
+    aimFov: 42,
+    aimSensitivity: 0.55,
     autoAlignDelay: 1.2,    // через сколько секунд без мыши камера встаёт за машиной
     autoAlignRate: 2.5,
   },

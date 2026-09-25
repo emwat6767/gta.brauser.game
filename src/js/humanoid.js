@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import { CONFIG } from './config.js';
 import { mergeColored } from './geometry.js';
+import { createWeaponModel } from './weapons.js';
+import { JOINT_NAMES } from './ragdoll.js';
 import { clamp, damp } from './utils.js';
 
 // Mid-poly человек из примитивов (капсула-торс, сфера-голова, цилиндры-конечности)
@@ -122,6 +125,11 @@ const JOINTS = [
   'shoulderLx', 'shoulderRx', 'shoulderLz', 'shoulderRz', 'elbowL', 'elbowR', 'spineX', 'spineY', 'bodyY',
 ];
 
+const DOWN = new THREE.Vector3(0, -1, 0);
+const _up = new THREE.Vector3(), _left = new THREE.Vector3(), _fwd = new THREE.Vector3(), _tmp = new THREE.Vector3();
+const _m = new THREE.Matrix4();
+const _q = { body: new THREE.Quaternion(), spine: new THREE.Quaternion(), upper: new THREE.Quaternion(), lower: new THREE.Quaternion() };
+
 export class Humanoid {
   constructor(look = {}) {
     const L = { ...DEFAULT_LOOK, ...look };
@@ -176,6 +184,116 @@ export class Humanoid {
     this.moveBlend = 0;
     this.j = Object.fromEntries(JOINTS.map((k) => [k, 0]));
     this.t = Object.fromEntries(JOINTS.map((k) => [k, 0]));
+    this.weaponType = null;
+    this.weaponMesh = null;
+    this.ragdoll = null;
+    this._joints = Object.fromEntries(JOINT_NAMES.map((n) => [n, new THREE.Vector3()]));
+  }
+
+  // --- Оружие в руке ---------------------------------------------------------
+
+  setWeapon(type) {
+    const want = type && type !== 'fists' ? type : null;
+    if (want === this.weaponType && (this.weaponMesh || !want)) return;
+    this.weaponMesh?.removeFromParent();
+    this.weaponMesh = null;
+    this.weaponType = want;
+    if (!want || this.ragdoll) return;
+    const m = createWeaponModel(want);
+    m.position.set(0, -0.3, 0.015); // в ладони; ствол — вдоль предплечья
+    m.rotation.x = Math.PI / 2;
+    this.elbowR.add(m);
+    this.weaponMesh = m;
+  }
+
+  // Мировая точка дульного среза (или кисти, если оружия нет).
+  muzzleWorld(out) {
+    if (!this.weaponMesh) {
+      this.root.updateMatrixWorld(true);
+      return this.elbowR.localToWorld(out.set(0, -0.3, 0));
+    }
+    this.weaponMesh.updateWorldMatrix(true, false);
+    return this.weaponMesh.localToWorld(out.copy(this.weaponMesh.userData.muzzle));
+  }
+
+  // --- Суставы в мировых координатах (попадания пуль, старт рэгдолла) ------------
+
+  getJoints() {
+    if (this.ragdoll) return this.ragdoll.points;
+    const J = this._joints;
+    this.root.updateMatrixWorld(true);
+    this.body.localToWorld(J.pelvis.set(0, HIP_Y, 0));
+    this.spine.localToWorld(J.chest.set(0, SHOULDER_Y - 0.02, 0));
+    this.spine.localToWorld(J.head.set(0, 0.75, 0.01));
+    for (const s of ['L', 'R']) {
+      J['shoulder' + s].setFromMatrixPosition(this['shoulder' + s].matrixWorld);
+      J['elbow' + s].setFromMatrixPosition(this['elbow' + s].matrixWorld);
+      this['elbow' + s].localToWorld(J['hand' + s].set(0, -0.3, 0));
+      J['hip' + s].setFromMatrixPosition(this['hip' + s].matrixWorld);
+      J['knee' + s].setFromMatrixPosition(this['knee' + s].matrixWorld);
+      this['ankle' + s].localToWorld(J['foot' + s].set(0, -0.03, 0.05));
+    }
+    return J;
+  }
+
+  // --- Рэгдолл --------------------------------------------------------------
+
+  // Модель переходит под управление физики: root — в начало координат, суставы
+  // каждый кадр выставляются по точкам рэгдолла (applyRagdoll).
+  startRagdoll(ragdoll) {
+    this.ragdoll = ragdoll;
+    this.weaponMesh?.removeFromParent();
+    this.weaponMesh = null;
+    this.root.position.set(0, 0, 0);
+    this.root.rotation.set(0, 0, 0);
+    this.applyRagdoll();
+  }
+
+  applyRagdoll() {
+    const P = this.ragdoll.points;
+    const s = this.root.scale.x;
+    const q = _q;
+    // Таз: вверх — к груди, влево — линия бёдер.
+    _up.subVectors(P.chest, P.pelvis).normalize();
+    _left.subVectors(P.hipL, P.hipR);
+    _left.addScaledVector(_up, -_left.dot(_up)).normalize();
+    _fwd.crossVectors(_left, _up);
+    q.body.setFromRotationMatrix(_m.makeBasis(_left, _up, _fwd));
+    this.body.quaternion.copy(q.body);
+    _tmp.set(0, HIP_Y, 0).applyQuaternion(q.body);
+    this.body.position.copy(P.pelvis).multiplyScalar(1 / s).sub(_tmp);
+    // Корпус: разворот по линии плеч.
+    _left.subVectors(P.shoulderL, P.shoulderR);
+    _left.addScaledVector(_up, -_left.dot(_up)).normalize();
+    _fwd.crossVectors(_left, _up);
+    q.spine.setFromRotationMatrix(_m.makeBasis(_left, _up, _fwd));
+    this.spine.quaternion.copy(q.body).invert().multiply(q.spine);
+    // Конечности: кость модели смотрит вниз (-Y), поворачиваем её на направление между точками.
+    const limb = (group, parentWorld, from, to, outWorld) => {
+      _tmp.subVectors(to, from).normalize();
+      outWorld.setFromUnitVectors(DOWN, _tmp);
+      group.quaternion.copy(parentWorld).invert().multiply(outWorld);
+    };
+    for (const side of ['L', 'R']) {
+      limb(this['shoulder' + side], q.spine, P['shoulder' + side], P['elbow' + side], q.upper);
+      limb(this['elbow' + side], q.upper, P['elbow' + side], P['hand' + side], q.lower);
+      limb(this['hip' + side], q.body, P['hip' + side], P['knee' + side], q.upper);
+      limb(this['knee' + side], q.upper, P['knee' + side], P['foot' + side], q.lower);
+      this['ankle' + side].quaternion.identity();
+    }
+  }
+
+  // Вернуть обычную позу (после возрождения).
+  resetPose() {
+    this.ragdoll = null;
+    this.body.position.set(0, 0, 0);
+    for (const g of [this.body, this.spine, this.shoulderL, this.shoulderR, this.elbowL, this.elbowR,
+      this.hipL, this.hipR, this.kneeL, this.kneeR, this.ankleL, this.ankleR]) g.quaternion.identity();
+    for (const k of JOINTS) this.j[k] = 0;
+    this.moveBlend = 0;
+    const type = this.weaponType;
+    this.weaponType = null;
+    this.setWeapon(type);
   }
 
   // state: {
@@ -187,11 +305,14 @@ export class Humanoid {
   //   guard      — кулаки подняты (режим драки)
   //   attack     — 0..1, фаза удара (0 — нет удара)
   //   attackSide — 1: правой рукой, -1: левой
+  //   aim        — null или наклон прицела вниз (рад): руки с оружием вытянуты к цели
+  //   reload     — 0..1, фаза перезарядки (0 — нет)
+  //   kick       — 0..1, отдача после выстрела
   // }
   animate(dt, state) {
     const {
       speed = 0, airborne = false, pose = 'normal', fall = 0, sitHeight = 0.5,
-      guard = false, attack = 0, attackSide = 1,
+      guard = false, attack = 0, attackSide = 1, aim = null, reload = 0, kick = 0,
     } = state;
     const t = this.t;
     this.time += dt;
@@ -243,6 +364,31 @@ export class Humanoid {
       }
     }
 
+    // --- Оружие: держим, целимся, перезаряжаем (только верх тела) ---
+    const armed = !!this.weaponType && pose === 'normal';
+    const twoHanded = armed && CONFIG.weapons[this.weaponType].twoHanded;
+    if (armed && reload > 0) {
+      t.shoulderRx = -0.75; t.shoulderRz = -0.2; t.elbowR = -1.25;
+      t.shoulderLx = -0.8 - 0.35 * Math.sin(reload * Math.PI); t.shoulderLz = -0.45; t.elbowL = -1.6;
+      t.spineX = 0.08;
+    } else if (armed && aim !== null) {
+      if (twoHanded) {
+        t.shoulderRx = -1.0 + aim; t.shoulderRz = -0.3; t.elbowR = -0.57;
+        t.shoulderLx = -1.3 + aim; t.shoulderLz = -0.55; t.elbowL = -0.45;
+      } else {
+        t.shoulderRx = -Math.PI / 2 + aim; t.shoulderRz = -0.04; t.elbowR = -0.04;
+        t.shoulderLx = -Math.PI / 2 + aim + 0.08; t.shoulderLz = -0.55; t.elbowL = -0.35;
+      }
+      t.shoulderRx -= 0.3 * kick;
+      t.spineX = 0.04;
+    } else if (twoHanded) {
+      t.shoulderRx = -0.5 + t.shoulderRx * 0.2; t.shoulderRz = -0.15; t.elbowR = -1.1;
+      t.shoulderLx = -0.7; t.shoulderLz = -0.45; t.elbowL = -1.25;
+    } else if (armed) {
+      t.shoulderRx *= 0.5;
+      t.elbowR = -0.35;
+    }
+
     // --- Позы поверх локомоции ---
     if (airborne && pose === 'normal') {
       t.hipLx = -0.5; t.hipRx = 0.15;
@@ -281,7 +427,7 @@ export class Humanoid {
     }
 
     // Плавный переход между позами (удар — быстрее).
-    const k = pose === 'down' ? 12 : attack > 0 ? 40 : 18;
+    const k = pose === 'down' ? 12 : attack > 0 || (aim !== null && armed) ? 40 : 18;
     for (const key of JOINTS) this.j[key] = damp(this.j[key], t[key], k, dt);
     const j = this.j;
 

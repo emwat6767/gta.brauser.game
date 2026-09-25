@@ -1,13 +1,15 @@
 // Сенсорное управление для телефонов и планшетов.
 //   левая часть экрана — плавающий джойстик (до упора = бег, в машине: газ/тормоз/руль)
 //   правая часть экрана — свайп вращает камеру
-//   кнопки справа внизу — удар, прыжок/ручник, сесть/выйти; пауза — справа вверху
+//   кнопки справа внизу — удар/огонь, прицел (переключатель), перезарядка, смена оружия,
+//   прыжок/ручник, сесть/выйти; пауза — справа вверху
 // Контролы включаются автоматически на устройствах с сенсорным экраном
 // (или при первом касании) и передают действия в Input (press/release/setMoveAxes/addLook).
 
 const JOY_RADIUS = 60;         // px
 const RUN_THRESHOLD = 0.9;     // доля радиуса, после которой персонаж бежит
 const LOOK_SENSITIVITY = 1.7;  // множитель к чувствительности мыши
+const SHORT_NAMES = { fists: 'КУЛАКИ', pistol: 'ПИСТОЛ.', shotgun: 'ОБРЕЗ', smg: 'АВТОМАТ' };
 
 // Захват указателя, чтобы палец "не терялся" при выходе за элемент. Может бросить
 // исключение (например, для синтетических событий) — тогда просто работаем без него.
@@ -33,7 +35,7 @@ export class TouchControls {
     this.joyBase = this.root.querySelector('.joy-base');
     this.joyKnob = this.root.querySelector('.joy-knob');
     this.lookZone = this.root.querySelector('.look-zone');
-    this.buttons = [...this.root.querySelectorAll('[data-action]')];
+    this.buttons = [...this.root.querySelectorAll('[data-action], [data-toggle]')];
 
     if (window.matchMedia?.('(pointer: coarse)').matches) this.enable();
     window.addEventListener('touchstart', () => this.enable(), { once: true, passive: true });
@@ -121,6 +123,16 @@ export class TouchControls {
 
   _bindButtons() {
     for (const btn of this.buttons) {
+      if (btn.dataset.toggle) {
+        // Переключатель (ПРИЦЕЛ): нажал — держится, нажал ещё раз — отпустил.
+        const action = btn.dataset.toggle;
+        btn.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.setToggle(action, !btn.classList.contains('on'));
+        });
+        continue;
+      }
       const actions = btn.dataset.action.split(' '); // одна кнопка может нажимать несколько действий
       btn.addEventListener('pointerdown', (e) => {
         e.preventDefault();
@@ -139,6 +151,13 @@ export class TouchControls {
     }
   }
 
+  setToggle(action, on) {
+    const btn = this.root.querySelector(`[data-toggle="${action}"]`);
+    btn.classList.toggle('on', on);
+    if (on) this.input.press(action);
+    else this.input.release(action);
+  }
+
   _setLabel(id, text) {
     if (this._labels[id] === text) return;
     this._labels[id] = text;
@@ -152,8 +171,13 @@ export class TouchControls {
     if (!this.enabled) return;
     const p = this.game.player;
     const inCar = !!p.vehicle;
+    const gun = inCar || p.isDead ? null : p.gun;
     this._setLabel('jump', inCar ? 'РУЧНИК' : 'ПРЫЖОК');
-    this._setLabel('attack', inCar || p.isDead ? '' : 'УДАР');
+    this._setLabel('attack', inCar || p.isDead ? '' : gun ? 'ОГОНЬ' : 'УДАР');
+    this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
+    this._setLabel('reload', gun ? 'ПЕРЕЗ.' : '');
+    this._setLabel('weapon', inCar || p.isDead ? '' : SHORT_NAMES[p.arsenal.current]);
+    if (!gun && this.input.virtualDown.has('aim')) this.setToggle('aim', false);
     const v = inCar ? null : p.findEnterableVehicle();
     this._setLabel('interact', inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : '');
   }

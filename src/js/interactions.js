@@ -20,7 +20,7 @@ export function resolveInteractions(game) {
 
   // Пешие NPC рядом с игроком (дальние заморожены и не сталкиваются).
   const p = player.position;
-  const near = npcs.filter((n) => !n.vehicle && n.model.root.visible && Math.abs(n.position.x - p.x) < 120 && Math.abs(n.position.z - p.z) < 120);
+  const near = npcs.filter((n) => !n.vehicle && !n.ragdoll && n.model.root.visible && Math.abs(n.position.x - p.x) < 120 && Math.abs(n.position.z - p.z) < 120);
 
   // --- Машина <-> пешеходы ---
   for (const v of vehicles) {

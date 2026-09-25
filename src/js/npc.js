@@ -2,13 +2,30 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { Humanoid } from './humanoid.js';
 import { Melee } from './combat.js';
+import { Gun } from './weapons.js';
+import { fireShot, lineOfSight } from './ballistics.js';
+import { Ragdoll } from './ragdoll.js';
 import { damp, dampAngle, lerp, wrapAngle } from './utils.js';
+
+const _eye = new THREE.Vector3(), _aim = new THREE.Vector3(), _dir = new THREE.Vector3(), _muzzle = new THREE.Vector3();
+
+// Оружие по таблице вероятностей роли: { pistol: 0.5, smg: 0.2 } -> 'pistol' | 'smg' | null.
+function pickWeapon(rng, table) {
+  let r = rng.next();
+  for (const [type, p] of Object.entries(table ?? {})) {
+    if ((r -= p) < 0) return type;
+  }
+  return null;
+}
 
 // NPC — все люди, кроме игрока: прохожие, бандиты, полицейские, водители.
 // Роль (role) задаёт здоровье, силу удара и реакции:
 //   civilian — гуляет по тротуарам, от ударов убегает
 //   gang     — бродит по своей территории (allowedNodes), даёт сдачи, зовёт своих
 //   police   — преследует игрока, пока есть розыск (см. wanted.js)
+// Вооружённые NPC (оружие — по CONFIG.npc.roles[role].weapons) в драке стреляют,
+// если цель в прямой видимости и в пределах дальности; иначе бегут к ней.
+// Смерть — рэгдолл (ragdoll.js), оружие выпадает на землю (pickups.js).
 //
 // Состояния (NPC_STATE) — конечный автомат в update(). Чтобы добавить поведение,
 // добавьте состояние и ветку в switch.
@@ -41,6 +58,7 @@ export const LINES = {
   friendlyHit: ['Эй, свои!', 'Братан, ты чего?', 'Полегче!'],
   police: ['Стоять! Полиция!', 'Руки за голову!', 'Ни с места!'],
   carjacked: ['Моя машина!', 'Эй! Вор!', 'Верни тачку!'],
+  scream: ['А-а-а!', 'Стреляют!', 'Бегите!', 'Помогите!'],
 };
 
 export function randomCivilianLook(rng) {
@@ -83,6 +101,19 @@ export class NPC {
     this.maxHealth = R.health;
     this.health = R.health;
     this.melee = new Melee(this, { damage: R.damage, cooldown: R.cooldown });
+    const weapon = opts.weapon !== undefined ? opts.weapon : pickWeapon(rng, R.weapons);
+    this.gun = null;
+    if (weapon) {
+      this.gun = new Gun(weapon, 0, true); // у NPC бесконечный запас патронов
+      this.gun.mag = this.gun.def.magazine;
+    }
+    this.aimTime = 0;
+    this.fireWait = 0;
+    this.losTimer = 0;
+    this.hasLOS = false;
+    this.shooting = false;
+    this.aimPitch = 0;
+    this.ragdoll = null;
 
     this.position = new THREE.Vector3(x, game.world.getGroundHeight(x, z), z);
     this.knock = new THREE.Vector3(); // скорость от толчков/ударов (в т.ч. вертикальная)
@@ -184,6 +215,14 @@ export class NPC {
     this.panic = Math.max(0, this.panic - dt);
     if (this.hitStreakTimer > 0 && (this.hitStreakTimer -= dt) <= 0) this.hitStreak = 0;
 
+    if (this.ragdoll) {
+      // Мёртв: телом управляет физика.
+      this.ragdoll.step(dt);
+      this.position.copy(this.ragdoll.pelvis);
+      if (this.model.root.visible) this.model.applyRagdoll();
+      return;
+    }
+
     if (this.vehicle) {
       // За рулём: позиция = машина, модель сидит на сиденье.
       this.position.copy(this.vehicle.position);
@@ -193,6 +232,9 @@ export class NPC {
     }
 
     this.melee.update(dt, this.game);
+    this.gun?.update(dt);
+    this.fireWait -= dt;
+    this.shooting = false;
     let speed = 0;
 
     switch (this.state) {
@@ -264,10 +306,14 @@ export class NPC {
     this.model.root.position.set(this.position.x, this.visualY, this.position.z);
     this.model.root.rotation.y = this.heading;
     const pose = this.isDown ? 'down' : this.state === NPC_STATE.STUMBLE ? 'stumble' : 'normal';
+    // Оружие видно только в драке (в остальное время "в кармане").
+    this.model.setWeapon(this.gun && this.state === NPC_STATE.FIGHT ? this.gun.type : null);
     this.model.animate(dt, {
       speed, pose, fall: this.fall,
-      guard: this.state === NPC_STATE.FIGHT && speed < 1,
+      guard: !this.gun && this.state === NPC_STATE.FIGHT && speed < 1,
       attack: this.melee.t, attackSide: this.melee.side,
+      aim: this.shooting ? this.aimPitch : null,
+      reload: this.gun?.reloadProgress ?? 0,
     });
   }
 
@@ -308,6 +354,10 @@ export class NPC {
     }
     const desired = Math.atan2(dx, dz);
     this.heading = dampAngle(this.heading, desired, 12, dt);
+    // Полиция при 1-2 звёздах не стреляет, а задерживает (wanted.js считает время захвата).
+    const arresting = this.role === 'police' && t === this.game.player &&
+      this.game.wanted.level < CONFIG.wanted.policeDamageFrom;
+    if (this.gun && !arresting && this._shootAt(dt, t, tp, d)) return 0;
     const reach = t.vehicle ? 2.3 : 1.15;
     if (d > reach) {
       const sp = N.fightSpeed * (this.melee.active ? 0.3 : 1);
@@ -316,10 +366,45 @@ export class NPC {
       return sp;
     }
     if (t.vehicle) return 0; // рядом с машиной: полиция вытаскивает водителя (wanted.js)
-    // Полиция при 1-2 звёздах не бьёт, а задерживает (wanted.js считает время захвата).
-    if (this.role === 'police' && t === this.game.player && this.game.wanted.level < CONFIG.wanted.policeDamageFrom) return 0;
+    if (arresting) return 0;
     if (this.melee.ready && Math.abs(wrapAngle(desired - this.heading)) < 0.5) this.melee.start();
     return 0;
+  }
+
+  // Стрельба по цели: true — стоим и стреляем, false — цели не видно/далеко (бежим к ней).
+  _shootAt(dt, t, tp, d) {
+    const N = CONFIG.npc;
+    const gun = this.gun;
+    const eye = _eye.set(this.position.x, this.visualY + 1.42, this.position.z);
+    const aim = _aim.set(tp.x, (t.vehicle ? tp.y + 0.9 : (t.visualY ?? tp.y) + 1.15), tp.z);
+    this.losTimer -= dt;
+    if (this.losTimer <= 0) {
+      this.losTimer = 0.25;
+      this.hasLOS = d < gun.def.range * 0.75 && lineOfSight(this.game, eye, aim);
+    }
+    if (!this.hasLOS) {
+      this.aimTime = 0;
+      return false;
+    }
+    this.shooting = true;
+    this.aimTime += dt;
+    this.aimPitch = Math.atan2(eye.y - aim.y, d);
+    if (gun.mag === 0) {
+      if (gun.startReload()) this.game.audio.reload(gun.type, this.position, gun.def.reload);
+      return true;
+    }
+    if (this.aimTime > N.gunReaction && gun.canFire() && this.fireWait <= 0) {
+      gun.consume();
+      _dir.subVectors(aim, eye).normalize();
+      const moving = t.velocity ? Math.hypot(t.velocity.x, t.velocity.z) > 2 : false;
+      fireShot(this.game, {
+        shooter: this, origin: eye, dir: _dir, weapon: gun.type,
+        spread: gun.def.spread * N.gunSpreadScale + (moving ? 0.03 : 0),
+        damageScale: N.gunDamageToPlayer, muzzle: this.model.muzzleWorld(_muzzle), weaponMesh: this.model.weaponMesh,
+      });
+      this.fireWait = this.rng.range(0.8, 1.4) / (gun.def.fireRate * N.gunFireRateScale);
+    }
+    return true;
   }
 
   _recover(afterFall) {
@@ -335,14 +420,19 @@ export class NPC {
     this._enter(NPC_STATE.WALK);
   }
 
-  // Урон: kind — 'punch' | 'vehicle'. attacker — игрок, NPC или машина.
-  takeDamage(amount, attacker, dirX = 0, dirZ = 0, kind = 'punch') {
+  // Урон: kind — 'punch' | 'bullet' | 'vehicle'. attacker — игрок, NPC или машина.
+  // info (для пуль): { zone, point, dir, impulse } — куда попали и с какой силой.
+  takeDamage(amount, attacker, dirX = 0, dirZ = 0, kind = 'punch', info = null) {
     if (this.isDead || this.vehicle) return;
     this.health -= amount;
-    this.game.events.emit('character:damaged', { target: this, attacker, amount, kind });
+    this.game.events.emit('character:damaged', { target: this, attacker, amount, kind, zone: info?.zone });
     if (this.health <= 0) {
-      this._die(attacker, dirX, dirZ, kind);
+      this._die(attacker, dirX, dirZ, kind, info);
       return;
+    }
+    if (kind === 'bullet') {
+      this.knock.x += dirX * 0.8;
+      this.knock.z += dirZ * 0.8;
     }
     if (kind === 'punch') {
       this.hitStreak++;
@@ -384,14 +474,20 @@ export class NPC {
     if (this.role === 'police') this.aggro(who, this.rng.pick(LINES.police));
   }
 
-  _die(attacker, dirX, dirZ, kind) {
+  _die(attacker, dirX, dirZ, kind, info) {
     this.health = 0;
     this.melee.cancel();
     this.target = null;
-    if (!this.isDown) {
-      this.knock.x += dirX * 3;
-      this.knock.z += dirZ * 3;
-      if (dirX || dirZ) this.heading = Math.atan2(-dirX, -dirZ);
+    // Начальная скорость тела: движение + отброс; удар кулаком толкает сильнее.
+    const vel = new THREE.Vector3(Math.sin(this.heading) * this.speed, 0, Math.cos(this.heading) * this.speed).add(this.knock);
+    if (kind === 'punch') vel.x += dirX * 3.5, vel.z += dirZ * 3.5;
+    this.ragdoll = new Ragdoll(this.game, this.model.getJoints(), vel);
+    if (info?.point) this.ragdoll.impulse(info.point, info.dir, info.impulse);
+    this.model.startRagdoll(this.ragdoll);
+    // Оружие выпадает — его можно подобрать.
+    if (this.gun) {
+      this.game.pickups?.drop(this.position.x + dirX * 0.6, this.position.z + dirZ * 0.6, this.gun.type, this.rng.int(6, 18));
+      this.gun = null;
     }
     this._enter(NPC_STATE.DEAD);
     this.game.events.emit('character:killed', { target: this, attacker: attacker?.driver ?? attacker, kind });
@@ -422,7 +518,8 @@ export class NPC {
   knockDown(vx, vz, up, by, cause, force = false) {
     if (this.vehicle) return false;
     if (this.isDead) {
-      this.knock.set(vx * 0.5, up * 0.5, vz * 0.5);
+      const v = Math.hypot(vx, vz);
+      if (this.ragdoll && v > 0.1) this.ragdoll.impulse(this.ragdoll.pelvis, _dir.set(vx / v, 0.3, vz / v), v * 0.5);
       return false;
     }
     if (!force && this.cooldown > 0) return false;
@@ -441,6 +538,7 @@ export class NPC {
   // --- Машины --------------------------------------------------------------
 
   enterVehicle(vehicle) {
+    this.model.setWeapon(null);
     this.vehicle = vehicle;
     vehicle.driver = this;
     vehicle.seatAnchor.add(this.model.root);
@@ -479,6 +577,18 @@ export class NPCManager {
     this._recycleTimer = 0;
     const p = game.player.position;
     for (let i = 0; i < CONFIG.npc.count; i++) this.spawnCivilian(p.x, p.z, 5, CONFIG.npc.spawnRadius, false);
+
+    // Выстрелы пугают прохожих: разбегаются от стрелка.
+    game.events.on('weapon:fired', ({ shooter, position }) => {
+      const r2 = CONFIG.npc.panicRadius ** 2;
+      for (const n of this.list) {
+        if (n.role !== 'civilian' || n.vehicle || n.isDown || n === shooter) continue;
+        if (n.position.distanceToSquared(position) > r2) continue;
+        if (n.panic <= 0 && game.rng.chance(0.3)) n.say(game.rng.pick(LINES.scream));
+        n.panic = 8;
+        if (n.state === NPC_STATE.IDLE) n._enter(NPC_STATE.WALK);
+      }
+    });
   }
 
   add(npc) {

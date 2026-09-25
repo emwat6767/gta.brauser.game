@@ -16,6 +16,9 @@ import { TouchControls } from './ui/touch.js';
 import { GangSystem } from './gangs.js';
 import { WantedSystem } from './wanted.js';
 import { RoadNetwork, TrafficManager } from './traffic.js';
+import { Effects } from './effects.js';
+import { SoundSystem } from './audio.js';
+import { PickupSystem } from './pickups.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
@@ -42,6 +45,8 @@ class Game {
 
     this.input = new Input(this.renderer.domElement);
     this.textures = createTextures(this.renderer);
+    this.effects = new Effects(this.scene);
+    this.audio = new SoundSystem(this);
     this.world = new World(this);
     this.player = new Player(this);
     this.vehicles = CONFIG.vehicle.spawns.map((spawn) => {
@@ -54,6 +59,7 @@ class Game {
     this.gangs = new GangSystem(this);
     this.traffic = new TrafficManager(this);
     this.wanted = new WantedSystem(this);
+    this.pickups = new PickupSystem(this);
     this.downState = null; // { kind: 'wasted' | 'busted', timer }
     this.cameraRig = new CameraRig(this);
     this.hud = new HUD(this);
@@ -225,12 +231,15 @@ class Game {
     const input = this.input;
 
     if (input.wasPressed('toggleHelp')) this.hud.toggleHelp();
+    if (input.wasPressed('mute')) this.hud.toast(this.audio.toggleMute() ? 'Звук выключен' : 'Звук включён', 1.2);
     if (!this.paused) {
       this.cameraRig.handleInput(frameTime);
       if (input.wasPressed('interact')) this._toggleVehicle();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
+      this.pickups.update(frameTime);
+      this.effects.update(frameTime);
       if (this.downState && (this.downState.timer -= frameTime) <= 0) this._respawn();
     }
 
@@ -289,6 +298,7 @@ try {
         .catch(() => {});
     }
     game.started = true;
+    game.audio.unlock(); // звук разрешён только после действия пользователя
     game.resume();
     showMenu(false);
   };

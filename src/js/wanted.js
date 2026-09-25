@@ -37,6 +37,20 @@ export class WantedSystem {
       else if (target.role === 'civilian') this.addHeat(1, 1);
       else this.addHeat(0.35);
     });
+    // Стрельба игрока: если рядом полиция — сразу звезда, если прохожие — растёт розыск.
+    this.shotHeatCooldown = 0;
+    game.events.on('weapon:fired', ({ shooter, position }) => {
+      if (shooter !== game.player || this.shotHeatCooldown > 0) return;
+      this.shotHeatCooldown = 0.5;
+      let copNear = false, witness = false;
+      for (const n of game.npcs.list) {
+        if (n.isDead || n.position.distanceToSquared(position) > 45 * 45) continue;
+        if (n.role === 'police') copNear = true;
+        else if (n.role === 'civilian') witness = true;
+      }
+      if (copNear) this.addHeat(0.4, 1);
+      else if (witness) this.addHeat(0.12);
+    });
     game.events.on('vehicle:carjack', ({ by, vehicle }) => {
       if (by === game.player) this.addHeat(vehicle.police ? 2 : 0.6, vehicle.police ? 2 : 0);
     });
@@ -118,6 +132,7 @@ export class WantedSystem {
 
   update(dt) {
     const W = CONFIG.wanted;
+    this.shotHeatCooldown -= dt;
     const { game } = this;
     const player = game.player;
     const p = player.vehicle ? player.vehicle.position : player.position;

@@ -4,6 +4,8 @@ import { clamp, damp, dampAngle } from './utils.js';
 
 // Камера от третьего лица: орбита вокруг игрока/машины (yaw/pitch от мыши),
 // зум колесом, в машине — автоматически встаёт за корпус, если мышь не трогать.
+// Прицеливание (aiming): камера ближе, дальше за плечом, уже поле зрения, ниже чувствительность.
+// Отдача (addRecoil): подброс прицела вверх, часть подброса плавно возвращается.
 // Не проходит сквозь здания: луч от цели к камере проверяется по коллайдерам.
 
 export class CameraRig {
@@ -21,6 +23,21 @@ export class CameraRig {
     this._target = new THREE.Vector3();
     this._desired = new THREE.Vector3();
     this._look = new THREE.Vector3();
+    this.aiming = false;
+    this.aimBlend = 0;
+    this.recoil = 0;      // временный подброс (возвращается)
+  }
+
+  addRecoil(amount) {
+    const C = CONFIG.camera;
+    this.pitch = clamp(this.pitch - amount * 0.35, C.pitchMin, C.pitchMax);
+    this.recoil += amount * 0.65;
+    this.yaw += (Math.random() - 0.5) * amount * 0.5;
+  }
+
+  // Направление взгляда камеры (для прицела).
+  forward(out) {
+    return this.camera.getWorldDirection(out);
   }
 
   // Ввод обрабатывается до симуляции, чтобы игрок шёл туда, куда смотрит камера.
@@ -28,8 +45,9 @@ export class CameraRig {
     const C = CONFIG.camera;
     const input = this.game.input;
     if (input.mouseDX || input.mouseDY) {
-      this.yaw -= input.mouseDX * C.sensitivity;
-      this.pitch = clamp(this.pitch + input.mouseDY * C.sensitivity, C.pitchMin, C.pitchMax);
+      const sens = C.sensitivity * (this.aiming ? C.aimSensitivity : 1);
+      this.yaw -= input.mouseDX * sens;
+      this.pitch = clamp(this.pitch + input.mouseDY * sens, C.pitchMin, C.pitchMax);
       this.mouseIdle = 0;
     } else {
       this.mouseIdle += dt;
@@ -61,13 +79,19 @@ export class CameraRig {
       this.pivot.z = damp(this.pivot.z, this._target.z, k, dt);
     }
 
+    this.aimBlend = damp(this.aimBlend, this.aiming && !vehicle ? 1 : 0, 12, dt);
+    this.recoil = damp(this.recoil, 0, 7, dt);
+    const ab = this.aimBlend;
+
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
     const rx = -fz, rz = fx;
-    const shoulder = vehicle ? 0 : C.shoulderOffset;
+    const shoulder = vehicle ? 0 : C.shoulderOffset + (C.aimShoulder - C.shoulderOffset) * ab;
     const look = this._look.set(this.pivot.x + rx * shoulder, this.pivot.y, this.pivot.z + rz * shoulder);
 
-    const wanted = (vehicle ? C.distanceVehicle : C.distanceOnFoot) * this.zoom;
-    const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+    const base = (vehicle ? C.distanceVehicle : C.distanceOnFoot) * this.zoom;
+    const wanted = base + (C.aimDistance - base) * ab;
+    const pitch = clamp(this.pitch - this.recoil, C.pitchMin, C.pitchMax);
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const dirX = -fx * cp, dirY = sp, dirZ = -fz * cp;
 
     // Столкновение камеры со зданиями: шагаем по лучу от цели.
@@ -90,9 +114,9 @@ export class CameraRig {
 
     // Лёгкое расширение FOV на скорости.
     const speed = vehicle ? Math.abs(vehicle.speed) : 0;
-    const fov = C.fov + clamp(speed / CONFIG.vehicle.maxSpeed, 0, 1) * 12;
+    const fov = C.fov + (C.aimFov - C.fov) * ab + clamp(speed / CONFIG.vehicle.maxSpeed, 0, 1) * 12;
     if (Math.abs(fov - this.camera.fov) > 0.01) {
-      this.camera.fov = damp(this.camera.fov, fov, 4, dt);
+      this.camera.fov = damp(this.camera.fov, fov, 9, dt);
       this.camera.updateProjectionMatrix();
     }
   }

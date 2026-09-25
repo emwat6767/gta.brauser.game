@@ -566,3 +566,143 @@ body.touch #zone {
 body.touch #big-message {
   font-size: 44px;
 }
+
+/* ---------- Оружие: панель, прицел, попадания ---------- */
+
+#weapon-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font: italic 900 15px/1.1 'Arial Black', Arial, sans-serif;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000;
+}
+
+#weapon-name {
+  text-transform: uppercase;
+  color: #ffd166;
+}
+
+#weapon-ammo {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+#weapon-ammo.empty {
+  color: #ff6b6b;
+}
+
+#reload-bar {
+  width: 90px;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+#reload-fill {
+  height: 100%;
+  width: 0;
+  background: #ffd166;
+}
+
+#crosshair {
+  --gap: 6px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+#crosshair i {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 2px #000;
+}
+
+#crosshair i:nth-child(1) { width: 2px; height: 8px; left: -1px; top: calc(-8px - var(--gap)); }
+#crosshair i:nth-child(2) { width: 2px; height: 8px; left: -1px; top: var(--gap); }
+#crosshair i:nth-child(3) { width: 8px; height: 2px; top: -1px; left: calc(-8px - var(--gap)); }
+#crosshair i:nth-child(4) { width: 8px; height: 2px; top: -1px; left: var(--gap); }
+
+#hitmarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  opacity: 0;
+  background:
+    linear-gradient(45deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%),
+    linear-gradient(-45deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%);
+  color: #fff;
+  -webkit-mask: radial-gradient(circle, transparent 5px, #000 6px);
+  mask: radial-gradient(circle, transparent 5px, #000 6px);
+}
+
+#hitmarker span {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font: italic 900 12px/1 'Arial Black', Arial, sans-serif;
+  color: #ff5252;
+  text-shadow: 1px 1px 0 #000;
+}
+
+#toast {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  font: italic 800 16px/1.2 'Arial Black', Arial, sans-serif;
+  color: #9ef0a8;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+#toast.show {
+  opacity: 1;
+}
+
+#touch .tbtn-aim {
+  right: calc(116px + env(safe-area-inset-right, 0px));
+  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  width: 62px;
+  height: 62px;
+  font-size: 10px;
+}
+
+#touch .tbtn-aim.on {
+  background: rgba(255, 209, 102, 0.55);
+  color: #111;
+}
+
+#touch .tbtn-reload {
+  right: calc(200px + env(safe-area-inset-right, 0px));
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  font-size: 9px;
+}
+
+#touch .tbtn-weapon {
+  right: calc(196px + env(safe-area-inset-right, 0px));
+  bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  font-size: 9px;
+}
+
+body.touch #weapon-panel {
+  font-size: 12px;
+}
+
+body.touch #weapon-ammo {
+  font-size: 14px;
+}
