@@ -32,6 +32,7 @@
         <tr><td>Q, 1–4</td><td>смена оружия (патроны бесконечные)</td></tr>
         <tr><td>E</td><td>сесть в машину / угнать / выйти / ограбить банк</td></tr>
         <tr><td>T</td><td>позвать банду / отпустить</td></tr>
+        <tr><td>J</td><td>меню банды: задания, репутация, районы</td></tr>
         <tr><td>M</td><td>звук вкл/выкл</td></tr>
         <tr><td>Esc</td><td>пауза</td></tr>
       </table>
@@ -55,7 +56,10 @@
     <div id="speedometer" class="hidden"><span id="speed-value">0</span><small>км/ч</small></div>
     <div id="prompt" class="hidden"></div>
     <div id="bubbles"></div>
-    <div id="heist" class="hidden"><div id="heist-label"></div><div id="heist-bar"><div id="heist-fill"></div></div></div>
+    <div id="top-center">
+      <div id="objective" class="hidden"></div>
+      <div id="heist" class="hidden"><div id="heist-label"></div><div id="heist-bar"><div id="heist-fill"></div></div></div>
+    </div>
   </div>
 
   <!-- Сенсорное управление (включается на телефонах, см. js/ui/touch.js) -->
@@ -69,7 +73,16 @@
     <button type="button" class="tbtn tbtn-reload" data-id="reload" data-action="reload" hidden>ПЕРЕЗ.</button>
     <button type="button" class="tbtn tbtn-weapon" data-id="weapon" data-action="nextWeapon">ОРУЖИЕ</button>
     <button type="button" class="tbtn tbtn-squad" data-id="squad" data-action="squad">БАНДА</button>
+    <button type="button" class="tbtn tbtn-jobs" data-id="jobs" data-action="jobs">ЗАДАНИЯ</button>
     <button type="button" class="tbtn tbtn-pause" data-id="pause" data-action="pause" aria-label="Пауза">II</button>
+  </div>
+
+  <!-- Меню банды: репутация, задания, районы (js/ui/gang-menu.js) -->
+  <div id="gang-menu" class="hidden">
+    <div class="gm-panel">
+      <div class="gm-head"><div id="gm-title">Банда</div><button type="button" id="gm-close">Закрыть</button></div>
+      <div id="gm-body"></div>
+    </div>
   </div>
 
   <div id="overlay">
@@ -86,13 +99,14 @@
         <tr><td>Q, 1–4</td><td>смена оружия (кулаки, пистолет, обрез, автомат) — патроны бесконечные</td></tr>
         <tr><td>E</td><td>сесть в машину, угнать с водителем, выйти; у двери банка ($) — ограбить</td></tr>
         <tr><td>T</td><td>позвать банду: бойцы идут за вами, садятся в машину, бьют полицию, прохожих и чужие банды</td></tr>
+        <tr><td>J</td><td>меню банды: задания (угон, зачистка, магазин, доставка), репутация, войны за районы</td></tr>
         <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
       </table>
       <table class="controls controls-touch">
         <tr><td>Джойстик слева</td><td>ходьба, до упора — бег; в машине — газ, тормоз, руль</td></tr>
         <tr><td>Свайп справа</td><td>поворот камеры</td></tr>
         <tr><td>Кнопки</td><td>удар / огонь (с автонаведением), прицел, оружие, прыжок / ручник, сесть / выйти / грабить</td></tr>
-        <tr><td>БАНДА</td><td>справа вверху: позвать / отпустить отряд</td></tr>
+        <tr><td>БАНДА · ЗАДАНИЯ</td><td>справа вверху: позвать / отпустить отряд, меню банды</td></tr>
       </table>
       <p class="rotate-hint">Лучше играть, повернув телефон горизонтально</p>
       <p id="overlay-status">Загрузка…</p>

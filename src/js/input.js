@@ -24,6 +24,7 @@ export const BINDINGS = {
   weaponShotgun: ['Digit3'],
   weaponSmg: ['Digit4'],
   squad: ['KeyT'],                    // позвать банду / отпустить
+  jobs: ['KeyJ'],                     // меню банды (задания, репутация, районы)
   mute: ['KeyM'],
   toggleHelp: ['KeyH'],
 };

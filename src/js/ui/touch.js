@@ -177,10 +177,11 @@ export class TouchControls {
     this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
     this._setLabel('reload', gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
     this._setLabel('squad', p.isDead ? '' : this.game.squad.size ? 'ОТПУСТ.' : 'БАНДА');
+    this._setLabel('jobs', p.isDead ? '' : this.game.missions.active ? 'ЦЕЛЬ' : 'ЗАДАНИЯ');
     this._setLabel('weapon', inCar || p.isDead ? '' : SHORT_NAMES[p.arsenal.current]);
     if (!gun && this.input.virtualDown.has('aim')) this.setToggle('aim', false);
     const v = inCar ? null : p.findEnterableVehicle();
-    const bank = inCar || v ? null : this.game.banks?.canStart();
+    const bank = inCar || v ? null : this.game.heists?.canStart();
     this._setLabel('interact', inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : bank ? 'ГРАБИТЬ' : '');
   }
 }

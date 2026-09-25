@@ -3,7 +3,7 @@ import { CONFIG } from './config.js';
 // Деньги и сохранение прогресса.
 //   Wallet.add(сумма)   — заработок (всплывает "+$" у счётчика денег)
 //   Wallet.spend(цена)  — покупка; false, если не хватает
-// SaveSystem хранит деньги в localStorage этого браузера.
+// SaveSystem хранит деньги, репутацию банды и захваченные районы в localStorage этого браузера.
 
 export class Wallet {
   constructor(game) {
@@ -54,15 +54,18 @@ export class SaveSystem {
     } catch {
       data = null; // хранилище недоступно (приватный режим) — играем без сохранения
     }
-    if (!data || data.v !== 2) return false;
+    if (!data || (data.v !== 2 && data.v !== 3)) return false;
     if (Number.isFinite(data.money)) this.game.wallet.money = Math.max(0, Math.floor(data.money));
+    this.game.progress?.deserialize(data.rep);
+    this.game.turf?.deserialize(data.turf);
     return true;
   }
 
   save() {
     this.dirty = false;
     try {
-      const data = { v: 2, money: this.game.wallet.money };
+      const { wallet, progress, turf } = this.game;
+      const data = { v: 3, money: wallet.money, rep: progress?.serialize(), turf: turf?.serialize() };
       window.localStorage.setItem(CONFIG.economy.saveKey, JSON.stringify(data));
     } catch {
       /* без сохранения */

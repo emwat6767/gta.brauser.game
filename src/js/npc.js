@@ -190,7 +190,7 @@ export class NPC {
 
   _nearestAllowedNode() {
     const w = this.game.world;
-    if (!this.allowedNodes) return w.nearestWaypoint(this.position.x, this.position.z);
+    if (!this.allowedNodes?.size) return w.nearestWaypoint(this.position.x, this.position.z);
     let best = null, bestD = Infinity;
     for (const id of this.allowedNodes) {
       const n = w.waypoints[id];
@@ -431,7 +431,7 @@ export class NPC {
       const S = this.follower ? CONFIG.squad : null;
       fireShot(this.game, {
         shooter: this, origin: eye, dir: _dir, weapon: gun.type,
-        spread: gun.def.spread * (S ? S.spreadScale : N.gunSpreadScale) + (moving ? 0.03 : 0),
+        spread: gun.def.spread * (S ? this.game.progress.stats.spread : N.gunSpreadScale) + (moving ? 0.03 : 0),
         damageScale: N.gunDamageToPlayer, muzzle: this.model.muzzleWorld(_muzzle), weaponMesh: this.model.weaponMesh,
       });
       this.fireWait = this.rng.range(0.8, 1.4) / (gun.def.fireRate * (S ? S.fireRateScale : N.gunFireRateScale));

@@ -269,7 +269,8 @@ export class TrafficManager {
   }
 
   // Создать машину с ИИ-водителем на дороге в кольце minR..maxR от игрока.
-  createAICar({ police = false, mode = 'cruise', minR = CONFIG.traffic.spawnMin, maxR = CONFIG.traffic.spawnMax } = {}) {
+  // color — цвет кузова (по умолчанию случайный), driver — опции NPC-водителя ({ role, gang, look }).
+  createAICar({ police = false, mode = 'cruise', minR = CONFIG.traffic.spawnMin, maxR = CONFIG.traffic.spawnMax, color, driver: who } = {}) {
     const { game } = this;
     const { rng, roads, camera } = game;
     const p = game.player.position;
@@ -285,12 +286,11 @@ export class TrafficManager {
       if (d < 120 && ((x - p.x) * camDir.x + (z - p.z) * camDir.z) / d > 0.3 && attempt < 24) continue; // не на глазах
       if (game.vehicles.some((o) => o.position.distanceToSquared({ x, y: 0, z }) < 100)) continue;
 
-      const color = rng.pick(CONFIG.traffic.colors);
-      const vehicle = new Vehicle(game, { x, z, color, police });
+      const vehicle = new Vehicle(game, { x, z, color: color ?? rng.pick(CONFIG.traffic.colors), police });
       const ai = new AIDriver(game, vehicle, mode);
       ai.placeOnSegment(a, b, t, mode === 'pursuit' ? 10 : 6);
       const driver = new NPC(game, rng, {
-        x, z, role: police ? 'police' : 'civilian', look: police ? policeLook(rng) : undefined,
+        x, z, role: police ? 'police' : 'civilian', look: police ? policeLook(rng) : undefined, ...who,
       });
       game.npcs.add(driver);
       driver.enterVehicle(vehicle);

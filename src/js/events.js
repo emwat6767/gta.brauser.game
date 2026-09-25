@@ -16,6 +16,11 @@
 //   'player:down'         { kind }                        — 'wasted' | 'busted'
 //   'player:respawn'      { point }
 //   'money:changed'       { delta, total, quiet }
+//   'heist:start' / 'heist:success' / 'heist:fail'  { place, reward? } — ограбление банка/магазина
+//   'rep:level'           { level }                       — новый уровень репутации банды
+//   'turf:war'            { block, gang }                 — началась война за район
+//   'turf:attack'         { block, gang }                 — конкуренты напали на захваченный район
+//   'turf:changed'        { block, from, to }             — квартал сменил хозяина
 //   'game:pause', 'game:resume'
 
 export class EventBus {

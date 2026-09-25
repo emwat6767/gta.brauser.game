@@ -26,6 +26,25 @@ const FACADE_TILE_V = 28;
 // Пересекаются ли два прямоугольника { minX, maxX, minZ, maxZ }.
 const overlaps = (a, b) => a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ;
 
+// Вывеска магазина: "24/7 МАГАЗИН" на цвете навеса.
+function storeSign(color) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 80;
+  const g = c.getContext('2d');
+  g.fillStyle = color;
+  g.fillRect(0, 0, 512, 80);
+  g.fillStyle = '#ffffff';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = '900 50px Arial, sans-serif';
+  g.fillText('24/7 МАГАЗИН', 256, 42);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
 // Вывеска банка: "БАНК" золотом и название.
 function bankSign(name) {
   const c = document.createElement('canvas');
@@ -84,12 +103,13 @@ export class World {
 
     this._materials();
     this._layoutBlocks();
-    this._layoutBanks();
+    this._layoutLandmarks();
     this._buildGround();
     this._buildRoads();
     this._buildBlocks();
     this._buildBuildings();
     this._buildBanks();
+    this._buildStores();
     this._buildLamps();
     this._buildTrees();
     this._buildBoundary();
@@ -401,8 +421,8 @@ export class World {
       this._subdivide(block.lot, parcels, 0);
 
       for (const p of parcels) {
-        // Место под банк: там площадь перед входом и сам банк (_buildBanks).
-        if (block.bank && overlaps(p, block.bank.reserved)) continue;
+        // Место под банк/магазин: там площадка перед входом и само здание (_buildBanks/_buildStores).
+        if (block.reserved.some((r) => overlaps(p, r))) continue;
         if (rng.chance(0.07)) {
           // Пустырь: вместо здания — дерево.
           this._pendingTrees.push({ x: (p.minX + p.maxX) / 2, z: (p.minZ + p.maxZ) / 2, y: base });
@@ -465,15 +485,25 @@ export class World {
     }
   }
 
-  // --- Банки ----------------------------------------------------------------
+  // --- Банки и магазины --------------------------------------------------------
 
-  // Банк стоит у края квартала фасадом к улице. Локальные координаты модели: x — вдоль улицы,
-  // +z — к улице; начало — середина края участка (lot). Здание: x ±15, z от −26 до −6,
-  // перед ним площадка с колоннадой, у двери — метка ограбления (door).
-  _layoutBanks() {
+  // Банк/магазин стоит у края квартала фасадом к улице. Локальные координаты модели: x — вдоль
+  // улицы, +z — к улице; начало — середина края участка (lot). Банк: здание x ±15, z от −26 до −6,
+  // перед ним площадка с колоннадой. Магазин: x ±7, z от −12 до −2. У двери — метка ограбления (door).
+  _layoutLandmarks() {
     const SIDE = { s: 0, w: -Math.PI / 2, n: Math.PI, e: Math.PI / 2 };
+    const SIZE = {
+      bank: { body: [-15, -26, 15, -6], reserved: [-18, -29, 18, 0], door: -4.3 },
+      store: { body: [-7, -12, 7, -2], reserved: [-9, -14, 9, 0], door: -1.1 },
+    };
     this.banks = [];
-    for (const def of CONFIG.banks.list) {
+    this.stores = [];
+    for (const b of this.blocks) b.reserved = [];
+    const defs = [
+      ...CONFIG.banks.list.map((def) => ({ def, kind: 'bank' })),
+      ...CONFIG.stores.list.map((def) => ({ def, kind: 'store' })),
+    ];
+    for (const { def, kind } of defs) {
       const block = this.blocks[def.block[1] * this.blocksPerAxis + def.block[0]];
       if (!block || block.type !== 'buildings') continue;
       const l = block.lot;
@@ -488,16 +518,16 @@ export class World {
         const a = toWorld(x0, z0), b = toWorld(x1, z1);
         return { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z) };
       };
-      const bank = {
-        def, block, origin, angle, toWorld,
-        body: rect(-15, -26, 15, -6),
-        reserved: rect(-18, -29, 18, 0),
-        door: toWorld(0, -4.3),
-        outward: toWorld(0, 1),
+      const S = SIZE[kind];
+      const place = {
+        def, kind, block, origin, angle, toWorld,
+        body: rect(...S.body),
+        reserved: rect(...S.reserved),
+        door: toWorld(0, S.door),
+        outward: { x: Math.sin(angle), z: Math.cos(angle) },
       };
-      bank.outward = { x: bank.outward.x - origin.x, z: bank.outward.z - origin.z };
-      block.bank = bank;
-      this.banks.push(bank);
+      block.reserved.push(place.reserved);
+      (kind === 'bank' ? this.banks : this.stores).push(place);
     }
   }
 
@@ -563,6 +593,45 @@ export class World {
     }
   }
 
+  // Магазин 24/7: одноэтажный павильон с витриной, навесом и вывеской.
+  _buildStores() {
+    const base = this.curbHeight;
+    const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+    const awning = (color) => {
+      const parts = [];
+      // Полосатый навес над витриной.
+      for (let k = 0; k < 7; k++) {
+        parts.push({ geometry: box(2, 0.08, 1.7, -6 + k * 2, 0, 0).rotateX(0.32).translate(0, 3.55, -1.25), color: k % 2 ? '#f4f1ea' : color });
+      }
+      return parts;
+    };
+    const colors = ['#c0392b', '#1f8f5f', '#2c6fbf', '#d98a1a'];
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
+    this.stores.forEach((store, idx) => {
+      const accent = colors[idx % colors.length];
+      const parts = [
+        { geometry: box(14, 4.6, 10, 0, 2.3, -7), color: '#e3ddd0' },
+        { geometry: box(14.3, 0.4, 10.3, 0, 4.8, -7), color: '#8e877a' },
+        { geometry: box(12, 2.5, 0.1, 0, 1.75, -1.97), color: '#2a4a5e' },   // витрина
+        { geometry: box(2, 2.8, 0.14, 0, 1.4, -1.9), color: '#9fc6d8' },     // стеклянная дверь
+        { geometry: box(14.2, 0.35, 0.3, 0, 0.18, -1.95), color: '#6f6a62' },
+        ...awning(accent),
+      ];
+      const mesh = new THREE.Mesh(mergeColored(parts), mat);
+      mesh.position.set(store.origin.x, base, store.origin.z);
+      mesh.rotation.y = store.angle;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(7, 1.1), new THREE.MeshBasicMaterial({ map: storeSign(accent) }));
+      sign.position.set(0, 4.2, -1.9);
+      mesh.add(sign);
+      const building = { ...store.body, height: base + 5, type: 'building', store: true };
+      this.buildings.push(building);
+      this.colliders.add(building);
+    });
+  }
+
   _buildLamps() {
     const h = this.curbHeight;
     const inset = 0.7; // от края бордюра
@@ -580,9 +649,10 @@ export class World {
         lamps.push({ x: b.minX + inset, z: b.minZ + t, rot: -Math.PI / 2 }); // западнее
       }
     }
-    // Вход в банк не загораживаем фонарём.
+    // Вход в банк и магазин не загораживаем фонарём.
     for (let i = lamps.length - 1; i >= 0; i--) {
-      if (this.banks.some((bk) => Math.hypot(lamps[i].x - bk.origin.x, lamps[i].z - bk.origin.z) < 11)) lamps.splice(i, 1);
+      const near = (pl) => Math.hypot(lamps[i].x - pl.origin.x, lamps[i].z - pl.origin.z) < (pl.kind === 'bank' ? 11 : 6);
+      if (this.banks.some(near) || this.stores.some(near)) lamps.splice(i, 1);
     }
 
     const pole = new THREE.CylinderGeometry(0.07, 0.11, 5.6, 8).translate(0, 2.8, 0);

@@ -176,19 +176,72 @@ export const CONFIG = {
     alarmStars: 2,          // сразу столько звёзд розыска (не гаснут, пока идёт ограбление)
   },
 
+  // Магазины 24/7 — маленькие ограбления (те же heists.js, без охраны, 1 звезда).
+  stores: {
+    list: [
+      { name: 'Магазин «Угловой»', block: [4, 3], side: 's' },
+      { name: 'Магазин «24 часа»', block: [2, 5], side: 'e' },
+      { name: 'Магазин «Бодега»', block: [6, 7], side: 'w' },
+      { name: 'Магазин «Продукты»', block: [7, 5], side: 'n' },
+    ],
+    duration: 8,
+    startRadius: 2.5,
+    leaveRadius: 12,
+    reward: [400, 900],
+    cooldown: 120,
+    failCooldown: 20,
+    guards: 0,
+    alarmStars: 1,
+  },
+
+  // Репутация банды (progress.js): уровни открывают бонусы отряду. Значения уровня
+  // наследуются следующими (указываются только изменения).
+  reputation: {
+    levels: [
+      { at: 0, title: 'Новичок', squad: 3, health: 110, spread: 2, weapons: { smg: 0.45, pistol: 0.35, shotgun: 0.2 } },
+      { at: 40, title: 'Боец', health: 150, perk: 'Бойцы крепче: 150 здоровья' },
+      { at: 100, title: 'Бывалый', squad: 4, perk: '4 бойца в отряде' },
+      { at: 200, title: 'Авторитет', spread: 1.4, weapons: { smg: 0.6, shotgun: 0.4 }, perk: 'Бойцы с автоматами и обрезами, стреляют точнее' },
+      { at: 350, title: 'Правая рука', squad: 5, perk: '5 бойцов в отряде' },
+      { at: 550, title: 'Босс района', health: 250, perk: 'Бронежилеты: 250 здоровья' },
+    ],
+    // Очки за дела.
+    points: { rivalKill: 1, bank: 12, store: 3, turf: 25, defend: 8 },
+  },
+
+  // Войны за районы (turf.js).
+  turf: {
+    killsToStart: 3,        // столько бандитов убить на их территории за killWindow секунд
+    killWindow: 60,
+    waves: [3, 4, 5],       // бандитов в каждой волне
+    waveDelay: 4,
+    leaveRadius: 95,        // от центра квартала; дальше — война проиграна (через leaveGrace с)
+    leaveGrace: 8,
+    reward: 1000,
+    attackEvery: [240, 360], // конкуренты нападают на захваченные районы раз в столько секунд
+    attackers: 5,
+    defendTime: 120,
+  },
+
+  // Задания банды (missions.js, меню — J / кнопка ЗАДАНИЯ).
+  missions: {
+    garage: { x: -46, z: 100 },   // гараж банды (на дороге у Зелёной улицы)
+    steal: { reward: 1500, rep: 12, color: 0xd4af37 },
+    clear: { reward: 2000, rep: 15, enemies: 5 },
+    store: { reward: 500, rep: 6 },
+    delivery: { reward: 1800, rep: 12, time: 120, chasers: 2, color: 0x2e5e3a, minDist: 350, maxDist: 600 },
+  },
+
   // Отряд игрока (squad.js): бойцы его банды ходят за ним и дерутся вместе с ним.
+  // Размер отряда, здоровье, оружие и точность бойцов — от уровня репутации (CONFIG.reputation).
   squad: {
-    max: 3,                 // бойцов в отряде (3 — все помещаются в машину)
     recruitRadius: 35,      // свои бандиты ближе этого присоединяются сразу, остальные прибегают
-    health: 110,
-    weapons: { smg: 0.45, pistol: 0.35, shotgun: 0.2 },
     runSpeed: 7.6,          // догоняют даже бегущего игрока
     engageRadius: 32,       // на каком расстоянии замечают цели
     leash: 40,              // дальше от игрока не отходят
     driveByRange: 35,       // стрельба из окна машины
     catchUpDistance: 70,    // отставших дальше этого подтягивают к игроку
-    spreadScale: 2,         // точнее обычных NPC (у них CONFIG.npc.gunSpreadScale)
-    fireRateScale: 0.7,
+    fireRateScale: 0.7,     // стреляют чаще обычных NPC (у них CONFIG.npc.gunFireRateScale)
   },
 
   // Розыск и полиция.

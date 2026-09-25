@@ -7,6 +7,7 @@ import { NPC, NPC_STATE, LINES, gangLook } from './npc.js';
 //   - на удар по члену банды отвечают все его друзья поблизости;
 //   - банда игрока (friendly) не трогает его и вступается, если на игрока напали.
 // Погибших со временем заменяют новые (пополнение вне поля зрения игрока).
+// Кварталы могут переходить из рук в руки (transferBlock) — войны за районы в turf.js.
 
 export class GangSystem {
   constructor(game) {
@@ -15,10 +16,9 @@ export class GangSystem {
     this.blockOwner = new Map(); // block -> gang
     this.gangs = G.list.map((def) => {
       const blocks = def.blocks.map(([i, j]) => game.world.blocks[j * game.world.blocksPerAxis + i]).filter(Boolean);
-      const gang = { ...def, blocks, nodes: new Set(), members: [], respawnTimer: 0 };
+      const gang = { ...def, blocks, homeBlocks: [...blocks], nodes: new Set(), members: [], respawnTimer: 0 };
       for (const b of blocks) this.blockOwner.set(b, gang);
-      for (const n of game.world.waypoints) if (blocks.includes(n.block)) gang.nodes.add(n.id);
-      gang.targetSize = blocks.length * G.membersPerBlock;
+      this._rebuild(gang);
       return gang;
     });
     this.byId = new Map(this.gangs.map((g) => [g.id, g]));
@@ -31,6 +31,40 @@ export class GangSystem {
 
     // Банда игрока вступается за него и помогает в его драках.
     game.events.on('character:damaged', ({ target, attacker }) => this._onDamaged(target, attacker));
+  }
+
+  // Узлы тротуаров территории и численность банды — по её текущим кварталам.
+  // gang.nodes — один и тот же Set (на него ссылаются allowedNodes бандитов), меняем на месте.
+  _rebuild(gang) {
+    gang.nodes.clear();
+    for (const n of this.game.world.waypoints) if (gang.blocks.includes(n.block)) gang.nodes.add(n.id);
+    gang.targetSize = gang.blocks.length * CONFIG.gangs.membersPerBlock;
+  }
+
+  // Квартал переходит к банде to (null — ничей). Бандиты прежнего хозяина уходят к своим.
+  transferBlock(block, to) {
+    const from = this.blockOwner.get(block) ?? null;
+    if (from === to) return;
+    if (from) {
+      from.blocks.splice(from.blocks.indexOf(block), 1);
+      this._rebuild(from);
+      for (const m of from.members) {
+        if (m.isDead || m.isBusy || m.follower) continue;
+        if (!from.nodes.size) m.allowedNodes = null; // банда разгромлена — бродят где придётся
+        else if (this.game.world.blockAt(m.position.x, m.position.z) === block) {
+          m.prevNode = null;
+          m._setTarget(m._nearestAllowedNode());
+        }
+      }
+    }
+    if (to) {
+      to.blocks.push(block);
+      this._rebuild(to);
+      this.blockOwner.set(block, to);
+    } else {
+      this.blockOwner.delete(block);
+    }
+    this.game.events.emit('turf:changed', { block, from, to });
   }
 
   isFriendlyToPlayer(gangId) {
@@ -47,11 +81,13 @@ export class GangSystem {
     const p = game.player.position;
     // Первичный спавн — в любом месте территории; пополнение — подальше от игрока.
     const nodes = [...gang.nodes].map((id) => game.world.waypoints[id]);
+    if (!nodes.length) return null;
     let spot = null;
     for (let attempt = 0; attempt < 20 && !spot; attempt++) {
       const from = game.rng.pick(nodes);
       // Вдоль тротуара того же квартала (не на переходе через дорогу).
       const side = from.links.filter((n) => n.block === from.block);
+      if (!side.length) continue;
       const to = game.rng.pick(side);
       const t = game.rng.range(0.05, 0.3); // держатся ближе к углам — "тусовки"
       const x = from.x + (to.x - from.x) * t + game.rng.range(-1.2, 1.2);
@@ -122,9 +158,16 @@ export class GangSystem {
       }
     }
 
-    // Убираем выбывших и пополняем банды.
+    // Убираем выбывших и пополняем банды. У разгромленной банды (без районов) остатки
+    // исчезают, когда игрок далеко.
     for (const gang of this.gangs) {
       gang.members = gang.members.filter((m) => !m.removed);
+      if (!gang.blocks.length) {
+        for (const m of gang.members) {
+          if (!m.isBusy && m.position.distanceTo(player.position) > 150) this.game.npcs.remove(m);
+        }
+        continue;
+      }
       const alive = gang.members.filter((m) => !m.isDead).length;
       if (alive >= gang.targetSize) {
         gang.respawnTimer = 0;

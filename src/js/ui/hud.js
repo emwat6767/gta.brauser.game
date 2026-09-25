@@ -46,6 +46,8 @@ export class HUD {
     this.moneyEl = document.getElementById('money');
     this.moneyPopEl = document.getElementById('money-pop');
     this._money = -1;
+    this.objectiveEl = document.getElementById('objective');
+    this._objective = '';
     this.heistEl = document.getElementById('heist');
     this.heistLabel = document.getElementById('heist-label');
     this.heistFill = document.getElementById('heist-fill');
@@ -101,6 +103,14 @@ export class HUD {
 
   hideBigMessage() {
     this.bigEl.classList.add('hidden');
+  }
+
+  // Текущая цель (задание, война за район) сверху по центру; '' — скрыть. Можно <b>.
+  setObjective(html) {
+    if (html === this._objective) return;
+    this._objective = html;
+    this.objectiveEl.innerHTML = html;
+    this.objectiveEl.classList.toggle('hidden', !html);
   }
 
   // Полоса прогресса по центру сверху (ограбление): null — скрыть.
@@ -202,7 +212,7 @@ export class HUD {
     else {
       const v = player.findEnterableVehicle();
       if (v) prompt = v.driver ? '<b>E</b> — угнать машину' : '<b>E</b> — сесть в машину';
-      else prompt = this.game.banks?.prompt() ?? '';
+      else prompt = this.game.heists?.prompt() ?? '';
     }
     if (prompt !== this._prompt) {
       this._prompt = prompt;

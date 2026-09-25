@@ -127,6 +127,13 @@ export class Minimap {
       for (const b of gang.blocks) ctx.fillRect(b.x0 + 3, b.z0 + 3, b.x1 - b.x0 - 6, b.z1 - b.z0 - 6);
     }
     ctx.globalAlpha = 1;
+    // Район, за который идёт война (или на который напали), мигает красной рамкой.
+    const hot = this.game.turf?.hotBlock;
+    if (hot && Math.floor(performance.now() / 300) % 2 === 0) {
+      ctx.strokeStyle = '#ff3b3b';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(hot.x0 + 4, hot.z0 + 4, hot.x1 - hot.x0 - 8, hot.z1 - hot.z0 - 8);
+    }
     ctx.restore();
 
     this._drawBlips(R);
@@ -176,21 +183,25 @@ export class Minimap {
     }
     const gangColor = (id) => this.game.gangs?.byId.get(id)?.color ?? '#ffe27a';
 
-    // Банки — зелёные "$" (далёкие прижаты к краю, как машины); закрытые — серые.
-    for (const b of this.game.banks?.banks ?? []) {
+    // Банки — зелёные "$" (далёкие прижаты к краю, как машины), магазины — оранжевые
+    // (только вблизи); закрытые — серые.
+    const heists = this.game.heists;
+    for (const b of heists?.places ?? []) {
       let [x, y] = this.toScreen(b.door.x, b.door.z);
       const dx = x - R, dy = y - R, dist = Math.hypot(dx, dy), edge = R - 11 * d;
       if (dist > edge) {
+        if (b.kind !== 'bank') continue;
         x = R + (dx / dist) * edge;
         y = R + (dy / dist) * edge;
       }
-      const s = 6.5 * d;
+      const s = (b.kind === 'bank' ? 6.5 : 5) * d;
       ctx.fillStyle = '#111';
       ctx.fillRect(x - s - d, y - s - d, (s + d) * 2, (s + d) * 2);
-      ctx.fillStyle = b.cooldown > 0 ? '#6d7571' : this.game.banks.active?.bank === b && flash ? '#ffd54a' : '#1f9a3e';
+      ctx.fillStyle = b.cooldown > 0 ? '#6d7571' : heists.active?.place === b && flash ? '#ffd54a'
+        : b.kind === 'bank' ? '#1f9a3e' : '#d9801a';
       ctx.fillRect(x - s, y - s, s * 2, s * 2);
       ctx.fillStyle = '#ffffff';
-      ctx.font = `900 ${Math.round(10 * d)}px Arial, sans-serif`;
+      ctx.font = `900 ${Math.round((b.kind === 'bank' ? 10 : 8) * d)}px Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('$', x, y + 0.5 * d);
@@ -204,6 +215,7 @@ export class Minimap {
       let color = '#f3e6b0', r = 2.6, ring = '#111';
       if (npc.isDead) color = '#7a7a7a';
       else if (npc.follower) { color = gangColor(npc.gang); r = 3.6; ring = '#ffffff'; } // боец отряда
+      else if (npc.marked) { color = '#ff2e2e'; r = 3.6; ring = '#ffffff'; }            // цель задания/войны
       else if (npc.role === 'gang') { color = gangColor(npc.gang); r = 3.2; }
       else if (npc.role === 'police') { color = flash ? '#3d7cff' : '#ff3b3b'; r = 3.4; }
       ctx.fillStyle = ring;
@@ -235,6 +247,25 @@ export class Minimap {
       ctx.fillRect(x - s - d, y - s - d, (s + d) * 2, (s + d) * 2);
       ctx.fillStyle = v.police && v.sirenOn ? (flash ? '#ff3b3b' : '#3d7cff') : traffic ? '#a9b0b8' : '#4aa3ff';
       ctx.fillRect(x - s, y - s, s * 2, s * 2);
+    }
+
+    // Цель задания — жёлтый кружок (за краем карты — прижат к краю).
+    const target = this.game.missions?.target;
+    if (target) {
+      let [x, y] = this.toScreen(target.x, target.z);
+      const dx = x - R, dy = y - R, dist = Math.hypot(dx, dy), edge = R - 10 * d;
+      if (dist > edge) {
+        x = R + (dx / dist) * edge;
+        y = R + (dy / dist) * edge;
+      }
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(x, y, 7.5 * d, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = flash || dist <= edge ? '#ffd54a' : '#b8931f';
+      ctx.beginPath();
+      ctx.arc(x, y, 6 * d, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // Игрок — стрелка по направлению взгляда персонажа/машины.

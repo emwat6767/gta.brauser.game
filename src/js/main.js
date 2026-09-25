@@ -21,7 +21,11 @@ import { SoundSystem } from './audio.js';
 import { PickupSystem } from './pickups.js';
 import { Wallet, SaveSystem } from './economy.js';
 import { Squad } from './squad.js';
-import { BankSystem } from './heists.js';
+import { HeistSystem } from './heists.js';
+import { GangProgress } from './progress.js';
+import { TurfSystem } from './turf.js';
+import { MissionSystem } from './missions.js';
+import { GangMenu } from './ui/gang-menu.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
@@ -63,8 +67,11 @@ class Game {
     this.gangs = new GangSystem(this);
     this.traffic = new TrafficManager(this);
     this.wanted = new WantedSystem(this);
+    this.progress = new GangProgress(this);
     this.squad = new Squad(this);
-    this.banks = new BankSystem(this);
+    this.heists = new HeistSystem(this);
+    this.turf = new TurfSystem(this);
+    this.missions = new MissionSystem(this);
     this.pickups = new PickupSystem(this);
     this.wallet = new Wallet(this);
     this.save = new SaveSystem(this);
@@ -74,6 +81,8 @@ class Game {
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
     this.touch = new TouchControls(this);
+    this.gangMenu = new GangMenu(this);
+    this.menuOpen = false; // меню банды открыто — симуляция стоит
 
     this.paused = true;
     this.clock = new THREE.Clock();
@@ -222,7 +231,7 @@ class Game {
     } else {
       const v = p.findEnterableVehicle();
       if (v) p.enterVehicle(v);
-      else this.banks.tryStart();
+      else this.heists.tryStart();
     }
   }
 
@@ -244,7 +253,8 @@ class Game {
 
     if (input.wasPressed('toggleHelp')) this.hud.toggleHelp();
     if (input.wasPressed('mute')) this.hud.toast(this.audio.toggleMute() ? 'Звук выключен' : 'Звук включён', 1.2);
-    if (!this.paused) {
+    if (input.wasPressed('jobs') && !this.paused) this.gangMenu.toggle();
+    if (!this.paused && !this.menuOpen) {
       this.cameraRig.handleInput(frameTime);
       if (input.wasPressed('interact')) this._toggleVehicle();
       if (input.wasPressed('squad')) this.squad.toggle();
@@ -252,7 +262,9 @@ class Game {
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
       this.pickups.update(frameTime);
-      this.banks.update(frameTime);
+      this.heists.update(frameTime);
+      this.turf.update(frameTime);
+      this.missions.update(frameTime);
       this.effects.update(frameTime);
       this.save.update(frameTime);
       if (this.downState && (this.downState.timer -= frameTime) <= 0) this._respawn();
@@ -281,7 +293,7 @@ class Game {
   resume() {
     this.paused = false;
     this.clock.getDelta();
-    this.input.requestPointerLock();
+    if (!this.menuOpen) this.input.requestPointerLock();
     this.events.emit('game:resume');
   }
 }
@@ -323,10 +335,12 @@ try {
   let hadLock = false;
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement) hadLock = true;
-    else if (hadLock && !game.paused) game.pause();
+    else if (hadLock && !game.paused && !game.menuOpen) game.pause();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && !game.paused) {
+    if (e.code === 'Escape' && game.menuOpen) {
+      game.gangMenu.toggle(false); // Esc сначала закрывает меню банды
+    } else if (e.code === 'Escape' && !game.paused) {
       document.exitPointerLock?.();
       game.pause();
     }
@@ -334,7 +348,7 @@ try {
   });
   // Клик по игре без захвата мыши — повторно запросить pointer lock.
   game.renderer.domElement.addEventListener('click', () => {
-    if (!game.paused && !document.pointerLockElement) game.input.requestPointerLock();
+    if (!game.paused && !game.menuOpen && !document.pointerLockElement) game.input.requestPointerLock();
   });
 } catch (err) {
   console.error(err);
