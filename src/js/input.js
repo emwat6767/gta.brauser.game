@@ -23,6 +23,9 @@ export const BINDINGS = {
   weaponPistol: ['Digit2'],
   weaponShotgun: ['Digit3'],
   weaponSmg: ['Digit4'],
+  roll: ['KeyG'],                     // крутить питомца
+  autoRoll: ['KeyN'],
+  petsMenu: ['KeyB'],
   mute: ['KeyM'],
   toggleHelp: ['KeyH'],
 };

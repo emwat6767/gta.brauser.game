@@ -146,4 +146,24 @@ export class SoundSystem {
     this._tone({ when, duration: 0.09, freq: 660, freqEnd: 700, type: 'square', gain: 0.18 });
     this._tone({ when: when + 0.08, duration: 0.14, freq: 990, freqEnd: 1000, type: 'square', gain: 0.18 });
   }
+
+  // Лента остановилась: короткий "дзынь".
+  chime() {
+    if (!this.ctx || this.muted) return;
+    const when = this.ctx.currentTime;
+    this._tone({ when, duration: 0.16, freq: 1320, freqEnd: 1320, type: 'triangle', gain: 0.22 });
+  }
+
+  // Выпал редкий питомец: арпеджио, тем длиннее и выше, чем реже шанс.
+  fanfare(odds) {
+    if (!this.ctx || this.muted) return;
+    const when = this.ctx.currentTime;
+    const steps = Math.min(8, 3 + Math.floor(Math.log10(odds)));
+    const scale = [0, 4, 7, 12, 16, 19, 24, 28];
+    for (let i = 0; i < steps; i++) {
+      const f = 523 * Math.pow(2, scale[i] / 12);
+      this._tone({ when: when + i * 0.09, duration: i === steps - 1 ? 0.6 : 0.14, freq: f, freqEnd: f, type: 'square', gain: 0.14 });
+      this._tone({ when: when + i * 0.09, duration: 0.12, freq: f * 2, freqEnd: f * 2, type: 'triangle', gain: 0.08 });
+    }
+  }
 }

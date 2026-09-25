@@ -19,13 +19,17 @@ import { RoadNetwork, TrafficManager } from './traffic.js';
 import { Effects } from './effects.js';
 import { SoundSystem } from './audio.js';
 import { PickupSystem } from './pickups.js';
+import { Wallet, SaveSystem } from './economy.js';
+import { PetSystem } from './pets.js';
+import { PetsUI } from './ui/pets-ui.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
 //   2. симуляция фиксированными подшагами:
 //      player -> vehicles -> npcs -> gangs -> wanted -> traffic -> interactions
-//   3. камера, солнце/тени, рендер, HUD, миникарта, сенсорные кнопки
-//   4. "ПОТРАЧЕНО"/"АРЕСТОВАН" -> через несколько секунд возрождение
+//   3. питомцы (крутки, доход, следование), автосохранение
+//   4. камера, солнце/тени, рендер, HUD, миникарта, сенсорные кнопки
+//   5. "ПОТРАЧЕНО"/"АРЕСТОВАН" -> через несколько секунд возрождение
 // Все системы получают ссылку на game и обращаются друг к другу через неё.
 
 const SKY = { top: 0x3f86d8, horizon: 0xd3e2ec, bottom: 0xa7b3ba };
@@ -60,11 +64,17 @@ class Game {
     this.traffic = new TrafficManager(this);
     this.wanted = new WantedSystem(this);
     this.pickups = new PickupSystem(this);
+    this.wallet = new Wallet(this);
+    this.pets = new PetSystem(this);
+    this.save = new SaveSystem(this);
+    this.save.load();
     this.downState = null; // { kind: 'wasted' | 'busted', timer }
     this.cameraRig = new CameraRig(this);
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
     this.touch = new TouchControls(this);
+    this.petsUI = new PetsUI(this);
+    this.menuOpen = false; // открыто меню питомцев (игра идёт, мышь отпущена)
 
     this.paused = true;
     this.clock = new THREE.Clock();
@@ -235,11 +245,16 @@ class Game {
     if (!this.paused) {
       this.cameraRig.handleInput(frameTime);
       if (input.wasPressed('interact')) this._toggleVehicle();
+      if (input.wasPressed('roll')) this.pets.startRoll();
+      if (input.wasPressed('autoRoll')) this.petsUI.toggleAuto();
+      if (input.wasPressed('petsMenu')) this.petsUI.toggleMenu();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
       this.pickups.update(frameTime);
       this.effects.update(frameTime);
+      this.pets.update(frameTime);
+      this.save.update(frameTime);
       if (this.downState && (this.downState.timer -= frameTime) <= 0) this._respawn();
     }
 
@@ -249,6 +264,7 @@ class Game {
     this.renderer.render(this.scene, this.camera);
     this.hud.update(frameTime);
     this.minimap.update(frameTime);
+    this.petsUI.update(frameTime);
     this.touch.update();
     input.endFrame();
   }
@@ -266,7 +282,7 @@ class Game {
   resume() {
     this.paused = false;
     this.clock.getDelta();
-    this.input.requestPointerLock();
+    if (!this.menuOpen) this.input.requestPointerLock();
     this.events.emit('game:resume');
   }
 }
@@ -308,10 +324,12 @@ try {
   let hadLock = false;
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement) hadLock = true;
-    else if (hadLock && !game.paused) game.pause();
+    else if (hadLock && !game.paused && !game.menuOpen) game.pause();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && !game.paused) {
+    if (e.code === 'Escape' && game.menuOpen) {
+      game.petsUI.toggleMenu(false); // Esc сначала закрывает меню питомцев
+    } else if (e.code === 'Escape' && !game.paused) {
       document.exitPointerLock?.();
       game.pause();
     }
@@ -319,7 +337,7 @@ try {
   });
   // Клик по игре без захвата мыши — повторно запросить pointer lock.
   game.renderer.domElement.addEventListener('click', () => {
-    if (!game.paused && !document.pointerLockElement) game.input.requestPointerLock();
+    if (!game.paused && !game.menuOpen && !document.pointerLockElement) game.input.requestPointerLock();
   });
 } catch (err) {
   console.error(err);
