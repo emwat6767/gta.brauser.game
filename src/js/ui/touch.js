@@ -226,17 +226,26 @@ export class TouchControls {
     if (this.joyId !== null && ((this._sawTouch && this.touchCount === 0) || this.game.menuOpen)) this._endJoystick();
     const p = this.game.player;
     const inCar = !!p.vehicle;
-    const gun = inCar || p.isDead ? null : p.gun;
-    this._setLabel('jump', inCar ? 'РУЧНИК' : 'ПРЫЖОК');
-    this._setLabel('attack', inCar || p.isDead ? '' : gun ? 'ОГОНЬ' : 'УДАР');
+    const mode = this.game.powers?.mode ?? 'normal';
+    const gun = inCar || p.isDead || mode !== 'normal' ? null : p.gun;
+    this._setLabel('jump', inCar ? 'РУЧНИК' : mode === 'ironman' ? 'ВЗЛЁТ' : 'ПРЫЖОК');
+    this._setLabel('attack', inCar || p.isDead ? '' : mode === 'ironman' ? 'ЗАЛП' : gun ? 'ОГОНЬ' : 'УДАР');
+    this._setLabel('power', p.isDead ? '' : { normal: 'СИЛА', hulk: 'ХАЛК', ironman: 'ЖЕЛЕЗН.' }[mode]);
+    this._setLabel('descend', mode === 'ironman' && !inCar && this.game.powers.flying ? 'ВНИЗ' : '');
     this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
     this._setLabel('reload', gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
     this._setLabel('squad', p.isDead ? '' : this.game.squad.size ? 'ОТПУСТ.' : 'БАНДА');
     this._setLabel('jobs', p.isDead ? '' : this.game.missions.active ? 'ЦЕЛЬ' : 'ЗАДАНИЯ');
-    this._setLabel('weapon', inCar || p.isDead ? '' : SHORT_NAMES[p.arsenal.current]);
+    this._setLabel('weapon', inCar || p.isDead || mode !== 'normal' ? '' : SHORT_NAMES[p.arsenal.current]);
     if (!gun && this.input.virtualDown.has('aim')) this.setToggle('aim', false);
     const v = inCar ? null : p.findEnterableVehicle();
     const bank = inCar || v ? null : this.game.heists?.canStart();
-    this._setLabel('interact', inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : bank ? 'ГРАБИТЬ' : '');
+    let interact = inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : bank ? 'ГРАБИТЬ' : '';
+    if (mode === 'hulk' && !inCar) {
+      const car = this.game.powers.carried ? 'БРОСИТЬ'
+        : this.game.vehicles.some((c) => !c.carried && c.distanceToPoint(p.position.x, p.position.z) < 3.2) ? 'ПОДНЯТЬ' : '';
+      interact = car || (bank ? 'ГРАБИТЬ' : '');
+    }
+    this._setLabel('interact', interact);
   }
 }

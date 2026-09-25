@@ -33,6 +33,21 @@ export class CollisionGrid {
     return box;
   }
 
+  // Убрать препятствие (сломанный фонарь).
+  remove(box) {
+    const i = this.all.indexOf(box);
+    if (i >= 0) this.all.splice(i, 1);
+    const x0 = this._cell(box.minX, this.minX), x1 = this._cell(box.maxX, this.minX);
+    const z0 = this._cell(box.minZ, this.minZ), z1 = this._cell(box.maxZ, this.minZ);
+    for (let z = z0; z <= z1; z++) {
+      for (let x = x0; x <= x1; x++) {
+        const cell = this.cells[z * this.cols + x];
+        const k = cell ? cell.indexOf(box) : -1;
+        if (k >= 0) cell.splice(k, 1);
+      }
+    }
+  }
+
   // Возвращает переиспользуемый массив — обходите его сразу, не сохраняйте.
   query(minX, minZ, maxX, maxZ) {
     const out = this._result;

@@ -26,6 +26,11 @@ export class CameraRig {
     this.aiming = false;
     this.aimBlend = 0;
     this.recoil = 0;      // временный подброс (возвращается)
+    this.shake = 0;       // тряска (удары Халка, взрывы)
+  }
+
+  addShake(amount) {
+    this.shake = Math.min(1, this.shake + amount);
   }
 
   addRecoil(amount) {
@@ -66,7 +71,9 @@ export class CameraRig {
         this.yaw = dampAngle(this.yaw, vehicle.heading, C.autoAlignRate, dt);
       }
     } else {
-      this._target.set(player.position.x, player.visualY + C.targetHeightOnFoot, player.position.z);
+      // Халк выше — камера выше и дальше.
+      const s = this.game.powers?.mods.scale ?? 1;
+      this._target.set(player.position.x, player.visualY + C.targetHeightOnFoot * s, player.position.z);
     }
 
     if (!this.initialized) {
@@ -88,7 +95,9 @@ export class CameraRig {
     const shoulder = vehicle ? 0 : C.shoulderOffset + (C.aimShoulder - C.shoulderOffset) * ab;
     const look = this._look.set(this.pivot.x + rx * shoulder, this.pivot.y, this.pivot.z + rz * shoulder);
 
-    const base = (vehicle ? C.distanceVehicle : C.distanceOnFoot) * this.zoom;
+    const scale = vehicle ? 1 : this.game.powers?.mods.scale ?? 1;
+    const flying = !vehicle && this.game.powers?.flying;
+    const base = (vehicle ? C.distanceVehicle : C.distanceOnFoot * (1 + (scale - 1) * 0.8) * (flying ? 1.5 : 1)) * this.zoom;
     const wanted = base + (C.aimDistance - base) * ab;
     const pitch = clamp(this.pitch - this.recoil, C.pitchMin, C.pitchMax);
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -109,6 +118,14 @@ export class CameraRig {
     const minY = world.getGroundHeight(pos.x, pos.z) + 0.35;
     if (pos.y < minY) pos.y = minY;
 
+    // Тряска: случайный сдвиг, быстро затухает.
+    if (this.shake > 0.001) {
+      const a = this.shake * this.shake * 0.6;
+      pos.x += (Math.random() - 0.5) * a;
+      pos.y += (Math.random() - 0.5) * a;
+      pos.z += (Math.random() - 0.5) * a;
+      this.shake = damp(this.shake, 0, 5, dt);
+    }
     this.camera.position.copy(pos);
     this.camera.lookAt(look);
 

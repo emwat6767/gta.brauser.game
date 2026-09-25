@@ -140,6 +140,8 @@ export class HUD {
 
   // Реплика над объектом с полем position (NPC, игрок).
   say(entity, text, duration = 1.8) {
+    // Реплики дальних людей не показываем — иначе экран в облачках.
+    if (entity !== this.game.player && entity.position.distanceToSquared(this.game.player.position) > 45 * 45) return;
     const old = this.bubbles.find((b) => b.entity === entity);
     if (old) this._removeBubble(old);
     const el = document.createElement('div');
@@ -190,21 +192,25 @@ export class HUD {
     if (this._zoneTimer > 0 && (this._zoneTimer -= dt) <= 0) this.zoneEl.classList.remove('show');
 
     // Оружие: название, патроны (магазин / запас), перезарядка, перекрестье.
-    const gun = player.gun;
-    const wText = gun ? `${gun.def.name}|${gun.mag}|${gun.reserve}` : 'fists';
+    const powers = this.game.powers;
+    const superMode = powers && powers.mode !== 'normal';
+    const gun = superMode ? null : player.gun;
+    const wText = superMode ? powers.mode : gun ? `${gun.def.name}|${gun.mag}|${gun.reserve}` : 'fists';
     if (wText !== this._weaponText) {
       this._weaponText = wText;
-      this.weaponNameEl.textContent = gun ? gun.def.name : 'Кулаки';
-      this.weaponAmmoEl.textContent = !gun ? '' : gun.bottomless ? '∞' : `${gun.mag} | ${gun.reserve}`;
+      this.weaponNameEl.textContent = superMode ? powers.name : gun ? gun.def.name : 'Кулаки';
+      this.weaponNameEl.style.color = superMode ? powers.color : '';
+      this.weaponAmmoEl.textContent = superMode ? 'СИЛА' : !gun ? '' : gun.bottomless ? '∞' : `${gun.mag} | ${gun.reserve}`;
       this.weaponAmmoEl.classList.toggle('empty', !!gun && gun.mag === 0);
     }
     this.reloadBar.classList.toggle('hidden', !gun?.reloading);
     if (gun?.reloading) this.reloadFill.style.width = `${Math.round(gun.reloadProgress * 100)}%`;
-    const showCross = !!gun && !player.vehicle && !player.isDead &&
+    const ironman = powers?.mode === 'ironman';
+    const showCross = (!!gun || ironman) && !player.vehicle && !player.isDead &&
       (player.aiming || player.shootTimer > 0 || this.game.input.touchActive || this.game.input.pointerLocked);
     this.crosshair.classList.toggle('hidden', !showCross);
     if (showCross) {
-      const px = 3 + gun.spread(player.horizontalSpeed > 0.5) * (player.aiming ? 0.45 : 1) * window.innerHeight * 0.9;
+      const px = gun ? 3 + gun.spread(player.horizontalSpeed > 0.5) * (player.aiming ? 0.45 : 1) * window.innerHeight * 0.9 : 6;
       this.crosshair.style.setProperty('--gap', `${Math.min(40, px).toFixed(1)}px`);
     }
     this._hitTimer = Math.max(0, this._hitTimer - dt);
@@ -222,7 +228,10 @@ export class HUD {
     // Подсказка взаимодействия.
     let prompt = '';
     if (player.vehicle) prompt = '<b>E</b> — выйти из машины';
-    else {
+    else if (powers?.mode === 'hulk') {
+      prompt = powers.carried ? '<b>F</b> или <b>E</b> — бросить машину' : this.game.heists?.prompt() || '';
+      if (!prompt && this.game.vehicles.some((v) => !v.carried && v.distanceToPoint(player.position.x, player.position.z) < 3.2)) prompt = '<b>E</b> — поднять машину';
+    } else {
       const v = player.findEnterableVehicle();
       if (v) prompt = v.driver ? '<b>E</b> — угнать машину' : '<b>E</b> — сесть в машину';
       else prompt = this.game.heists?.prompt() ?? '';

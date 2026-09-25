@@ -360,6 +360,23 @@ body.touch #touch {
   border-color: rgba(160, 255, 170, 0.7);
 }
 
+#touch .tbtn-power {
+  top: calc(172px + env(safe-area-inset-top, 0px));
+  right: calc(8px + env(safe-area-inset-right, 0px));
+  width: 50px;
+  height: 50px;
+  font-size: 9px;
+  background: rgba(120, 60, 200, 0.55);
+  border-color: rgba(210, 180, 255, 0.75);
+}
+
+#touch .tbtn-descend {
+  right: calc(116px + env(safe-area-inset-right, 0px));
+  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  width: 62px;
+  height: 62px;
+}
+
 #touch .tbtn-jobs {
   top: calc(116px + env(safe-area-inset-top, 0px));
   right: calc(8px + env(safe-area-inset-right, 0px));
@@ -741,6 +758,7 @@ body.touch #weapon-ammo {
   #touch .tbtn-attack { right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); width: 80px; height: 80px; }
   #touch .tbtn-jump { right: calc(104px + env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
   #touch .tbtn-aim { right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(114px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
+  #touch .tbtn-descend { right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(114px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
   #touch .tbtn-reload { right: calc(94px + env(safe-area-inset-right, 0px)); bottom: calc(86px + env(safe-area-inset-bottom, 0px)); width: 52px; height: 52px; }
   #touch .tbtn-weapon { right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(184px + env(safe-area-inset-bottom, 0px)); width: 52px; height: 52px; }
   #touch .tbtn-interact { right: calc(88px + env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }

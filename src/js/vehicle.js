@@ -6,6 +6,9 @@ import { clamp, damp, moveTowards } from './utils.js';
 // Машина: mid-poly модель из примитивов + аркадная физика ("велосипедная" модель
 // поворота, боковое сцепление, ручник/занос, отскок от стен).
 // Для коллизий машина — 3 круга вдоль продольной оси (см. CONFIG.vehicle).
+// Повреждения: health падает от пуль, аварий и взрывов; ниже трети — дымит, ноль — взрыв
+// (explode), машина выгорает. launch() подбрасывает машину (удар Халка, взрыв) — она летит
+// по баллистике, кувыркаясь, и падает с ударом. carried — машину держит Халк (powers.js).
 //
 // Локальные оси модели: +Z — вперёд, +X — влево (там водительская дверь), +Y — вверх.
 
@@ -210,6 +213,10 @@ export class Vehicle {
     this.circleOffsets = V.circleOffsets;
     this.seatHipHeight = 0.5;
     this.parked = false;     // стоит у бордюра без водителя (traffic.js)
+    this.health = this.spec.height > 1.8 ? 160 : 110;
+    this.wrecked = false;    // взорвалась и выгорела
+    this.air = null;         // в полёте: { vy, roll, rollSpeed }
+    this.carried = false;
     this.color = color;
     this.circles = this.circleOffsets.map(() => ({ x: 0, z: 0 }));
     this._pitch = 0;
@@ -373,9 +380,84 @@ export class Vehicle {
     return c;
   }
 
+  // Подбросить: к скорости добавляется (vx, vz), вверх vy, вращение spin (рад/с) вокруг продольной оси.
+  launch(vx, vy, vz, spin = 0) {
+    this.velocity.x += vx;
+    this.velocity.z += vz;
+    if (vy <= 0.5 && !this.air) return;
+    this.air ??= { vy: 0, roll: this._roll, rollSpeed: 0 };
+    this.air.vy += vy;
+    this.air.rollSpeed += spin;
+  }
+
+  // Урон машине; by — кто виноват (для взрыва).
+  damage(amount, by = null) {
+    if (this.wrecked || amount <= 0) return;
+    this.health -= amount;
+    if (this.health <= 0) this.explode(by);
+  }
+
+  // Взрыв: огонь, ударная волна, люди внутри погибают, машина выгорает и подлетает.
+  explode(by = null) {
+    if (this.wrecked) return;
+    const { game } = this;
+    this.wrecked = true;
+    this.health = 0;
+    const p = this.position.clone();
+    p.y += 1;
+    game.effects.explosion(p, 1);
+    game.audio.explosion?.(p);
+    const occupants = [this.driver, ...this.passengers].filter(Boolean);
+    for (const o of occupants) {
+      if (o === game.player) {
+        o.exitVehicle();
+        o.takeDamage(70, by, 0, 0, 'blast');
+      } else {
+        o.exitVehicle();
+        o.takeDamage(999, by, 0, 0, 'blast');
+      }
+    }
+    this.ai = null;
+    this.sirenOn = false;
+    this.paintMat.color.set(0x1d1b19);
+    this.paintMat.metalness = 0.1;
+    this.paintMat.roughness = 0.9;
+    this.tailMat.emissiveIntensity = 0;
+    this.burn = 12;
+    game.chaos?.blast(this.position, 7, 90, 15, by, { ignore: this });
+    this.launch(0, 7, 0, (Math.random() - 0.5) * 3);
+    game.events.emit('vehicle:exploded', { vehicle: this, by });
+  }
+
   update(dt) {
     const V = CONFIG.vehicle;
     const T = this.spec;
+    if (this.carried) {
+      this._syncVisual(0);
+      return;
+    }
+    // Дым и огонь (повреждена / горит) — только рядом с игроком.
+    if ((this.health < 35 || this.burn > 0) && this.position.distanceToSquared(this.game.player.position) < 90 * 90) {
+      if (this.burn > 0) this.burn -= dt;
+      if (Math.random() < dt * (this.burn > 0 ? 18 : 5)) {
+        const hood = this.localToWorld2D(0, 1.6);
+        this.game.effects.burst({ x: hood.x, y: this.position.y + 1.1, z: hood.z }, { x: 0, y: 0.8, z: 0 }, this.burn > 0 ? 'fire' : 'dust', 1);
+      }
+    }
+    if (this.air) {
+      this._updateAir(dt);
+      return;
+    }
+    if (this.wrecked) {
+      // Выгоревшая машина — просто скатывается и стоит.
+      this.velocity.multiplyScalar(Math.exp(-3 * dt));
+      this.position.x += this.velocity.x * dt;
+      this.position.z += this.velocity.z * dt;
+      this._collideWorld();
+      this.forwardSpeed = 0;
+      this._syncVisual(dt);
+      return;
+    }
     const { throttle, steer: steerInput, handbrake } = this._readControls(dt);
     const maxSpeed = V.maxSpeed * T.speed * (this.boost ?? 1);
 
@@ -427,6 +509,43 @@ export class Vehicle {
     this._syncVisual(dt);
   }
 
+  // Полёт после удара/взрыва: баллистика, кувырок, удар о землю.
+  _updateAir(dt) {
+    const a = this.air;
+    const g = CONFIG.physics.gravity;
+    this.position.x += this.velocity.x * dt;
+    this.position.z += this.velocity.z * dt;
+    a.vy -= g * dt;
+    this.position.y += a.vy * dt;
+    a.roll += a.rollSpeed * dt;
+    this.spin *= Math.exp(-1 * dt);
+    this.heading += this.spin * dt;
+    this._collideWorld();
+    const ground = this.game.world.getGroundHeight(this.position.x, this.position.z);
+    if (this.position.y <= ground && a.vy < 0) {
+      const impact = -a.vy;
+      this.position.y = ground;
+      this.air = null;
+      // Кувырок заканчивается на колёсах (упрощение), скорость гасится.
+      this._roll = 0;
+      this.velocity.multiplyScalar(0.55);
+      this.forwardSpeed = this.velocity.x * Math.sin(this.heading) + this.velocity.z * Math.cos(this.heading);
+      if (impact > 6) {
+        const p = this.position.clone();
+        this.game.effects.burst(p, { x: 0, y: 1, z: 0 }, 'dust', Math.min(30, impact * 2));
+        this.game.effects.burst(p, { x: 0, y: 1, z: 0 }, 'debris', Math.min(16, impact));
+        this.damage((impact - 6) * 4, this.thrownBy);
+        if (impact > 9) this.game.chaos?.blast(p, 3.5, impact * 2, impact * 0.7, this.thrownBy ?? null, { ignore: this });
+        this.game.audio.slam?.(p, Math.min(1, impact / 20));
+      }
+      this.thrownBy = null;
+    }
+    this.root.position.copy(this.position);
+    this.root.rotation.y = this.heading;
+    this.body.rotation.set(0, 0, a.roll);
+    this.updateCircles();
+  }
+
   _collideWorld() {
     const world = this.game.world;
     for (const off of this.circleOffsets) {
@@ -452,6 +571,7 @@ export class Vehicle {
     this.velocity.z = (this.velocity.z + nz * j) * V.wallFriction;
     this.spin += (nx * j * pz - nz * j * px) * V.impactSpin;
     if (j > 3) this.game.events.emit('vehicle:crash', { vehicle: this, impulse: j, other });
+    if (j > 9) this.damage((j - 9) * 3, this.driver);
     return j;
   }
 

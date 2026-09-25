@@ -358,12 +358,18 @@ export class TrafficManager {
     const { world, rng } = this.game;
     const L = world.roadLines;
     const off = world.roadHalf - 1.4;
+    // Только улицы и отрезки, которые вообще могут попасть в кольцо.
+    const near = (v, c) => Math.abs(v - c) < maxR + 10;
+    const lines = (c) => L.map((v, i) => i).filter((i) => near(L[i], c));
+    const segs = (c) => L.slice(0, -1).map((v, i) => i).filter((i) => L[i + 1] > c - maxR && L[i] < c + maxR);
     for (let attempt = 0; attempt < 60; attempt++) {
-      const k = rng.int(0, L.length - 1);
-      const b = rng.int(0, L.length - 2);
+      const alongX = rng.chance(0.5);
+      const ks = lines(alongX ? from.z : from.x), bs = segs(alongX ? from.x : from.z);
+      if (!ks.length || !bs.length) continue;
+      const k = rng.pick(ks);
+      const b = rng.pick(bs);
       const u = L[b] + rng.range(22, world.blockSize - 22); // между перекрёстками
       const side = rng.chance(0.5) ? 1 : -1;
-      const alongX = rng.chance(0.5);
       // Правостороннее движение: у края +Z едут на +X, у края −X — на +Z.
       const spot = alongX
         ? { x: u, z: L[k] + side * off, heading: side > 0 ? Math.PI / 2 : -Math.PI / 2 }

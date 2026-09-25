@@ -157,6 +157,41 @@ export class SoundSystem {
     this._tone({ when: when + 0.42, duration: 0.4, freq: 720, freqEnd: 700, type: 'square', gain: g, pan });
   }
 
+  // Взрыв: низкий удар + шипение.
+  explosion(position) {
+    if (!this.ctx || this.muted) return;
+    const { gain, pan, muffle } = this._place(position);
+    const when = this.ctx.currentTime;
+    this._tone({ when, duration: 0.7, freq: 70, freqEnd: 25, gain: 2.2 * gain, pan });
+    this._noise({ when, duration: 1.2, type: 'lowpass', freq: 900 * muffle + 200, gain: 1.6 * gain, pan, attack: 0.005 });
+  }
+
+  // Удар о землю / тяжёлый удар (k 0..1 — сила).
+  slam(position, k = 1) {
+    if (!this.ctx || this.muted) return;
+    const { gain, pan } = this._place(position);
+    const when = this.ctx.currentTime;
+    this._tone({ when, duration: 0.35 + k * 0.3, freq: 90, freqEnd: 30, gain: (0.8 + k) * gain, pan });
+    this._noise({ when, duration: 0.25 + k * 0.3, type: 'lowpass', freq: 500, gain: (0.5 + k) * gain, pan });
+  }
+
+  // Залп репульсора.
+  zap(position) {
+    if (!this.ctx || this.muted) return;
+    const { gain, pan } = this._place(position);
+    const when = this.ctx.currentTime;
+    this._tone({ when, duration: 0.18, freq: 1800, freqEnd: 300, type: 'sawtooth', gain: 0.25 * gain, pan });
+    this._noise({ when, duration: 0.12, type: 'highpass', freq: 3000, gain: 0.4 * gain, pan });
+  }
+
+  // Включение суперсилы.
+  powerUp(mode) {
+    if (!this.ctx || this.muted) return;
+    const when = this.ctx.currentTime;
+    if (mode === 'hulk') this._tone({ when, duration: 0.6, freq: 110, freqEnd: 55, type: 'sawtooth', gain: 0.5 });
+    else this._tone({ when, duration: 0.4, freq: 300, freqEnd: 1200, type: 'triangle', gain: 0.3 });
+  }
+
   // Успех (ограбление удалось): восходящее арпеджио.
   fanfare(steps = 6) {
     if (!this.ctx || this.muted) return;

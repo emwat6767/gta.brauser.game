@@ -13,7 +13,9 @@ export function resolveInteractions(game) {
 
   // --- Машина <-> машина ---
   for (let a = 0; a < vehicles.length; a++) {
+    if (vehicles[a].carried) continue;
     for (let b = a + 1; b < vehicles.length; b++) {
+      if (vehicles[b].carried) continue;
       vehicleVsVehicle(vehicles[a], vehicles[b]);
     }
   }
@@ -24,7 +26,8 @@ export function resolveInteractions(game) {
 
   // --- Машина <-> пешеходы ---
   for (const v of vehicles) {
-    if (player.isOnFoot) vehicleVsPlayer(v, player);
+    if (player.isOnFoot && Math.abs(v.position.y - player.position.y) < 2.5) vehicleVsPlayer(v, player);
+    if (v.carried) continue;
     for (const npc of near) vehicleVsNpc(v, npc);
   }
 
@@ -62,6 +65,10 @@ function vehicleVsVehicle(a, b) {
         a.spin += (-hit.nx * j * (ca.z - a.position.z) + hit.nz * j * (ca.x - a.position.x)) * V.impactSpin;
         b.spin += (hit.nx * j * (cb.z - b.position.z) - hit.nz * j * (cb.x - b.position.x)) * V.impactSpin;
         if (j > 2) a.game.events.emit('vehicle:crash', { vehicle: a, impulse: j, other: b });
+        if (j > 6) {
+          a.damage((j - 6) * 2.5, b.driver);
+          b.damage((j - 6) * 2.5, a.driver);
+        }
       }
       a.updateCircles();
       b.updateCircles();
@@ -70,9 +77,24 @@ function vehicleVsVehicle(a, b) {
 }
 
 function vehicleVsPlayer(v, player) {
+  const hulk = player.game.powers?.mode === 'hulk';
   for (const c of v.circles) {
-    const hit = separateCircles({ x: c.x, z: c.z }, v.radius, player.position, player.radius, 0, 1);
+    if (v.carried) return;
+    // Халк не сдвигается: машина отскакивает от него, как от стены.
+    const hit = hulk ? separateCircles({ x: c.x, z: c.z }, v.radius, player.position, player.radius, 1, 0)
+      : separateCircles({ x: c.x, z: c.z }, v.radius, player.position, player.radius, 0, 1);
     if (!hit) continue;
+    if (hulk) {
+      const vn = v.velocity.x * hit.nx + v.velocity.z * hit.nz;
+      if (vn > 0) {
+        v.position.x -= hit.nx * 0.05;
+        v.position.z -= hit.nz * 0.05;
+        v.velocity.x -= 1.6 * vn * hit.nx;
+        v.velocity.z -= 1.6 * vn * hit.nz;
+        if (vn > 6) v.damage((vn - 6) * 3, player);
+      }
+      continue;
+    }
     const approach = v.velocity.x * hit.nx + v.velocity.z * hit.nz;
     if (approach > 4.5 && !player.isDown) {
       // Сбит машиной: урон и отлёт.

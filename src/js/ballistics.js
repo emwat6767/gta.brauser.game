@@ -169,6 +169,7 @@ export function fireShot(game, { shooter, origin, dir, weapon, spread = 0, damag
       }
     } else if (hit.kind === 'vehicle') {
       game.effects.burst(hit.point, hit.normal, 'spark', 5);
+      hit.vehicle.damage(def.damage * 0.35, shooter);
     } else {
       game.effects.burst(hit.point, hit.normal, hit.type === 'ground' ? 'dust' : hit.type === 'lamp' ? 'spark' : 'dust', 5);
     }

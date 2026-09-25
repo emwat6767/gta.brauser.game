@@ -28,6 +28,8 @@ import { TurfSystem } from './turf.js';
 import { MissionSystem } from './missions.js';
 import { GangMenu } from './ui/gang-menu.js';
 import { IncidentDirector } from './incidents.js';
+import { PowerSystem } from './powers.js';
+import { ChaosSystem } from './chaos.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
@@ -80,6 +82,8 @@ class Game {
     this.turf = new TurfSystem(this);
     this.missions = new MissionSystem(this);
     this.incidents = new IncidentDirector(this);
+    this.powers = new PowerSystem(this);
+    this.chaos = new ChaosSystem(this);
     this.pickups = new PickupSystem(this);
     this.wallet = new Wallet(this);
     this.save = new SaveSystem(this);
@@ -243,6 +247,9 @@ class Game {
     if (p.isDown || this.downState) return;
     if (p.vehicle) {
       p.exitVehicle();
+    } else if (this.powers.mode === 'hulk') {
+      // Халк не садится в машины — поднимает и бросает их (у банка — грабит).
+      if (!this.powers.grabOrThrow()) this.heists.tryStart();
     } else {
       const v = p.findEnterableVehicle();
       if (v) p.enterVehicle(v);
@@ -252,6 +259,7 @@ class Game {
 
   // Один шаг симуляции. Порядок важен: сначала все двигаются, потом разрешаются столкновения.
   _simulate(dt) {
+    this.powers.update(dt);
     this.player.update(dt);
     for (const v of this.vehicles) v.update(dt);
     this.npcs.update(dt);
@@ -259,6 +267,7 @@ class Game {
     this.squad.update(dt);
     this.wanted.update(dt);
     this.traffic.update(dt);
+    this.chaos.update(dt);
     resolveInteractions(this);
   }
 
@@ -273,6 +282,7 @@ class Game {
       this.cameraRig.handleInput(frameTime);
       if (input.wasPressed('interact')) this._toggleVehicle();
       if (input.wasPressed('squad')) this.squad.toggle();
+      if (input.wasPressed('power')) this.powers.cycle();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);

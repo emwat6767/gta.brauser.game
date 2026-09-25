@@ -310,7 +310,8 @@ export class Humanoid {
   // state: {
   //   speed      — горизонтальная скорость, м/с (для цикла шага)
   //   airborne   — в прыжке/падении
-  //   pose       — 'normal' | 'sit' | 'stumble' | 'down'
+  //   pose       — 'normal' | 'sit' | 'stumble' | 'down' | 'fly' (полёт: ноги вместе, руки назад)
+  //   lean       — наклон корпуса вперёд, рад (полёт)
   //   fall       — 0..1, насколько тело лежит (для 'down')
   //   sitHeight  — высота бедра над root в позе 'sit'
   //   guard      — кулаки подняты (режим драки)
@@ -325,7 +326,7 @@ export class Humanoid {
   animate(dt, state) {
     const {
       speed = 0, airborne = false, pose = 'normal', fall = 0, sitHeight = 0.5,
-      guard = false, attack = 0, attackSide = 1, aim = null, reload = 0, kick = 0, gesture = null,
+      guard = false, attack = 0, attackSide = 1, aim = null, reload = 0, kick = 0, gesture = null, lean = 0,
     } = state;
     const t = this.t;
     this.time += dt;
@@ -455,6 +456,18 @@ export class Humanoid {
       t.hipLx = -0.35; t.hipRx = 0.25;
       t.kneeL = 0.3; t.kneeR = 0.4;
       t.bodyY = -0.03;
+    } else if (pose === 'fly') {
+      t.hipLx = t.hipRx = 0.12;
+      t.hipLz = 0.04; t.hipRz = -0.04;
+      t.kneeL = t.kneeR = 0.12;
+      t.ankleL = t.ankleR = 0.5;
+      if (attack <= 0 && aim === null && gesture !== 'hands') {
+        t.shoulderLx = t.shoulderRx = 0.35;
+        t.shoulderLz = 0.25; t.shoulderRz = -0.25;
+        t.elbowL = t.elbowR = -0.15;
+      }
+      t.spineX = 0;
+      t.bodyY = 0;
     } else if (pose === 'down') {
       const f = clamp(fall, 0, 1);
       t.shoulderLz = 0.1 + 1.2 * f; t.shoulderRz = -0.1 - 1.2 * f;
@@ -491,7 +504,7 @@ export class Humanoid {
       this.body.rotation.x = -Math.PI / 2 * e;
       this.body.position.y = 0.15 * e;
     } else {
-      this.body.rotation.x = 0;
+      this.body.rotation.x = damp(this.body.rotation.x, lean, 8, dt);
       this.body.position.y = j.bodyY;
     }
 

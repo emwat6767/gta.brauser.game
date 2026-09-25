@@ -152,6 +152,17 @@ export class GangSystem {
     npc.idleTime = game.rng.range(0, 6);
     npc._enter(NPC_STATE.IDLE);
     this._assignRole(npc, gang);
+    // Охранник появляется сразу на своём посту (если пост не на глазах у игрока).
+    if (npc.post) {
+      const post = npc.post;
+      const px = post.node.x + Math.sin(npc.postAngle) * 1.2, pz = post.node.z + Math.cos(npc.postAngle) * 1.2;
+      if (!outOfView || (Math.hypot(px - p.x, pz - p.z) > 60 && !game.inView(px, 1, pz, 2))) {
+        npc.position.set(px, game.world.getGroundHeight(px, pz), pz);
+        npc.visualY = npc.position.y;
+        npc.heading = Math.atan2(post.node.x - px, post.node.z - pz);
+        npc.idleTime = game.rng.range(20, 60);
+      }
+    }
     gang.members.push(npc);
     return game.npcs.add(npc);
   }
@@ -232,9 +243,11 @@ export class GangSystem {
   _clash(m, enemy) {
     const { game } = this;
     if (enemy.role !== 'gang' || m.position.distanceTo(game.player.position) > 160) return;
+    // Идёт налёт этих же банд — у него свои новости, не дублируем.
+    if (this.raids.some((r) => (r.attacker.id === m.gang && r.defender.id === enemy.gang) || (r.attacker.id === enemy.gang && r.defender.id === m.gang))) return;
     const key = [m.gang, enemy.gang].sort().join('-');
     const t = this._time ?? 0;
-    if ((this._clashCooldown.get(key) ?? -99) > t - 25) return;
+    if ((this._clashCooldown.get(key) ?? -99) > t - 60) return;
     this._clashCooldown.set(key, t);
     const a = this.byId.get(m.gang), b = this.byId.get(enemy.gang);
     if (a && b) game.hud.news(`Перестрелка: ${a.name} против ${b.name}`, a.color);

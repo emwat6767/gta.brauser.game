@@ -157,6 +157,7 @@ export class NPC {
       else if (rng.chance(0.1)) this.walkSpeed = rng.range(0.85, 1.1); // пожилой/неспешный
     }
     this.activity = null; // жест в IDLE: 'phone' | 'talk' | null
+    this.phoneWalk = 0;   // > 0 — идёт, говоря по телефону (секунды)
     this.partner = null;  // собеседник (TALK)
     this.dest = null;     // куда идёт по своим делам (узел графа тротуаров)
     this.carTarget = null; // машина, к которой идёт (GOTO_CAR)
@@ -275,7 +276,13 @@ export class NPC {
     if (this.role !== 'civilian' && this.node === this.dest) this.dest = null;
     if (this.role === 'civilian') {
       if (!this.dest || this.node === this.dest || this.rng.chance(0.02)) this._pickDestination();
-      if (this.jogger || !this.rng.chance(this.node?.mid ? 0.1 : this.idleChance)) return false;
+      if (this.jogger || !this.rng.chance(this.node?.mid ? 0.1 : this.idleChance)) {
+        if (!this.jogger && !(this.phoneWalk > 0) && this.rng.chance(0.07)) {
+          this.phoneWalk = this.rng.range(8, 20); // идёт и говорит по телефону
+          this.say(this.rng.pick(LINES.phone));
+        }
+        return false;
+      }
       this.activity = this.rng.chance(0.4) ? 'phone' : null;
       this.idleTime = this.activity ? this.rng.range(5, 12) : this.rng.range(1.5, 5);
       if (this.activity) this.say(this.rng.pick(LINES.phone));
@@ -395,6 +402,7 @@ export class NPC {
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.talkCooldown = Math.max(0, this.talkCooldown - dt);
     this.panic = Math.max(0, this.panic - dt);
+    if (this.phoneWalk > 0) this.phoneWalk = this.panic > 0 ? 0 : this.phoneWalk - dt;
     if (this.hitStreakTimer > 0 && (this.hitStreakTimer -= dt) <= 0) this.hitStreak = 0;
 
     if (this.ragdoll) {
@@ -517,7 +525,9 @@ export class NPC {
       aim: this.shooting ? this.aimPitch : this.menace && this.state === NPC_STATE.IDLE ? 0.08 : null,
       reload: this.gun?.reloadProgress ?? 0,
       gesture: this.state === NPC_STATE.IDLE || this.state === NPC_STATE.TALK ? this.activity
-        : this.state === NPC_STATE.WALK && this.panic > 0 && this.role === 'civilian' && this.rng.chance(0.002) ? 'hands' : null,
+        : this.state !== NPC_STATE.WALK ? null
+        : this.phoneWalk > 0 ? 'phone'
+        : this.panic > 0 && this.role === 'civilian' && this.rng.chance(0.002) ? 'hands' : null,
     });
   }
 
@@ -1010,17 +1020,28 @@ export class NPCManager {
 
   // Двое прохожих рядом останавливаются поговорить.
   _pairTalks(time) {
-    const cand = this.list.filter((n) => (n.role === 'civilian' || (n.role === 'gang' && !n.follower)) && !n.lod &&
-      n.model.root.visible && (n.state === NPC_STATE.WALK || n.state === NPC_STATE.IDLE) &&
+    const cand = this.list.filter((n) => (n.role === 'civilian' || (n.role === 'gang' && !n.follower)) &&
+      n.model.root.visible && !n.vehicle && (n.state === NPC_STATE.WALK || n.state === NPC_STATE.IDLE) &&
       n.panic <= 0 && !n.jogger && (n._talkAgain ?? 0) < time);
     const rng = this.game.rng;
+    const world = this.game.world;
+    // Место встречи — на тротуаре: не на проезжей части и не в доме.
+    const bs = world.blockSize, h = world.roadHalf + 1.2;
+    const onRoad = (x, z) => {
+      const fx = (((x - world.gridMin) % bs) + bs) % bs, fz = (((z - world.gridMin) % bs) + bs) % bs;
+      return fx < h || fx > bs - h || fz < h || fz > bs - h;
+    };
     for (let i = 0; i < cand.length; i++) {
       const a = cand[i];
       for (let j = i + 1; j < cand.length; j++) {
         const b = cand[j];
         if (a.role !== b.role || a.gang !== b.gang) continue;
-        if (a.position.distanceToSquared(b.position) > 49 || !rng.chance(0.3)) continue;
+        const d2 = a.position.distanceToSquared(b.position);
+        if (d2 > 196 || !rng.chance(d2 < 49 ? 0.3 : 0.12)) continue;
         const mx = (a.position.x + b.position.x) / 2, mz = (a.position.z + b.position.z) / 2;
+        if (world.blockAt(a.position.x, a.position.z) !== world.blockAt(b.position.x, b.position.z) ||
+          onRoad(mx, mz) || onRoad(a.position.x, a.position.z) || onRoad(b.position.x, b.position.z) ||
+          world.isPointInsideBuilding(mx, 1, mz)) continue;
         const ang = Math.atan2(a.position.x - b.position.x, a.position.z - b.position.z);
         const T = rng.range(7, 16);
         a.startTalk(b, mx, mz, ang, T);
@@ -1037,8 +1058,9 @@ export class NPCManager {
     if (!parked.length) return;
     const rng = this.game.rng;
     for (const n of this.list) {
-      if (n.role !== 'civilian' || n.state !== NPC_STATE.WALK || n.panic > 0 || n.jogger || n.lod) continue;
-      const car = parked.find((v) => !v.driver && !v.removed && !v._claimed && v.position.distanceToSquared(n.position) < 14 * 14);
+      if (n.role !== 'civilian' || n.state !== NPC_STATE.WALK || n.panic > 0 || n.jogger) continue;
+      if (n.position.distanceToSquared(this.game.player.position) > 90 * 90) continue;
+      const car = parked.find((v) => !v.driver && !v.removed && !v._claimed && v.position.distanceToSquared(n.position) < 18 * 18);
       if (!car || !rng.chance(0.15)) continue;
       car._claimed = true;
       n.carTarget = car;

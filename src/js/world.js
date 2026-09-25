@@ -133,13 +133,15 @@ export class World {
 
   // Выталкивает круг из препятствий и границ мира. Меняет pos.
   // В out — суммарная нормаль столкновения. Возвращает true, если было касание.
-  resolveCircle(pos, radius, out = { nx: 0, nz: 0 }) {
+  // minY — высота низа объекта (летящий над крышами герой): препятствия ниже не мешают.
+  resolveCircle(pos, radius, out = { nx: 0, nz: 0 }, minY = -Infinity) {
     out.nx = 0;
     out.nz = 0;
     let hit = false;
     const tmp = this._tmpHit ??= { nx: 0, nz: 0, depth: 0 };
     const list = this.colliders.query(pos.x - radius, pos.z - radius, pos.x + radius, pos.z + radius);
     for (let i = 0; i < list.length; i++) {
+      if (list[i].height < minY) continue;
       if (pushCircleOutOfBox(pos, radius, list[i], tmp)) {
         hit = true;
         out.nx += tmp.nx;
@@ -671,7 +673,8 @@ export class World {
       m.rotation.set(0, l.rot, 0);
       m.updateMatrix();
       for (const mesh of meshes) mesh.setMatrixAt(i, m.matrix);
-      this.colliders.add({ minX: l.x - 0.14, maxX: l.x + 0.14, minZ: l.z - 0.14, maxZ: l.z + 0.14, height: 5.6, type: 'lamp' });
+      l.index = i;
+      l.collider = this.colliders.add({ minX: l.x - 0.14, maxX: l.x + 0.14, minZ: l.z - 0.14, maxZ: l.z + 0.14, height: 5.6, type: 'lamp' });
     });
     for (const mesh of meshes) {
       mesh.castShadow = true;
@@ -679,6 +682,17 @@ export class World {
       this.group.add(mesh);
     }
     this.lamps = lamps;
+    this.lampMeshes = meshes;
+  }
+
+  // Сломанный фонарь (chaos.js): убрать из инстансов и коллизий (вместо него падает отдельный меш).
+  hideLamp(lamp) {
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (const mesh of this.lampMeshes) {
+      mesh.setMatrixAt(lamp.index, zero);
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    this.colliders.remove(lamp.collider);
   }
 
   _buildTrees() {

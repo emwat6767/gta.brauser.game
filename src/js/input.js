@@ -25,6 +25,8 @@ export const BINDINGS = {
   weaponSmg: ['Digit4'],
   squad: ['KeyT'],                    // позвать банду / отпустить
   jobs: ['KeyJ'],                     // меню банды (задания, репутация, районы)
+  power: ['KeyX'],                    // суперсила: обычный → Халк → Железный человек
+  descend: ['KeyZ'],                  // Железный человек: вниз
   mute: ['KeyM'],
   toggleHelp: ['KeyH'],
 };
