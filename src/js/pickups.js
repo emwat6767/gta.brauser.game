@@ -113,14 +113,16 @@ export class PickupSystem {
           it.group.position.set(it.x, this.game.world.getGroundHeight(it.x, it.z), it.z);
         }
         if (d2 > r2) continue;
-        this.game.wallet.earn(it.ammo);
+        this.game.wallet.add(it.ammo);
         audio.pickup();
         this._remove(i);
         continue;
       }
       if (d2 > r2) continue;
       const isNew = player.giveWeapon(it.weapon, it.ammo);
-      hud.toast(`${isNew ? '' : '+ '}${CONFIG.weapons[it.weapon].name} (${it.ammo})`);
+      const name = CONFIG.weapons[it.weapon].name;
+      if (!CONFIG.player.infiniteAmmo) hud.toast(`${isNew ? '' : '+ '}${name} (${it.ammo})`);
+      else if (isNew) hud.toast(name);
       audio.pickup();
       if (it.persistent) {
         it.active = false;

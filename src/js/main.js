@@ -20,14 +20,14 @@ import { Effects } from './effects.js';
 import { SoundSystem } from './audio.js';
 import { PickupSystem } from './pickups.js';
 import { Wallet, SaveSystem } from './economy.js';
-import { PetSystem } from './pets.js';
-import { PetsUI } from './ui/pets-ui.js';
+import { Squad } from './squad.js';
+import { BankSystem } from './heists.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
 //   2. симуляция фиксированными подшагами:
-//      player -> vehicles -> npcs -> gangs -> wanted -> traffic -> interactions
-//   3. питомцы (крутки, доход, следование), автосохранение
+//      player -> vehicles -> npcs -> gangs -> squad -> wanted -> traffic -> interactions
+//   3. автосохранение денег
 //   4. камера, солнце/тени, рендер, HUD, миникарта, сенсорные кнопки
 //   5. "ПОТРАЧЕНО"/"АРЕСТОВАН" -> через несколько секунд возрождение
 // Все системы получают ссылку на game и обращаются друг к другу через неё.
@@ -63,9 +63,10 @@ class Game {
     this.gangs = new GangSystem(this);
     this.traffic = new TrafficManager(this);
     this.wanted = new WantedSystem(this);
+    this.squad = new Squad(this);
+    this.banks = new BankSystem(this);
     this.pickups = new PickupSystem(this);
     this.wallet = new Wallet(this);
-    this.pets = new PetSystem(this);
     this.save = new SaveSystem(this);
     this.save.load();
     this.downState = null; // { kind: 'wasted' | 'busted', timer }
@@ -73,8 +74,6 @@ class Game {
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
     this.touch = new TouchControls(this);
-    this.petsUI = new PetsUI(this);
-    this.menuOpen = false; // открыто меню питомцев (игра идёт, мышь отпущена)
 
     this.paused = true;
     this.clock = new THREE.Clock();
@@ -180,6 +179,7 @@ class Game {
   // Убрать машину из мира (водителя-NPC убирает вызывающий код).
   removeVehicle(vehicle) {
     if (vehicle.driver === this.player) return;
+    for (const n of vehicle.passengers) n?.exitPassenger();
     const i = this.vehicles.indexOf(vehicle);
     if (i >= 0) this.vehicles.splice(i, 1);
     vehicle.dispose();
@@ -222,6 +222,7 @@ class Game {
     } else {
       const v = p.findEnterableVehicle();
       if (v) p.enterVehicle(v);
+      else this.banks.tryStart();
     }
   }
 
@@ -231,6 +232,7 @@ class Game {
     for (const v of this.vehicles) v.update(dt);
     this.npcs.update(dt);
     this.gangs.update(dt);
+    this.squad.update(dt);
     this.wanted.update(dt);
     this.traffic.update(dt);
     resolveInteractions(this);
@@ -245,15 +247,13 @@ class Game {
     if (!this.paused) {
       this.cameraRig.handleInput(frameTime);
       if (input.wasPressed('interact')) this._toggleVehicle();
-      if (input.wasPressed('roll')) this.pets.startRoll();
-      if (input.wasPressed('autoRoll')) this.petsUI.toggleAuto();
-      if (input.wasPressed('petsMenu')) this.petsUI.toggleMenu();
+      if (input.wasPressed('squad')) this.squad.toggle();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
       this.pickups.update(frameTime);
+      this.banks.update(frameTime);
       this.effects.update(frameTime);
-      this.pets.update(frameTime);
       this.save.update(frameTime);
       if (this.downState && (this.downState.timer -= frameTime) <= 0) this._respawn();
     }
@@ -264,7 +264,6 @@ class Game {
     this.renderer.render(this.scene, this.camera);
     this.hud.update(frameTime);
     this.minimap.update(frameTime);
-    this.petsUI.update(frameTime);
     this.touch.update();
     input.endFrame();
   }
@@ -282,7 +281,7 @@ class Game {
   resume() {
     this.paused = false;
     this.clock.getDelta();
-    if (!this.menuOpen) this.input.requestPointerLock();
+    this.input.requestPointerLock();
     this.events.emit('game:resume');
   }
 }
@@ -324,12 +323,10 @@ try {
   let hadLock = false;
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement) hadLock = true;
-    else if (hadLock && !game.paused && !game.menuOpen) game.pause();
+    else if (hadLock && !game.paused) game.pause();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && game.menuOpen) {
-      game.petsUI.toggleMenu(false); // Esc сначала закрывает меню питомцев
-    } else if (e.code === 'Escape' && !game.paused) {
+    if (e.code === 'Escape' && !game.paused) {
       document.exitPointerLock?.();
       game.pause();
     }
@@ -337,7 +334,7 @@ try {
   });
   // Клик по игре без захвата мыши — повторно запросить pointer lock.
   game.renderer.domElement.addEventListener('click', () => {
-    if (!game.paused && !game.menuOpen && !document.pointerLockElement) game.input.requestPointerLock();
+    if (!game.paused && !document.pointerLockElement) game.input.requestPointerLock();
   });
 } catch (err) {
   console.error(err);

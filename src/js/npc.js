@@ -5,7 +5,8 @@ import { Melee } from './combat.js';
 import { Gun } from './weapons.js';
 import { fireShot, lineOfSight } from './ballistics.js';
 import { Ragdoll } from './ragdoll.js';
-import { damp, dampAngle, lerp, wrapAngle } from './utils.js';
+import { damp, dampAngle, lerp, wrapAngle, clamp } from './utils.js';
+import { PASSENGER_DOORS } from './vehicle.js';
 
 const _eye = new THREE.Vector3(), _aim = new THREE.Vector3(), _dir = new THREE.Vector3(), _muzzle = new THREE.Vector3();
 
@@ -23,6 +24,8 @@ function pickWeapon(rng, table) {
 //   civilian — гуляет по тротуарам, от ударов убегает
 //   gang     — бродит по своей территории (allowedNodes), даёт сдачи, зовёт своих
 //   police   — преследует игрока, пока есть розыск (см. wanted.js)
+// Бандит в отряде игрока (squad.js: follower = true, leader = игрок) ходит за ним (FOLLOW),
+// садится к нему в машину пассажиром и стреляет из окна.
 // Вооружённые NPC (оружие — по CONFIG.npc.roles[role].weapons) в драке стреляют,
 // если цель в прямой видимости и в пределах дальности; иначе бегут к ней.
 // Смерть — рэгдолл (ragdoll.js), оружие выпадает на землю (pickups.js).
@@ -38,8 +41,13 @@ export const NPC_STATE = {
   DOWN: 'down',       // сбит с ног
   GETUP: 'getup',
   DEAD: 'dead',
-  DRIVE: 'drive',     // сидит за рулём (модель прикреплена к сиденью машины)
+  DRIVE: 'drive',     // сидит в машине: за рулём или пассажиром (модель прикреплена к сиденью)
+  FOLLOW: 'follow',   // идёт за лидером (отряд игрока)
 };
+
+// Места в строю отряда: [вправо, назад] от игрока, м. По бокам, а не прямо за спиной —
+// иначе бойцы загораживают камеру.
+const FOLLOW_SLOTS = [[-2, 0.4], [2, 0.4], [-3.4, 1.4], [3.4, 1.4], [0, 3.2]];
 
 const PALETTE = {
   skin: ['#f1c9a5', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#a57257'],
@@ -56,6 +64,8 @@ export const LINES = {
   gangAggro: ['Вали с нашей улицы!', 'Ты попал!', 'Это наш район!', 'Бей его!'],
   gangHelp: ['Держись, братан!', 'Наших бьют!', 'Я с тобой!'],
   friendlyHit: ['Эй, свои!', 'Братан, ты чего?', 'Полегче!'],
+  squadJoin: ['Я с тобой!', 'Погнали!', 'Веди, братан!', 'Банда в деле!'],
+  squadAttack: ['Мочи их!', 'Огонь!', 'Валим их!', 'За Грув!'],
   police: ['Стоять! Полиция!', 'Руки за голову!', 'Ни с места!'],
   carjacked: ['Моя машина!', 'Эй! Вор!', 'Верни тачку!'],
   scream: ['А-а-а!', 'Стреляют!', 'Бегите!', 'Помогите!'],
@@ -135,6 +145,11 @@ export class NPC {
     this.airborne = false;
     this.target = null;   // противник в состоянии FIGHT
     this.vehicle = null;
+    this.seat = -1;       // место пассажира (-1 — за рулём или пешком)
+    this.follower = false; // в отряде игрока
+    this.guard = false;   // охранник банка (heists.js): не задерживает, а стреляет
+    this.leader = null;
+    this.slot = 0;        // место в строю / в машине
     this.removed = false;
     this.visualY = this.position.y;
     this.prevNode = from ?? null;
@@ -224,10 +239,14 @@ export class NPC {
     }
 
     if (this.vehicle) {
-      // За рулём: позиция = машина, модель сидит на сиденье.
+      // В машине: позиция = машина, модель сидит на сиденье; пассажир стреляет из окна.
       this.position.copy(this.vehicle.position);
       this.heading = this.vehicle.heading;
-      if (this.model.root.visible) this.model.animate(dt, { pose: 'sit', sitHeight: this.vehicle.seatHipHeight });
+      this.shooting = false;
+      if (this.seat >= 0) this._driveBy(dt);
+      if (this.model.root.visible) {
+        this.model.animate(dt, { pose: 'sit', sitHeight: this.vehicle.seatHipHeight, aim: this.shooting ? this.aimPitch : null });
+      }
       return;
     }
 
@@ -260,6 +279,9 @@ export class NPC {
         break;
       case NPC_STATE.FIGHT:
         speed = this._updateFight(dt);
+        break;
+      case NPC_STATE.FOLLOW:
+        speed = this._updateFollow(dt);
         break;
       case NPC_STATE.STUMBLE:
         if (this.stateTime > this.stumbleTime) this._recover(false);
@@ -324,13 +346,15 @@ export class NPC {
     if (this.target === target && this.state === NPC_STATE.FIGHT) return;
     this.target = target;
     this.panic = 0;
-    if (this.state === NPC_STATE.WALK || this.state === NPC_STATE.IDLE) this._enter(NPC_STATE.FIGHT);
+    if (this.state === NPC_STATE.WALK || this.state === NPC_STATE.IDLE || this.state === NPC_STATE.FOLLOW) this._enter(NPC_STATE.FIGHT);
     if (line) this.say(line);
   }
 
   dropTarget() {
     this.target = null;
-    if (this.state === NPC_STATE.FIGHT) {
+    if (this.state === NPC_STATE.FIGHT && this.leader) {
+      this._enter(NPC_STATE.FOLLOW);
+    } else if (this.state === NPC_STATE.FIGHT) {
       this.prevNode = null;
       this._setTarget(this._nearestAllowedNode());
       this._enter(NPC_STATE.WALK);
@@ -341,6 +365,12 @@ export class NPC {
     const N = CONFIG.npc;
     const t = this.target;
     if (!t || t.isDead || t.removed) {
+      this.dropTarget();
+      return 0;
+    }
+    // Отряд не отходит далеко от игрока и бросает драку, когда он садится в машину.
+    const L = this.leader;
+    if (L && (L.vehicle || L.isDead || this.position.distanceTo(L.position) > CONFIG.squad.leash)) {
       this.dropTarget();
       return 0;
     }
@@ -355,7 +385,7 @@ export class NPC {
     const desired = Math.atan2(dx, dz);
     this.heading = dampAngle(this.heading, desired, 12, dt);
     // Полиция при 1-2 звёздах не стреляет, а задерживает (wanted.js считает время захвата).
-    const arresting = this.role === 'police' && t === this.game.player &&
+    const arresting = this.role === 'police' && !this.guard && t === this.game.player &&
       this.game.wanted.level < CONFIG.wanted.policeDamageFrom;
     if (this.gun && !arresting && this._shootAt(dt, t, tp, d)) return 0;
     const reach = t.vehicle ? 2.3 : 1.15;
@@ -372,10 +402,10 @@ export class NPC {
   }
 
   // Стрельба по цели: true — стоим и стреляем, false — цели не видно/далеко (бежим к ней).
-  _shootAt(dt, t, tp, d) {
+  // eye — откуда стреляем (по умолчанию — от головы стоящего NPC).
+  _shootAt(dt, t, tp, d, eye = _eye.set(this.position.x, this.visualY + 1.42, this.position.z)) {
     const N = CONFIG.npc;
     const gun = this.gun;
-    const eye = _eye.set(this.position.x, this.visualY + 1.42, this.position.z);
     const aim = _aim.set(tp.x, (t.vehicle ? tp.y + 0.9 : (t.visualY ?? tp.y) + 1.15), tp.z);
     this.losTimer -= dt;
     if (this.losTimer <= 0) {
@@ -397,12 +427,14 @@ export class NPC {
       gun.consume();
       _dir.subVectors(aim, eye).normalize();
       const moving = t.velocity ? Math.hypot(t.velocity.x, t.velocity.z) > 2 : false;
+      // Бойцы отряда стреляют точнее и чаще обычных NPC.
+      const S = this.follower ? CONFIG.squad : null;
       fireShot(this.game, {
         shooter: this, origin: eye, dir: _dir, weapon: gun.type,
-        spread: gun.def.spread * N.gunSpreadScale + (moving ? 0.03 : 0),
+        spread: gun.def.spread * (S ? S.spreadScale : N.gunSpreadScale) + (moving ? 0.03 : 0),
         damageScale: N.gunDamageToPlayer, muzzle: this.model.muzzleWorld(_muzzle), weaponMesh: this.model.weaponMesh,
       });
-      this.fireWait = this.rng.range(0.8, 1.4) / (gun.def.fireRate * N.gunFireRateScale);
+      this.fireWait = this.rng.range(0.8, 1.4) / (gun.def.fireRate * (S ? S.fireRateScale : N.gunFireRateScale));
     }
     return true;
   }
@@ -410,6 +442,10 @@ export class NPC {
   _recover(afterFall) {
     if (this.target && !this.target.isDead && this.role !== 'civilian') {
       this._enter(NPC_STATE.FIGHT);
+      return;
+    }
+    if (this.leader) {
+      this._enter(NPC_STATE.FOLLOW);
       return;
     }
     if (afterFall) {
@@ -535,6 +571,112 @@ export class NPC {
     return true;
   }
 
+  // --- Отряд игрока ----------------------------------------------------------
+
+  // Идти за лидером: своё место в строю; если лидер в машине — бежать к своей двери и садиться.
+  _updateFollow(dt) {
+    const L = this.leader;
+    if (!L || L.isDead) return 0;
+    let tx, tz, near = 0.5;
+    if (L.vehicle) {
+      const v = L.vehicle;
+      const seat = this.slot < v.passengers.length && !v.passengers[this.slot] ? this.slot : v.passengers.indexOf(null);
+      if (seat < 0) return 0; // мест нет — ждём
+      const [lx, lz] = PASSENGER_DOORS[seat];
+      ({ x: tx, z: tz } = v.localToWorld2D(lx, lz));
+      const d = Math.hypot(tx - this.position.x, tz - this.position.z);
+      if (d < 1.4 && Math.abs(v.speed) < 4) {
+        this.enterAsPassenger(v, seat);
+        return 0;
+      }
+      if (d > 45) return 0;
+      near = 0;
+    } else {
+      const [right, back] = FOLLOW_SLOTS[this.slot % FOLLOW_SLOTS.length];
+      const h = L.heading;
+      tx = L.position.x - Math.sin(h) * back - Math.cos(h) * right;
+      tz = L.position.z - Math.cos(h) * back + Math.sin(h) * right;
+    }
+    const dx = tx - this.position.x, dz = tz - this.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < near) {
+      this.heading = dampAngle(this.heading, L.heading, 4, dt);
+      return 0;
+    }
+    // Отстал — бежит (догоняет даже бегущего игрока), рядом — шагом.
+    const speed = clamp(d * 1.7, 1.3, CONFIG.squad.runSpeed);
+    this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 10, dt);
+    const step = Math.min(speed * dt, d);
+    this.position.x += Math.sin(this.heading) * step;
+    this.position.z += Math.cos(this.heading) * step;
+    return speed;
+  }
+
+  // Сесть пассажиром на место seat.
+  enterAsPassenger(vehicle, seat) {
+    this.model.setWeapon(null);
+    this.vehicle = vehicle;
+    this.seat = seat;
+    vehicle.passengers[seat] = this;
+    vehicle.passengerAnchors[seat].add(this.model.root);
+    this.model.root.position.set(0, 0, 0);
+    this.model.root.rotation.set(0, 0, 0);
+    this.knock.set(0, 0, 0);
+    this.target = null;
+    this.aimTime = 0;
+    this._enter(NPC_STATE.DRIVE);
+  }
+
+  exitPassenger() {
+    const v = this.vehicle;
+    if (!v || this.seat < 0) return;
+    const [lx, lz] = PASSENGER_DOORS[this.seat];
+    let spot = v.localToWorld2D(lx, lz);
+    if (!this.game.world.isCircleFree(spot.x, spot.z, this.radius)) spot = v.findExitPosition(this.radius);
+    v.passengers[this.seat] = null;
+    this.seat = -1;
+    this.vehicle = null;
+    this.model.setWeapon(null);
+    this.game.scene.add(this.model.root);
+    this.position.set(spot.x, this.game.world.getGroundHeight(spot.x, spot.z), spot.z);
+    this.visualY = this.position.y;
+    this.heading = v.heading;
+    this.model.root.position.copy(this.position);
+    this.model.root.rotation.set(0, this.heading, 0);
+    if (this.leader) this._enter(NPC_STATE.FOLLOW);
+    else {
+      this.prevNode = null;
+      this._setTarget(this._nearestAllowedNode());
+      this._enter(NPC_STATE.WALK);
+    }
+  }
+
+  // Стрельба пассажира из окна по цели отряда (target задаёт squad.js).
+  _driveBy(dt) {
+    const t = this.target;
+    const root = this.model.root;
+    if (!this.gun || !t || t.isDead || t.removed || t.vehicle) {
+      this.target = null;
+      this.aimTime = 0;
+      this.model.setWeapon(null);
+      root.rotation.y = damp(root.rotation.y, 0, 6, dt);
+      return;
+    }
+    root.getWorldPosition(_eye);
+    _eye.y += 1.2;
+    const tp = t.position;
+    const d = Math.hypot(tp.x - _eye.x, tp.z - _eye.z);
+    if (d > CONFIG.squad.driveByRange) {
+      this.target = null;
+      return;
+    }
+    // Поворачиваемся к цели (в пределах окна) и стреляем.
+    const rel = wrapAngle(Math.atan2(tp.x - _eye.x, tp.z - _eye.z) - this.vehicle.heading);
+    root.rotation.y = dampAngle(root.rotation.y, clamp(rel, -1.9, 1.9), 8, dt);
+    this.model.setWeapon(this.gun.type);
+    this._shootAt(dt, t, tp, d, _eye);
+  }
+
   // --- Машины --------------------------------------------------------------
 
   enterVehicle(vehicle) {
@@ -552,6 +694,10 @@ export class NPC {
   exitVehicle() {
     const v = this.vehicle;
     if (!v) return;
+    if (this.seat >= 0) {
+      this.exitPassenger();
+      return;
+    }
     const spot = v.findExitPosition(this.radius);
     v.driver = null;
     v.ai = null;
@@ -600,7 +746,8 @@ export class NPCManager {
     if (npc.removed) return;
     npc.removed = true;
     if (npc.vehicle) {
-      npc.vehicle.driver = null;
+      if (npc.seat >= 0) npc.vehicle.passengers[npc.seat] = null;
+      else npc.vehicle.driver = null;
       npc.vehicle = null;
     }
     npc.model.root.removeFromParent();

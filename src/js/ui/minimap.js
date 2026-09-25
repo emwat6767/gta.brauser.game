@@ -176,16 +176,37 @@ export class Minimap {
     }
     const gangColor = (id) => this.game.gangs?.byId.get(id)?.color ?? '#ffe27a';
 
+    // Банки — зелёные "$" (далёкие прижаты к краю, как машины); закрытые — серые.
+    for (const b of this.game.banks?.banks ?? []) {
+      let [x, y] = this.toScreen(b.door.x, b.door.z);
+      const dx = x - R, dy = y - R, dist = Math.hypot(dx, dy), edge = R - 11 * d;
+      if (dist > edge) {
+        x = R + (dx / dist) * edge;
+        y = R + (dy / dist) * edge;
+      }
+      const s = 6.5 * d;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(x - s - d, y - s - d, (s + d) * 2, (s + d) * 2);
+      ctx.fillStyle = b.cooldown > 0 ? '#6d7571' : this.game.banks.active?.bank === b && flash ? '#ffd54a' : '#1f9a3e';
+      ctx.fillRect(x - s, y - s, s * 2, s * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `900 ${Math.round(10 * d)}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('$', x, y + 0.5 * d);
+    }
+
     // NPC: прохожие — светлые точки, бандиты — цвет банды, полиция мигает, погибшие — серые.
     for (const npc of npcs.list) {
       if (npc.vehicle) continue;
       const [x, y] = this.toScreen(npc.position.x, npc.position.z);
       if ((x - R) ** 2 + (y - R) ** 2 > R * R) continue;
-      let color = '#f3e6b0', r = 2.6;
+      let color = '#f3e6b0', r = 2.6, ring = '#111';
       if (npc.isDead) color = '#7a7a7a';
+      else if (npc.follower) { color = gangColor(npc.gang); r = 3.6; ring = '#ffffff'; } // боец отряда
       else if (npc.role === 'gang') { color = gangColor(npc.gang); r = 3.2; }
       else if (npc.role === 'police') { color = flash ? '#3d7cff' : '#ff3b3b'; r = 3.4; }
-      ctx.fillStyle = '#111';
+      ctx.fillStyle = ring;
       ctx.beginPath();
       ctx.arc(x, y, (r + 1) * d, 0, Math.PI * 2);
       ctx.fill();

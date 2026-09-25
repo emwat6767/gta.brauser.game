@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { GeometryBuilder } from './geometry.js';
+import { GeometryBuilder, mergeColored } from './geometry.js';
 import { CollisionGrid, pushCircleOutOfBox, circleOverlapsBox } from './collision.js';
 import { clamp } from './utils.js';
 
@@ -22,6 +22,33 @@ const TOWER_COLORS = ['#8fa7bd', '#9fb4c4', '#7e94a8', '#b0bec9', '#a3b1ad'];
 const FLOOR = 3.5;       // высота этажа (совпадает с текстурой окон: 8 этажей на 28 м)
 const FACADE_TILE_U = 32;
 const FACADE_TILE_V = 28;
+
+// Пересекаются ли два прямоугольника { minX, maxX, minZ, maxZ }.
+const overlaps = (a, b) => a.minX < b.maxX && b.minX < a.maxX && a.minZ < b.maxZ && b.minZ < a.maxZ;
+
+// Вывеска банка: "БАНК" золотом и название.
+function bankSign(name) {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 96;
+  const g = c.getContext('2d');
+  g.fillStyle = '#1d2b24';
+  g.fillRect(0, 0, 512, 96);
+  g.strokeStyle = '#c9a227';
+  g.lineWidth = 6;
+  g.strokeRect(5, 5, 502, 86);
+  g.fillStyle = '#f2cf5b';
+  g.textAlign = 'center';
+  g.font = '900 44px Georgia, serif';
+  g.fillText('$ БАНК $', 256, 48);
+  g.font = '600 22px Georgia, serif';
+  g.fillStyle = '#e8e2d4';
+  g.fillText(name.toUpperCase(), 256, 80);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
 
 export class World {
   constructor(game) {
@@ -57,10 +84,12 @@ export class World {
 
     this._materials();
     this._layoutBlocks();
+    this._layoutBanks();
     this._buildGround();
     this._buildRoads();
     this._buildBlocks();
     this._buildBuildings();
+    this._buildBanks();
     this._buildLamps();
     this._buildTrees();
     this._buildBoundary();
@@ -372,6 +401,8 @@ export class World {
       this._subdivide(block.lot, parcels, 0);
 
       for (const p of parcels) {
+        // Место под банк: там площадь перед входом и сам банк (_buildBanks).
+        if (block.bank && overlaps(p, block.bank.reserved)) continue;
         if (rng.chance(0.07)) {
           // Пустырь: вместо здания — дерево.
           this._pendingTrees.push({ x: (p.minX + p.maxX) / 2, z: (p.minZ + p.maxZ) / 2, y: base });
@@ -434,6 +465,104 @@ export class World {
     }
   }
 
+  // --- Банки ----------------------------------------------------------------
+
+  // Банк стоит у края квартала фасадом к улице. Локальные координаты модели: x — вдоль улицы,
+  // +z — к улице; начало — середина края участка (lot). Здание: x ±15, z от −26 до −6,
+  // перед ним площадка с колоннадой, у двери — метка ограбления (door).
+  _layoutBanks() {
+    const SIDE = { s: 0, w: -Math.PI / 2, n: Math.PI, e: Math.PI / 2 };
+    this.banks = [];
+    for (const def of CONFIG.banks.list) {
+      const block = this.blocks[def.block[1] * this.blocksPerAxis + def.block[0]];
+      if (!block || block.type !== 'buildings') continue;
+      const l = block.lot;
+      const origin = {
+        s: { x: block.cx, z: l.maxZ }, n: { x: block.cx, z: l.minZ },
+        w: { x: l.minX, z: block.cz }, e: { x: l.maxX, z: block.cz },
+      }[def.side];
+      const angle = SIDE[def.side];
+      const c = Math.cos(angle), s = Math.sin(angle);
+      const toWorld = (x, z) => ({ x: origin.x + x * c + z * s, z: origin.z - x * s + z * c });
+      const rect = (x0, z0, x1, z1) => {
+        const a = toWorld(x0, z0), b = toWorld(x1, z1);
+        return { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z) };
+      };
+      const bank = {
+        def, block, origin, angle, toWorld,
+        body: rect(-15, -26, 15, -6),
+        reserved: rect(-18, -29, 18, 0),
+        door: toWorld(0, -4.3),
+        outward: toWorld(0, 1),
+      };
+      bank.outward = { x: bank.outward.x - origin.x, z: bank.outward.z - origin.z };
+      block.bank = bank;
+      this.banks.push(bank);
+    }
+  }
+
+  _buildBanks() {
+    const base = this.curbHeight;
+    const stone = '#ddd5c4', dark = '#b9ae98', gold = '#c9a227', glass = '#243442';
+    const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+    const pediment = new THREE.ExtrudeGeometry(
+      new THREE.Shape([new THREE.Vector2(-11.2, 0), new THREE.Vector2(11.2, 0), new THREE.Vector2(0, 2.6)]),
+      { depth: 5.4, bevelEnabled: false },
+    ).translate(0, 10.4, -6);
+    const parts = [
+      { geometry: box(30.6, 0.8, 20.6, 0, 0.4, -16), color: dark },
+      { geometry: box(30, 11, 20, 0, 5.5, -16), color: stone },
+      { geometry: box(31, 0.6, 20.8, 0, 11.3, -16), color: dark },
+      { geometry: box(29, 0.4, 19, 0, 11.8, -16), color: '#8f887a' },
+      { geometry: box(23, 0.14, 5.4, 0, 0.07, -3.3), color: '#e8e2d4' },
+      { geometry: box(23, 1, 5.6, 0, 9.9, -3.3), color: stone },
+      { geometry: pediment, color: stone },
+      { geometry: new THREE.CylinderGeometry(0.95, 0.95, 0.12, 20).rotateX(Math.PI / 2).translate(0, 11.25, -0.54), color: gold },
+      { geometry: box(3.8, 4.7, 0.12, 0, 2.35, -5.97), color: gold },
+      { geometry: box(3.2, 4.2, 0.2, 0, 2.1, -5.93), color: '#3a2a1c' },
+    ];
+    for (const x of [-8.75, -5.25, -1.9, 1.9, 5.25, 8.75]) {
+      parts.push({ geometry: new THREE.CylinderGeometry(0.42, 0.5, 8.9, 14).translate(x, 4.6, -1.5), color: '#f1ebdd' });
+      parts.push({ geometry: box(1.25, 0.35, 1.25, x, 9.2, -1.5), color: dark });
+      parts.push({ geometry: box(1.25, 0.3, 1.25, x, 0.3, -1.5), color: dark });
+    }
+    for (const x of [-11.8, -6.8, 6.8, 11.8]) {
+      for (const y of [3.4, 7.6]) parts.push({ geometry: box(2, 2.6, 0.12, x, y, -5.95), color: glass });
+    }
+    for (const x of [-15.02, 15.02]) {
+      for (const z of [-10, -16, -22]) {
+        for (const y of [3.4, 7.6]) parts.push({ geometry: box(0.12, 2.6, 2.2, x, y, z), color: glass });
+      }
+    }
+    const geo = mergeColored(parts);
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 });
+
+    for (const bank of this.banks) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(bank.origin.x, base, bank.origin.z);
+      mesh.rotation.y = bank.angle;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+      // Вывеска над дверью.
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7), new THREE.MeshBasicMaterial({ map: bankSign(bank.def.name) }));
+      sign.position.set(0, 6.1, -5.88);
+      mesh.add(sign);
+
+      const building = { ...bank.body, height: base + 12, type: 'building', bank: true };
+      this.buildings.push(building);
+      this.colliders.add(building);
+      // Колонны тоже преграда (пули, люди, машины).
+      for (const x of [-8.75, -5.25, -1.9, 1.9, 5.25, 8.75]) {
+        const a = bank.toWorld(x - 0.5, -2), b = bank.toWorld(x + 0.5, -1);
+        this.colliders.add({
+          minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z),
+          height: base + 10, type: 'building',
+        });
+      }
+    }
+  }
+
   _buildLamps() {
     const h = this.curbHeight;
     const inset = 0.7; // от края бордюра
@@ -450,6 +579,10 @@ export class World {
         lamps.push({ x: b.maxX - inset, z: b.minZ + t, rot: Math.PI / 2 });  // восточнее (+X)
         lamps.push({ x: b.minX + inset, z: b.minZ + t, rot: -Math.PI / 2 }); // западнее
       }
+    }
+    // Вход в банк не загораживаем фонарём.
+    for (let i = lamps.length - 1; i >= 0; i--) {
+      if (this.banks.some((bk) => Math.hypot(lamps[i].x - bk.origin.x, lamps[i].z - bk.origin.z) < 11)) lamps.splice(i, 1);
     }
 
     const pole = new THREE.CylinderGeometry(0.07, 0.11, 5.6, 8).translate(0, 2.8, 0);

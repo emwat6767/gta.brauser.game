@@ -147,18 +147,20 @@ export class SoundSystem {
     this._tone({ when: when + 0.08, duration: 0.14, freq: 990, freqEnd: 1000, type: 'square', gain: 0.18 });
   }
 
-  // Лента остановилась: короткий "дзынь".
-  chime() {
+  // Сигнализация банка: два тона, громкость по расстоянию.
+  alarm(position) {
     if (!this.ctx || this.muted) return;
+    const { gain, pan } = this._place(position);
     const when = this.ctx.currentTime;
-    this._tone({ when, duration: 0.16, freq: 1320, freqEnd: 1320, type: 'triangle', gain: 0.22 });
+    const g = Math.max(0.12, gain) * 0.35;
+    this._tone({ when, duration: 0.4, freq: 960, freqEnd: 940, type: 'square', gain: g, pan });
+    this._tone({ when: when + 0.42, duration: 0.4, freq: 720, freqEnd: 700, type: 'square', gain: g, pan });
   }
 
-  // Выпал редкий питомец: арпеджио, тем длиннее и выше, чем реже шанс.
-  fanfare(odds) {
+  // Успех (ограбление удалось): восходящее арпеджио.
+  fanfare(steps = 6) {
     if (!this.ctx || this.muted) return;
     const when = this.ctx.currentTime;
-    const steps = Math.min(8, 3 + Math.floor(Math.log10(odds)));
     const scale = [0, 4, 7, 12, 16, 19, 24, 28];
     for (let i = 0; i < steps; i++) {
       const f = 523 * Math.pow(2, scale[i] / 12);

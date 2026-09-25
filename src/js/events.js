@@ -15,10 +15,7 @@
 //   'zone:changed'        { gang }                        — игрок зашёл на территорию банды (или ушёл: gang = null)
 //   'player:down'         { kind }                        — 'wasted' | 'busted'
 //   'player:respawn'      { point }
-//   'money:changed'       { delta, total, quiet }         — quiet: доход питомцев (без всплывающего "+$")
-//   'pets:rollStart'      { results, duration }           — лента начала крутиться
-//   'pets:rolled'         { results }                     — крутка закончилась (results[0] — самый редкий)
-//   'pets:upgraded'       { key, level }
+//   'money:changed'       { delta, total, quiet }
 //   'game:pause', 'game:resume'
 
 export class EventBus {

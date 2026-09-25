@@ -39,7 +39,7 @@ export class Player {
     this.isDead = false;
     this.ragdoll = null;
     this.melee = new Melee(this, { damage: P.punchDamage, cooldown: 0.12 });
-    this.arsenal = new Arsenal();
+    this.arsenal = new Arsenal(P.infiniteAmmo);
     this.arsenal.reset(P.startWeapons);
     this.model.setWeapon(this.arsenal.current);
     this.aiming = false;
@@ -283,7 +283,7 @@ export class Player {
     const cos = Math.cos(0.4);
     let best = null, bestScore = Infinity;
     for (const n of game.npcs.list) {
-      if (n.vehicle || n.isDead || !n.model.root.visible) continue;
+      if (n.vehicle || n.isDead || n.follower || !n.model.root.visible) continue;
       const dx = n.position.x - this.position.x, dz = n.position.z - this.position.z;
       const d = Math.hypot(dx, dz);
       if (d > 35 || d < 0.5) continue;

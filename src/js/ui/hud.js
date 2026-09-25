@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 
-// HUD поверх канваса (обычный DOM): FPS/отладка, здоровье, звёзды розыска,
+// HUD поверх канваса (обычный DOM): FPS/отладка, деньги, здоровье, звёзды розыска,
 // название района, спидометр, подсказка "E", реплики над головами NPC,
-// крупные сообщения ("ПОТРАЧЕНО"), панель управления (H).
+// крупные сообщения ("ПОТРАЧЕНО"), полоса ограбления, панель управления (H).
 
 const _v = new THREE.Vector3();
+export const formatMoney = (n) => `$${Math.floor(n).toLocaleString('ru-RU')}`;
 
 export class HUD {
   constructor(game) {
@@ -42,6 +43,22 @@ export class HUD {
     this._hitTimer = 0;
     this._toastTimer = 0;
     this._weaponText = '';
+    this.moneyEl = document.getElementById('money');
+    this.moneyPopEl = document.getElementById('money-pop');
+    this._money = -1;
+    this.heistEl = document.getElementById('heist');
+    this.heistLabel = document.getElementById('heist-label');
+    this.heistFill = document.getElementById('heist-fill');
+
+    game.events.on('money:changed', ({ delta, quiet }) => {
+      if (quiet || !delta) return;
+      const el = document.createElement('div');
+      el.className = 'mpop';
+      el.textContent = `${delta > 0 ? '+' : '−'}${formatMoney(Math.abs(delta))}`;
+      el.style.color = delta > 0 ? '#7dff7a' : '#ff8a8a';
+      this.moneyPopEl.appendChild(el);
+      setTimeout(() => el.remove(), 1300);
+    });
 
     game.events.on('wanted:changed', ({ level, up }) => {
       this.stars.forEach((star, i) => star.classList.toggle('on', i < level));
@@ -86,6 +103,14 @@ export class HUD {
     this.bigEl.classList.add('hidden');
   }
 
+  // Полоса прогресса по центру сверху (ограбление): null — скрыть.
+  setProgress(label, value) {
+    this.heistEl.classList.toggle('hidden', label == null);
+    if (label == null) return;
+    this.heistLabel.textContent = label;
+    this.heistFill.style.width = `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+  }
+
   toggleHelp() {
     this.helpEl.classList.toggle('hidden');
   }
@@ -121,6 +146,13 @@ export class HUD {
       this.elapsed = 0;
     }
 
+    // Деньги.
+    const money = this.game.wallet.money;
+    if (money !== this._money) {
+      this._money = money;
+      this.moneyEl.textContent = formatMoney(money);
+    }
+
     // Здоровье.
     const hp = Math.max(0, Math.round((player.health / player.maxHealth) * 100));
     if (hp !== this._health) {
@@ -140,7 +172,7 @@ export class HUD {
     if (wText !== this._weaponText) {
       this._weaponText = wText;
       this.weaponNameEl.textContent = gun ? gun.def.name : 'Кулаки';
-      this.weaponAmmoEl.textContent = gun ? `${gun.mag} | ${gun.reserve}` : '';
+      this.weaponAmmoEl.textContent = !gun ? '' : gun.bottomless ? '∞' : `${gun.mag} | ${gun.reserve}`;
       this.weaponAmmoEl.classList.toggle('empty', !!gun && gun.mag === 0);
     }
     this.reloadBar.classList.toggle('hidden', !gun?.reloading);
@@ -170,6 +202,7 @@ export class HUD {
     else {
       const v = player.findEnterableVehicle();
       if (v) prompt = v.driver ? '<b>E</b> — угнать машину' : '<b>E</b> — сесть в машину';
+      else prompt = this.game.banks?.prompt() ?? '';
     }
     if (prompt !== this._prompt) {
       this._prompt = prompt;

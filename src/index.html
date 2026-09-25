@@ -29,10 +29,9 @@
         <tr><td>Space</td><td>прыжок / ручник</td></tr>
         <tr><td>F / ЛКМ</td><td>удар / выстрел</td></tr>
         <tr><td>ПКМ / C</td><td>прицел (зум)</td></tr>
-        <tr><td>R</td><td>перезарядка</td></tr>
-        <tr><td>Q, 1–4</td><td>смена оружия</td></tr>
-        <tr><td>E</td><td>сесть в машину / угнать / выйти</td></tr>
-        <tr><td>G / N / B</td><td>крутить / автокрутка / питомцы</td></tr>
+        <tr><td>Q, 1–4</td><td>смена оружия (патроны бесконечные)</td></tr>
+        <tr><td>E</td><td>сесть в машину / угнать / выйти / ограбить банк</td></tr>
+        <tr><td>T</td><td>позвать банду / отпустить</td></tr>
         <tr><td>M</td><td>звук вкл/выкл</td></tr>
         <tr><td>Esc</td><td>пауза</td></tr>
       </table>
@@ -56,32 +55,7 @@
     <div id="speedometer" class="hidden"><span id="speed-value">0</span><small>км/ч</small></div>
     <div id="prompt" class="hidden"></div>
     <div id="bubbles"></div>
-
-    <!-- Крутки питомцев (как в PETS GO): лента-барабан и кнопки -->
-    <div id="rollbar">
-      <button type="button" id="roll-btn">КРУТИТЬ<small>G</small></button>
-      <div id="reel"><div id="reel-strip"></div><div id="reel-marker"></div></div>
-      <button type="button" id="auto-btn" class="locked">АВТО<small>N</small></button>
-      <button type="button" id="pets-btn">ПИТОМЦЫ<small>B</small></button>
-      <div id="roll-info"></div>
-    </div>
-    <div id="reveal" class="hidden"><img id="reveal-img" alt=""><div id="reveal-name"></div><div id="reveal-odds"></div></div>
-  </div>
-
-  <!-- Меню питомцев: питомцы, улучшения, шансы -->
-  <div id="pets-menu" class="hidden">
-    <div class="pm-panel">
-      <div class="pm-head">
-        <div class="pm-tabs">
-          <button type="button" data-tab="pets" class="on">Питомцы</button>
-          <button type="button" data-tab="shop">Улучшения</button>
-          <button type="button" data-tab="odds">Шансы</button>
-        </div>
-        <button type="button" id="pm-close">Закрыть</button>
-      </div>
-      <div id="pm-stats"></div>
-      <div id="pm-body"></div>
-    </div>
+    <div id="heist" class="hidden"><div id="heist-label"></div><div id="heist-bar"><div id="heist-fill"></div></div></div>
   </div>
 
   <!-- Сенсорное управление (включается на телефонах, см. js/ui/touch.js) -->
@@ -94,13 +68,14 @@
     <button type="button" class="tbtn tbtn-aim" data-id="aim" data-toggle="aim" hidden>ПРИЦЕЛ</button>
     <button type="button" class="tbtn tbtn-reload" data-id="reload" data-action="reload" hidden>ПЕРЕЗ.</button>
     <button type="button" class="tbtn tbtn-weapon" data-id="weapon" data-action="nextWeapon">ОРУЖИЕ</button>
+    <button type="button" class="tbtn tbtn-squad" data-id="squad" data-action="squad">БАНДА</button>
     <button type="button" class="tbtn tbtn-pause" data-id="pause" data-action="pause" aria-label="Пауза">II</button>
   </div>
 
   <div id="overlay">
     <div class="panel">
       <h1>OPEN CITY</h1>
-      <p class="subtitle">перестрелки, банды, полиция, трафик и питомцы в браузерном открытом мире</p>
+      <p class="subtitle">перестрелки, банды, полиция, трафик и ограбления банков в браузерном открытом мире</p>
       <table class="controls controls-desktop">
         <tr><td>W A S D</td><td>движение, в машине — газ / тормоз / руль</td></tr>
         <tr><td>Мышь</td><td>обзор, колесо — приблизить / отдалить</td></tr>
@@ -108,16 +83,16 @@
         <tr><td>Space</td><td>прыжок, в машине — ручник</td></tr>
         <tr><td>F / ЛКМ</td><td>удар или выстрел (в захвате мыши — левая кнопка)</td></tr>
         <tr><td>ПКМ / C</td><td>прицеливание с зумом</td></tr>
-        <tr><td>R · Q, 1–4</td><td>перезарядка · смена оружия (кулаки, пистолет, обрез, автомат)</td></tr>
-        <tr><td>E</td><td>сесть в машину, угнать с водителем, выйти</td></tr>
-        <tr><td>G · N · B</td><td>крутить питомца · автокрутка · меню питомцев и улучшений</td></tr>
+        <tr><td>Q, 1–4</td><td>смена оружия (кулаки, пистолет, обрез, автомат) — патроны бесконечные</td></tr>
+        <tr><td>E</td><td>сесть в машину, угнать с водителем, выйти; у двери банка ($) — ограбить</td></tr>
+        <tr><td>T</td><td>позвать банду: бойцы идут за вами, садятся в машину, бьют полицию, прохожих и чужие банды</td></tr>
         <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
       </table>
       <table class="controls controls-touch">
         <tr><td>Джойстик слева</td><td>ходьба, до упора — бег; в машине — газ, тормоз, руль</td></tr>
         <tr><td>Свайп справа</td><td>поворот камеры</td></tr>
-        <tr><td>Кнопки</td><td>удар / огонь (с автонаведением), прицел, перезарядка, оружие, прыжок / ручник, сесть / выйти</td></tr>
-        <tr><td>Сверху</td><td>КРУТИТЬ питомца, АВТО, ПИТОМЦЫ (улучшения: удача, скорость прокрутки, слоты)</td></tr>
+        <tr><td>Кнопки</td><td>удар / огонь (с автонаведением), прицел, оружие, прыжок / ручник, сесть / выйти / грабить</td></tr>
+        <tr><td>БАНДА</td><td>справа вверху: позвать / отпустить отряд</td></tr>
       </table>
       <p class="rotate-hint">Лучше играть, повернув телефон горизонтально</p>
       <p id="overlay-status">Загрузка…</p>

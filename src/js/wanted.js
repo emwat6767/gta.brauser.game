@@ -4,10 +4,10 @@ import { NPC, LINES, policeLook } from './npc.js';
 // Уровень розыска (0-5 звёзд) и полиция.
 // Преступления приходят событиями: 'character:damaged', 'character:killed',
 // 'vehicle:carjack'. Звёзды = floor(heat).
-//   1-2 звезды — пешие полицейские догоняют и задерживают (АРЕСТОВАН),
+//   1-2 звезды — пешие полицейские (по одному на звезду) догоняют и задерживают (АРЕСТОВАН),
 //                водителя вытаскивают из медленной машины;
-//   3+ звёзды  — полиция бьёт;
-//   2+ звёзды  — патрульные машины с мигалками преследуют игрока и высаживают полицейских.
+//   3+ звёзды  — полиция бьёт и стреляет, патрульные машины с мигалками преследуют
+//                игрока и высаживают полицейских.
 // Без новых преступлений и без полиции рядом звёзды постепенно гаснут.
 
 export class WantedSystem {
@@ -28,13 +28,13 @@ export class WantedSystem {
     game.events.on('character:damaged', ({ target, attacker, kind }) => {
       if (!byPlayer(attacker) || target === game.player) return;
       if (target.role === 'police') this.addHeat(1, 2);
-      else if (target.role === 'civilian') this.addHeat(kind === 'vehicle' ? 0.5 : 0.25);
+      else if (target.role === 'civilian') this.addHeat(kind === 'vehicle' ? 0.3 : 0.15);
       else this.addHeat(0.05);
     });
     game.events.on('character:killed', ({ target, attacker }) => {
       if (!byPlayer(attacker)) return;
       if (target.role === 'police') this.addHeat(1.5, 3);
-      else if (target.role === 'civilian') this.addHeat(1, 1);
+      else if (target.role === 'civilian') this.addHeat(0.6, 1);
       else this.addHeat(0.35);
     });
     // Стрельба игрока: если рядом полиция — сразу звезда, если прохожие — растёт розыск.
@@ -49,7 +49,7 @@ export class WantedSystem {
         else if (n.role === 'civilian') witness = true;
       }
       if (copNear) this.addHeat(0.4, 1);
-      else if (witness) this.addHeat(0.12);
+      else if (witness) this.addHeat(0.06);
     });
     game.events.on('vehicle:carjack', ({ by, vehicle }) => {
       if (by === game.player) this.addHeat(vehicle.police ? 2 : 0.6, vehicle.police ? 2 : 0);
@@ -158,7 +158,7 @@ export class WantedSystem {
     // Затухание розыска.
     this.calm += dt;
     const copNear = this.cops.some((c) => !c.isDown && c.position.distanceTo(p) < 35);
-    if (this.calm > W.calmTime + 4 * this.level && !copNear) {
+    if (this.calm > W.calmTime + W.calmPerStar * this.level && !copNear) {
       this.calm = 0;
       this.heat = this.level - 1;
       this._setLevel(this.level - 1);
@@ -169,8 +169,8 @@ export class WantedSystem {
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
       this.spawnTimer = W.spawnInterval;
-      const footTarget = Math.min(W.maxFootCops, this.level * 2);
-      const carTarget = this.level >= 2 ? Math.min(W.maxCars, this.level - 1) : 0;
+      const footTarget = Math.min(W.maxFootCops, this.level * W.footCopsPerStar);
+      const carTarget = this.level >= W.carsFrom ? Math.min(W.maxCars, this.level - W.carsFrom + 1) : 0;
       const activeCars = this.cars.filter((c) => !c.deployed).length;
       // Машины — независимо от пеших: от едущего игрока пешком не угонишься.
       if (activeCars < carTarget) this._spawnCar();

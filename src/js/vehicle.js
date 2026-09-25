@@ -106,6 +106,11 @@ function sharedAssets() {
 
 // ----------------------------------------------------------------- Машина
 
+// Пассажирские места [x — влево, z — вперёд] и точки у их дверей (снаружи).
+// Задние места чуть ниже и ближе к центру салона — там крыша уже опускается к заднему стеклу.
+export const PASSENGER_SEATS = [[-0.38, -0.2, -0.06], [0.4, -0.86, -0.1], [-0.4, -0.86, -0.1]];
+export const PASSENGER_DOORS = [[-1.7, -0.2], [1.7, -1.0], [-1.7, -1.0]];
+
 export class Vehicle {
   // opts: { x, z, heading, color, police }
   constructor(game, { x, z, heading = 0, color = 0xc0392b, police = false }) {
@@ -172,6 +177,14 @@ export class Vehicle {
     this.seatAnchor = new THREE.Group();
     this.seatAnchor.position.set(0.38, 0, -0.2);
     this.body.add(this.seatAnchor);
+    // Места пассажиров (банда игрока): спереди справа, сзади слева, сзади справа.
+    this.passengerAnchors = PASSENGER_SEATS.map(([x, z, y]) => {
+      const a = new THREE.Group();
+      a.position.set(x, y, z);
+      this.body.add(a);
+      return a;
+    });
+    this.passengers = PASSENGER_SEATS.map(() => null);
 
     const V = CONFIG.vehicle;
     const R = V.wheelRadius;

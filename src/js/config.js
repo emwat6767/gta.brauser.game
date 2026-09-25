@@ -36,6 +36,7 @@ export const CONFIG = {
     regenRate: 3,           // ед. здоровья в секунду
     respawnDelay: 4,        // "ПОТРАЧЕНО" / "АРЕСТОВАН" на экране, секунд
     startWeapons: { pistol: 48 },                    // оружие и патроны при старте/возрождении
+    infiniteAmmo: true,     // бесконечные патроны: магазин не кончается, перезарядка не нужна
     hospital: { x: -3, z: 40.5, heading: 0 },      // где появляемся после смерти
     policeStation: { x: 40.5, z: -40.5, heading: Math.PI }, // после ареста
   },
@@ -128,45 +129,6 @@ export const CONFIG = {
     saveKey: 'opencity.save.v1',
   },
 
-  // Питомцы и крутки (как в PETS GO): шанс питомца — "1 на odds".
-  // mult — множитель денег, который даёт питомец; income считается из mult (см. pets.js).
-  // kind — модель; colors — [основной, второй, глаза/акцент]; fx — 'gold' | 'rainbow' | 'glow' | 'crystal' | 'cosmic'.
-  pets: {
-    list: [
-      { id: 'cat', name: 'Кошка', odds: 2, kind: 'cat', colors: ['#f0a04b', '#fff1dc', '#2b2b2b'], mult: 1.05 },
-      { id: 'dog', name: 'Собака', odds: 3, kind: 'dog', colors: ['#9b6a3f', '#f3e3cf', '#2b2b2b'], mult: 1.08 },
-      { id: 'chick', name: 'Цыплёнок', odds: 5, kind: 'bird', colors: ['#ffd84a', '#ff9a2e', '#2b2b2b'], mult: 1.12 },
-      { id: 'bunny', name: 'Кролик', odds: 8, kind: 'bunny', colors: ['#f4f4f4', '#ffb3c6', '#2b2b2b'], mult: 1.16 },
-      { id: 'pig', name: 'Свинка', odds: 12, kind: 'pig', colors: ['#ffb0c0', '#ff8fa7', '#2b2b2b'], mult: 1.2 },
-      { id: 'fox', name: 'Лиса', odds: 22, kind: 'fox', colors: ['#e8712b', '#fff4e6', '#2b2b2b'], mult: 1.3 },
-      { id: 'panda', name: 'Панда', odds: 40, kind: 'panda', colors: ['#f5f5f5', '#1f1f1f', '#1f1f1f'], mult: 1.4 },
-      { id: 'bear', name: 'Медведь', odds: 75, kind: 'bear', colors: ['#7a4e2d', '#c49a6c', '#1f1f1f'], mult: 1.5 },
-      { id: 'penguin', name: 'Пингвин', odds: 150, kind: 'penguin', colors: ['#23272e', '#f4f4f4', '#ffa726'], mult: 1.65 },
-      { id: 'raccoon', name: 'Енот', odds: 300, kind: 'raccoon', colors: ['#8a8f96', '#2a2a2a', '#f0f0f0'], mult: 1.8 },
-      { id: 'tiger', name: 'Тигр', odds: 600, kind: 'tiger', colors: ['#f08a24', '#fff3df', '#2b2b2b'], mult: 2 },
-      { id: 'unicorn', name: 'Единорог', odds: 1200, kind: 'unicorn', colors: ['#fbf7ff', '#ff8ad8', '#ffd84a'], mult: 2.3 },
-      { id: 'dragon', name: 'Дракон', odds: 2500, kind: 'dragon', colors: ['#3fa34d', '#c8e86b', '#ff5a36'], mult: 2.6 },
-      { id: 'phoenix', name: 'Феникс', odds: 5000, kind: 'phoenix', colors: ['#ff5a1f', '#ffd23a', '#fff4c2'], mult: 3, fx: 'glow' },
-      { id: 'goldcat', name: 'Золотая кошка', odds: 10000, kind: 'cat', colors: ['#ffcf40', '#fff0a8', '#2b2b2b'], mult: 3.5, fx: 'gold' },
-      { id: 'crystaldragon', name: 'Кристальный дракон', odds: 25000, kind: 'dragon', colors: ['#7fe7ff', '#d8f8ff', '#ffffff'], mult: 4.2, fx: 'crystal' },
-      { id: 'rainbowunicorn', name: 'Радужный единорог', odds: 60000, kind: 'unicorn', colors: ['#ffffff', '#ff5ad8', '#5ad8ff'], mult: 5, fx: 'rainbow' },
-      { id: 'cosmiccat', name: 'Космический кот', odds: 150000, kind: 'cat', colors: ['#2a1f5c', '#8a6cff', '#ffffff'], mult: 6.5, fx: 'cosmic' },
-      { id: 'shadowphoenix', name: 'Тёмный феникс', odds: 400000, kind: 'phoenix', colors: ['#3a1052', '#b13dff', '#ff9cf5'], mult: 8, fx: 'glow' },
-      { id: 'titan', name: 'Золотой титан', odds: 1000000, kind: 'dragon', colors: ['#ffc21a', '#fff1a0', '#ff3a3a'], mult: 12, fx: 'gold', scale: 1.4 },
-    ],
-    baseSpin: 3,            // секунд прокрутки без улучшений
-    rollPause: 0.35,        // пауза между автокрутками
-    // Улучшения: цена = base * growth^уровень.
-    upgrades: {
-      luck: { name: 'Удача', max: 25, base: 100, growth: 1.5, step: 0.2 },            // удача = 1 + step * уровень
-      speed: { name: 'Скорость прокрутки', max: 12, base: 150, growth: 1.6, factor: 0.85 }, // время = baseSpin * factor^уровень
-      dice: { name: 'Питомцев за крутку', max: 2, base: 2000, growth: 6 },            // 1 + уровень
-      slots: { name: 'Слоты питомцев', max: 5, base: 400, growth: 3 },                 // 1 + уровень
-      auto: { name: 'Автокрутка', max: 1, base: 1000, growth: 1 },
-    },
-    potion: { name: 'Зелье удачи ×2', price: 300, seconds: 120 },
-  },
-
   // Множители урона по зонам тела.
   hitZones: { head: 3, torso: 1, limb: 0.65 },
 
@@ -196,13 +158,49 @@ export const CONFIG = {
     ],
   },
 
+  // Банки (world.js строит здания, heists.js — ограбления). block — квартал [i, j],
+  // side — сторона квартала, куда смотрит фасад: 'w' (−X), 'e' (+X), 'n' (−Z), 's' (+Z).
+  banks: {
+    list: [
+      { name: 'Центральный банк', block: [5, 4], side: 'w' },
+      { name: 'Банк Вайнвуд', block: [3, 2], side: 's' },
+      { name: 'Банк Порт-Сити', block: [6, 6], side: 'n' },
+    ],
+    duration: 20,           // секунд держаться у входа
+    startRadius: 2.8,       // подойти к метке у двери, чтобы начать (E)
+    leaveRadius: 16,        // отошёл дальше — ограбление сорвано
+    reward: [3000, 7000],
+    cooldown: 180,          // банк снова можно грабить через столько секунд
+    failCooldown: 30,
+    guards: 2,              // охранники выбегают из дверей
+    alarmStars: 2,          // сразу столько звёзд розыска (не гаснут, пока идёт ограбление)
+  },
+
+  // Отряд игрока (squad.js): бойцы его банды ходят за ним и дерутся вместе с ним.
+  squad: {
+    max: 3,                 // бойцов в отряде (3 — все помещаются в машину)
+    recruitRadius: 35,      // свои бандиты ближе этого присоединяются сразу, остальные прибегают
+    health: 110,
+    weapons: { smg: 0.45, pistol: 0.35, shotgun: 0.2 },
+    runSpeed: 7.6,          // догоняют даже бегущего игрока
+    engageRadius: 32,       // на каком расстоянии замечают цели
+    leash: 40,              // дальше от игрока не отходят
+    driveByRange: 35,       // стрельба из окна машины
+    catchUpDistance: 70,    // отставших дальше этого подтягивают к игроку
+    spreadScale: 2,         // точнее обычных NPC (у них CONFIG.npc.gunSpreadScale)
+    fireRateScale: 0.7,
+  },
+
   // Розыск и полиция.
   wanted: {
-    maxFootCops: 8,         // пеших полицейских максимум (2 на звезду)
-    maxCars: 3,             // патрульных машин максимум (со 2-й звезды)
-    spawnInterval: 2.5,
+    footCopsPerStar: 1,     // пеших полицейских на звезду
+    maxFootCops: 4,
+    carsFrom: 3,            // патрульные машины — с этого уровня (одна на звезду сверх него)
+    maxCars: 2,
+    spawnInterval: 5,       // секунд между подкреплениями
     bustTime: 1.2,          // сколько полицейский должен держать игрока (1-2 звезды), чтобы арестовать
-    calmTime: 16,           // без преступлений столько секунд (+4 на звезду) — минус звезда
+    calmTime: 10,           // без преступлений столько секунд (+calmPerStar на звезду) — минус звезда
+    calmPerStar: 3,
     policeDamageFrom: 3,    // с этого уровня полиция бьёт, а не арестовывает
   },
 

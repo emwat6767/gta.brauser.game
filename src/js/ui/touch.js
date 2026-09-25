@@ -2,7 +2,7 @@
 //   левая часть экрана — плавающий джойстик (до упора = бег, в машине: газ/тормоз/руль)
 //   правая часть экрана — свайп вращает камеру
 //   кнопки справа внизу — удар/огонь, прицел (переключатель), перезарядка, смена оружия,
-//   прыжок/ручник, сесть/выйти; пауза — справа вверху
+//   прыжок/ручник, сесть/выйти/грабить; пауза и БАНДА (позвать/отпустить отряд) — справа вверху
 // Контролы включаются автоматически на устройствах с сенсорным экраном
 // (или при первом касании) и передают действия в Input (press/release/setMoveAxes/addLook).
 
@@ -175,10 +175,12 @@ export class TouchControls {
     this._setLabel('jump', inCar ? 'РУЧНИК' : 'ПРЫЖОК');
     this._setLabel('attack', inCar || p.isDead ? '' : gun ? 'ОГОНЬ' : 'УДАР');
     this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
-    this._setLabel('reload', gun ? 'ПЕРЕЗ.' : '');
+    this._setLabel('reload', gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
+    this._setLabel('squad', p.isDead ? '' : this.game.squad.size ? 'ОТПУСТ.' : 'БАНДА');
     this._setLabel('weapon', inCar || p.isDead ? '' : SHORT_NAMES[p.arsenal.current]);
     if (!gun && this.input.virtualDown.has('aim')) this.setToggle('aim', false);
     const v = inCar ? null : p.findEnterableVehicle();
-    this._setLabel('interact', inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : '');
+    const bank = inCar || v ? null : this.game.banks?.canStart();
+    this._setLabel('interact', inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : bank ? 'ГРАБИТЬ' : '');
   }
 }

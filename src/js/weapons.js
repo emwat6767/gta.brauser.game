@@ -63,11 +63,13 @@ export function createWeaponModel(type) {
 
 // Состояние одного ствола: патроны в магазине и в запасе, перезарядка, темп, разброс.
 export class Gun {
-  constructor(type, ammo = 0, infinite = false) {
+  // infinite — бесконечный запас (у NPC); bottomless — магазин не пустеет вовсе (игрок).
+  constructor(type, ammo = 0, infinite = false, bottomless = false) {
     this.type = type;
     this.def = CONFIG.weapons[type];
-    this.mag = Math.min(ammo, this.def.magazine);
-    this.reserve = infinite ? Infinity : Math.max(0, ammo - this.mag);
+    this.bottomless = bottomless;
+    this.mag = bottomless ? this.def.magazine : Math.min(ammo, this.def.magazine);
+    this.reserve = infinite || bottomless ? Infinity : Math.max(0, ammo - this.mag);
     this.cooldown = 0;
     this.reloadTime = 0;
     this.bloom = 0;
@@ -91,13 +93,13 @@ export class Gun {
 
   // Выстрел: минус патрон, пауза по темпу, рост разброса.
   consume() {
-    this.mag--;
+    if (!this.bottomless) this.mag--;
     this.cooldown = 1 / this.def.fireRate;
     this.bloom = Math.min(this.bloom + this.def.bloom, this.def.bloom * 6);
   }
 
   startReload() {
-    if (this.reloading || this.mag >= this.def.magazine || this.reserve <= 0) return false;
+    if (this.bottomless || this.reloading || this.mag >= this.def.magazine || this.reserve <= 0) return false;
     this.reloadTime = this.def.reload;
     return true;
   }
@@ -123,9 +125,10 @@ export class Gun {
 
 // Оружие игрока: какие стволы есть и какой в руках. 'fists' — кулаки (всегда есть).
 export class Arsenal {
-  constructor() {
+  constructor(bottomless = false) {
     this.guns = new Map();
     this.current = 'fists';
+    this.bottomless = bottomless; // бесконечные патроны (CONFIG.player.infiniteAmmo)
   }
 
   get gun() {
@@ -143,7 +146,7 @@ export class Arsenal {
       gun.reserve += ammo;
       return false;
     }
-    this.guns.set(type, new Gun(type, ammo));
+    this.guns.set(type, new Gun(type, ammo, false, this.bottomless));
     return true;
   }
 

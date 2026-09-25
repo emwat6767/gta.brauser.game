@@ -67,12 +67,16 @@ export function raycastVehicles(game, o, d, maxT, ignore) {
   return best;
 }
 
+// Союзники: игрок и его банда (squad.js). Их пули друг в друга не попадают.
+export const isAlly = (game, c) => c === game.player || c?.follower === true;
+
 // Все, в кого можно попасть (живые и мёртвые), кроме ignore и сидящих в машинах.
 function* targets(game, ignore) {
   const p = game.player;
-  if (p !== ignore && !p.vehicle) yield p;
+  const allies = !!ignore && isAlly(game, ignore);
+  if (p !== ignore && !p.vehicle && !allies) yield p;
   for (const n of game.npcs.list) {
-    if (n !== ignore && !n.vehicle && n.model.root.visible) yield n;
+    if (n !== ignore && !n.vehicle && n.model.root.visible && !(allies && n.follower)) yield n;
   }
 }
 
