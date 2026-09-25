@@ -1,12 +1,21 @@
 // Простая шина событий. Модули сообщают о происходящем, не зная, кто слушает.
-// Пример: будущая система розыска подпишется на 'npc:knockdown'.
+// Пример: wanted.js подписан на 'character:killed', hud.js — на 'wanted:changed'.
 //
 // События, которые уже отправляются:
-//   'vehicle:enter'     { vehicle, who }
-//   'vehicle:exit'      { vehicle, who }
-//   'vehicle:crash'     { vehicle, impulse, other? }   — удар о стену/машину
-//   'npc:pushed'        { npc, by }                     — NPC толкнули, он устоял
-//   'npc:knockdown'     { npc, by, cause }              — NPC сбит с ног ('player' | 'vehicle')
+//   'vehicle:enter'       { vehicle, who }
+//   'vehicle:exit'        { vehicle, who }
+//   'vehicle:crash'       { vehicle, impulse, other? }   — удар о стену/машину
+//   'vehicle:carjack'     { vehicle, by, victim }         — угон с водителем
+//   'npc:pushed'          { npc, by }                     — NPC толкнули, он устоял
+//   'npc:knockdown'       { npc, by, cause }              — NPC сбит с ног ('player' | 'vehicle' | 'punch')
+//   'character:damaged'   { target, attacker, amount, kind } — урон игроку или NPC ('punch' | 'vehicle')
+//   'character:killed'    { target, attacker, kind }
+//   'combat:hit'          { attacker, target, damage }
+//   'wanted:changed'      { level, up }
+//   'zone:changed'        { gang }                        — игрок зашёл на территорию банды (или ушёл: gang = null)
+//   'player:down'         { kind }                        — 'wasted' | 'busted'
+//   'player:respawn'      { point }
+//   'game:pause', 'game:resume'
 
 export class EventBus {
   constructor() {
