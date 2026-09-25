@@ -45,6 +45,7 @@ export class GangMenu {
     this.root.classList.toggle('hidden', !open);
     game.menuOpen = open;
     if (open) {
+      game.touch?.resetAll();
       document.exitPointerLock?.();
       this.render();
     } else if (!game.paused && !game.input.touchActive) {

@@ -13,28 +13,8 @@ import { formatMoney } from './ui/hud.js';
 
 const _col = new THREE.Color();
 
-// Место у бордюра на дороге (парковка по ходу движения) в кольце minR..maxR от точки from.
-function parkingSpot(game, from, minR, maxR) {
-  const { world, rng } = game;
-  const L = world.roadLines;
-  const off = world.roadHalf - 1.4;
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const k = rng.int(0, L.length - 1);
-    const b = rng.int(0, L.length - 2);
-    const u = L[b] + rng.range(22, world.blockSize - 22); // между перекрёстками
-    const side = rng.chance(0.5) ? 1 : -1;
-    const alongX = rng.chance(0.5);
-    // Правостороннее движение: у южного края (+Z) едут на +X, у западного (−X) — на +Z.
-    const spot = alongX
-      ? { x: u, z: L[k] + side * off, heading: side > 0 ? Math.PI / 2 : -Math.PI / 2 }
-      : { x: L[k] - side * off, z: u, heading: side > 0 ? 0 : Math.PI };
-    const d = Math.hypot(spot.x - from.x, spot.z - from.z);
-    if (d < minR || d > maxR) continue;
-    if (game.vehicles.some((v) => v.position.distanceToSquared({ x: spot.x, y: 0, z: spot.z }) < 64)) continue;
-    return spot;
-  }
-  return null;
-}
+// Место у бордюра (парковка по ходу движения) в кольце minR..maxR от точки from.
+const parkingSpot = (game, from, minR, maxR) => game.traffic.curbSpot(from, minR, maxR, false);
 
 function spawnCar(game, spot, color) {
   const car = new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading, color });

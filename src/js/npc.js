@@ -6,7 +6,7 @@ import { Gun } from './weapons.js';
 import { fireShot, lineOfSight } from './ballistics.js';
 import { Ragdoll } from './ragdoll.js';
 import { damp, dampAngle, lerp, wrapAngle, clamp } from './utils.js';
-import { PASSENGER_DOORS } from './vehicle.js';
+import { CrowdRenderer } from './crowd.js';
 
 const _eye = new THREE.Vector3(), _aim = new THREE.Vector3(), _dir = new THREE.Vector3(), _muzzle = new THREE.Vector3();
 
@@ -43,6 +43,9 @@ export const NPC_STATE = {
   DEAD: 'dead',
   DRIVE: 'drive',     // сидит в машине: за рулём или пассажиром (модель прикреплена к сиденью)
   FOLLOW: 'follow',   // идёт за лидером (отряд игрока)
+  TALK: 'talk',       // разговаривает с другим NPC (partner)
+  GOTO_CAR: 'gotocar', // идёт к припаркованной машине, чтобы уехать на ней
+  RETREAT: 'retreat', // ранен — отступает от противника, потом возвращается
 };
 
 // Места в строю отряда: [вправо, назад] от игрока, м. По бокам, а не прямо за спиной —
@@ -65,6 +68,11 @@ export const LINES = {
   gangHelp: ['Держись, братан!', 'Наших бьют!', 'Я с тобой!'],
   friendlyHit: ['Эй, свои!', 'Братан, ты чего?', 'Полегче!'],
   squadJoin: ['Я с тобой!', 'Погнали!', 'Веди, братан!', 'Банда в деле!'],
+  chat: ['Слышал новости?', 'Да ладно!', 'Серьёзно?', 'Ха-ха-ха!', 'Ну ты даёшь', 'Погода сегодня супер',
+    'Видел, что вчера было?', 'Пойдём в кафе?', 'Опять эти пробки...', 'Не может быть!', 'А я говорил!', 'Ну и дела'],
+  phone: ['Алло? Да, иду', 'Перезвоню позже', 'Ты где?', 'Да-да, понял', 'Скоро буду'],
+  gangChat: ['Тихо сегодня', 'Смотри в оба', 'Чужие рядом были', 'Держим район', 'Где наши?'],
+  retreat: ['Меня зацепило!', 'Отходим!', 'Прикройте!', 'Я ранен!'],
   squadAttack: ['Мочи их!', 'Огонь!', 'Валим их!', 'За Грув!'],
   police: ['Стоять! Полиция!', 'Руки за голову!', 'Ни с места!'],
   carjacked: ['Моя машина!', 'Эй! Вор!', 'Верни тачку!'],
@@ -130,6 +138,17 @@ export class NPC {
     this.heading = to ? Math.atan2(to.x - x, to.z - z) : rng.range(-Math.PI, Math.PI);
     this.walkSpeed = rng.range(N.walkSpeed[0], N.walkSpeed[1]);
     this.idleChance = role === 'gang' ? 0.55 : N.idleChance;
+    // Характер: не все одинаковые. Прохожие — бегуны и неторопливые, бандиты — смелые/трусливые.
+    this.bravery = rng.range(0.2, 1);      // < 0.5 — отступает раненым
+    this.aggression = rng.range(0.2, 1);   // насколько охотно ввязывается в драку
+    if (role === 'civilian') {
+      if (rng.chance(0.08)) { this.jogger = true; this.walkSpeed = rng.range(3.1, 3.7); }
+      else if (rng.chance(0.1)) this.walkSpeed = rng.range(0.85, 1.1); // пожилой/неспешный
+    }
+    this.activity = null; // жест в IDLE: 'phone' | 'talk' | null
+    this.partner = null;  // собеседник (TALK)
+    this.dest = null;     // куда идёт по своим делам (узел графа тротуаров)
+    this.carTarget = null; // машина, к которой идёт (GOTO_CAR)
     this.speed = 0;
     this.state = NPC_STATE.WALK;
     this.stateTime = 0;
@@ -214,11 +233,123 @@ export class NPC {
       const p = this.game.player.position;
       const d = (n) => (n.x - p.x) ** 2 + (n.z - p.z) ** 2;
       next = pool.reduce((best, n) => (d(n) > d(best) ? n : best), pool[0]);
+    } else if (this.dest && !this.allowedNodes && this.rng.chance(0.8)) {
+      // Идёт по своим делам: к узлу, который ближе к цели.
+      const d = (n) => (n.x - this.dest.x) ** 2 + (n.z - this.dest.z) ** 2;
+      next = pool.reduce((best, n) => (d(n) < d(best) ? n : best), pool[0]);
     } else {
       next = this.rng.pick(pool);
     }
     this.prevNode = this.node;
     this._setTarget(next);
+  }
+
+  // Новая цель прогулки: случайный узел в 80..300 м.
+  _pickDestination() {
+    const w = this.game.world;
+    for (let k = 0; k < 8; k++) {
+      const n = w.waypoints[this.rng.int(0, w.waypoints.length - 1)];
+      const d = Math.hypot(n.x - this.position.x, n.z - this.position.z);
+      if (d > 80 && d < 300) {
+        this.dest = n;
+        return;
+      }
+    }
+    this.dest = null;
+  }
+
+  // Дошёл до узла: иногда остановиться — постоять, поговорить по телефону, оглядеться.
+  _arrive() {
+    if (this.panic > 0) return false;
+    if (this.role === 'civilian') {
+      if (!this.dest || this.node === this.dest || this.rng.chance(0.02)) this._pickDestination();
+      if (this.jogger || !this.rng.chance(this.node?.mid ? 0.1 : this.idleChance)) return false;
+      this.activity = this.rng.chance(0.4) ? 'phone' : null;
+      this.idleTime = this.activity ? this.rng.range(5, 12) : this.rng.range(1.5, 5);
+      if (this.activity) this.say(this.rng.pick(LINES.phone));
+      this._enter(NPC_STATE.IDLE);
+      return true;
+    }
+    if (!this.rng.chance(this.idleChance)) return false;
+    this.activity = null;
+    this.idleTime = this.role === 'gang' ? this.rng.range(3, 9) : this.rng.range(1, 4);
+    this._enter(NPC_STATE.IDLE);
+    return true;
+  }
+
+  // Разговор двух NPC: встают лицом друг к другу рядом с точкой (x, z).
+  startTalk(partner, x, z, side, seconds) {
+    this.partner = partner;
+    this.talkSpot = { x: x + Math.sin(side) * 0.62, z: z + Math.cos(side) * 0.62 };
+    this.idleTime = seconds;
+    this.activity = null;
+    this._enter(NPC_STATE.TALK);
+  }
+
+  _updateTalk(dt) {
+    const p = this.partner;
+    if (!p || p.removed || p.isDead || p.state !== NPC_STATE.TALK || p.partner !== this || this.stateTime > this.idleTime || this.panic > 0) {
+      this.partner = null;
+      this.activity = null;
+      this._enter(NPC_STATE.WALK);
+      return 0;
+    }
+    const dx = this.talkSpot.x - this.position.x, dz = this.talkSpot.z - this.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 0.25) {
+      this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 8, dt);
+      const step = Math.min(this.walkSpeed * dt, d);
+      this.position.x += Math.sin(this.heading) * step;
+      this.position.z += Math.cos(this.heading) * step;
+      return this.walkSpeed;
+    }
+    this.heading = dampAngle(this.heading, Math.atan2(p.position.x - this.position.x, p.position.z - this.position.z), 6, dt);
+    // Говорят по очереди: у каждого свой "такт".
+    const mine = Math.floor((this.stateTime + (this.talkPhase ??= this.rng.range(0, 6))) / 3) % 2 === 0;
+    this.activity = mine ? 'talk' : null;
+    if (mine && this.talkCooldown <= 0 && this.rng.chance(dt * 0.5)) this.say(this.rng.pick(this.role === 'gang' ? LINES.gangChat : LINES.chat));
+    return 0;
+  }
+
+  // Идёт к припаркованной машине и уезжает на ней (становится трафиком, см. traffic.js).
+  _updateGotoCar(dt) {
+    const v = this.carTarget;
+    if (!v || v.removed || v.driver || this.panic > 0 || this.stateTime > 25) {
+      this.carTarget = null;
+      this._enter(NPC_STATE.WALK);
+      return 0;
+    }
+    const door = v.localToWorld2D(1.6, -0.2);
+    const dx = door.x - this.position.x, dz = door.z - this.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.9) {
+      this.carTarget = null;
+      this.game.traffic.driveAway(v, this);
+      return 0;
+    }
+    this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 8, dt);
+    const step = Math.min(this.walkSpeed * 1.15 * dt, d);
+    this.position.x += Math.sin(this.heading) * step;
+    this.position.z += Math.cos(this.heading) * step;
+    return this.walkSpeed * 1.15;
+  }
+
+  // Ранен и не храбрец — отходит от противника к своим, потом возвращается в бой.
+  _updateRetreat(dt) {
+    const t = this.target;
+    if (this.stateTime > this.idleTime || !t || t.isDead || t.removed) {
+      this.health = Math.min(this.maxHealth, this.health + this.maxHealth * 0.25);
+      if (t && !t.isDead && !t.removed) this._enter(NPC_STATE.FIGHT);
+      else this.dropTarget();
+      return 0;
+    }
+    const tp = t.vehicle ? t.vehicle.position : t.position;
+    const away = Math.atan2(this.position.x - tp.x, this.position.z - tp.z);
+    this.heading = dampAngle(this.heading, away, 6, dt);
+    const sp = CONFIG.npc.fightSpeed * 0.9;
+    this.position.x += Math.sin(this.heading) * sp * dt;
+    this.position.z += Math.cos(this.heading) * sp * dt;
+    return sp;
   }
 
   update(dt) {
@@ -261,10 +392,7 @@ export class NPC {
         const dx = this.walkTarget.x - this.position.x;
         const dz = this.walkTarget.z - this.position.z;
         if (dx * dx + dz * dz < 0.8) {
-          if (this.panic <= 0 && this.rng.chance(this.idleChance)) {
-            this.idleTime = this.role === 'gang' ? this.rng.range(3, 9) : this.rng.range(1, 4);
-            this._enter(NPC_STATE.IDLE);
-          }
+          this._arrive();
           this._chooseNext();
           break;
         }
@@ -275,7 +403,19 @@ export class NPC {
         break;
       }
       case NPC_STATE.IDLE:
-        if (this.stateTime > this.idleTime) this._enter(NPC_STATE.WALK);
+        if (this.stateTime > this.idleTime) {
+          this.activity = null;
+          this._enter(NPC_STATE.WALK);
+        }
+        break;
+      case NPC_STATE.TALK:
+        speed = this._updateTalk(dt);
+        break;
+      case NPC_STATE.GOTO_CAR:
+        speed = this._updateGotoCar(dt);
+        break;
+      case NPC_STATE.RETREAT:
+        speed = this._updateRetreat(dt);
         break;
       case NPC_STATE.FIGHT:
         speed = this._updateFight(dt);
@@ -327,6 +467,7 @@ export class NPC {
     this.visualY = this.airborne ? this.position.y : damp(this.visualY, this.position.y, 20, dt);
     this.model.root.position.set(this.position.x, this.visualY, this.position.z);
     this.model.root.rotation.y = this.heading;
+    if (this.lod) return; // вдали — упрощённая фигура без анимации (crowd.js)
     const pose = this.isDown ? 'down' : this.state === NPC_STATE.STUMBLE ? 'stumble' : 'normal';
     // Оружие видно только в драке (в остальное время "в кармане").
     this.model.setWeapon(this.gun && this.state === NPC_STATE.FIGHT ? this.gun.type : null);
@@ -336,6 +477,8 @@ export class NPC {
       attack: this.melee.t, attackSide: this.melee.side,
       aim: this.shooting ? this.aimPitch : null,
       reload: this.gun?.reloadProgress ?? 0,
+      gesture: this.state === NPC_STATE.IDLE || this.state === NPC_STATE.TALK ? this.activity
+        : this.state === NPC_STATE.WALK && this.panic > 0 && this.role === 'civilian' && this.rng.chance(0.002) ? 'hands' : null,
     });
   }
 
@@ -346,7 +489,11 @@ export class NPC {
     if (this.target === target && this.state === NPC_STATE.FIGHT) return;
     this.target = target;
     this.panic = 0;
-    if (this.state === NPC_STATE.WALK || this.state === NPC_STATE.IDLE || this.state === NPC_STATE.FOLLOW) this._enter(NPC_STATE.FIGHT);
+    if ([NPC_STATE.WALK, NPC_STATE.IDLE, NPC_STATE.FOLLOW, NPC_STATE.TALK, NPC_STATE.GOTO_CAR, NPC_STATE.RETREAT].includes(this.state)) {
+      this.partner = null;
+      this.activity = null;
+      this._enter(NPC_STATE.FIGHT);
+    }
     if (line) this.say(line);
   }
 
@@ -470,6 +617,13 @@ export class NPC {
       this.knock.x += dirX * 0.8;
       this.knock.z += dirZ * 0.8;
     }
+    // Тяжело ранен и не храбрец — отступает (бандиты, полиция, бойцы отряда).
+    if (this.role !== 'civilian' && this.state === NPC_STATE.FIGHT && this.health < this.maxHealth * 0.35 &&
+      this.bravery < 0.5 && !this.guard) {
+      this.idleTime = this.rng.range(4, 7);
+      this._enter(NPC_STATE.RETREAT);
+      this.say(this.rng.pick(LINES.retreat), true);
+    }
     if (kind === 'punch') {
       this.hitStreak++;
       this.hitStreakTimer = 1.6;
@@ -494,6 +648,7 @@ export class NPC {
     if (this.role === 'civilian') {
       this.panic = 6;
       this.say(this.rng.pick(LINES.hit));
+      if (this.state === NPC_STATE.IDLE || this.state === NPC_STATE.TALK || this.state === NPC_STATE.GOTO_CAR) this._enter(NPC_STATE.WALK);
       return;
     }
     if (this.role === 'gang') {
@@ -582,7 +737,7 @@ export class NPC {
       const v = L.vehicle;
       const seat = this.slot < v.passengers.length && !v.passengers[this.slot] ? this.slot : v.passengers.indexOf(null);
       if (seat < 0) return 0; // мест нет — ждём
-      const [lx, lz] = PASSENGER_DOORS[seat];
+      const [lx, lz] = v.doors[seat];
       ({ x: tx, z: tz } = v.localToWorld2D(lx, lz));
       const d = Math.hypot(tx - this.position.x, tz - this.position.z);
       if (d < 1.4 && Math.abs(v.speed) < 4) {
@@ -630,7 +785,7 @@ export class NPC {
   exitPassenger() {
     const v = this.vehicle;
     if (!v || this.seat < 0) return;
-    const [lx, lz] = PASSENGER_DOORS[this.seat];
+    const [lx, lz] = v.doors[this.seat];
     let spot = v.localToWorld2D(lx, lz);
     if (!this.game.world.isCircleFree(spot.x, spot.z, this.radius)) spot = v.findExitPosition(this.radius);
     v.passengers[this.seat] = null;
@@ -715,12 +870,14 @@ export class NPC {
 }
 
 // Все NPC живут здесь. Прохожих всегда ~CONFIG.npc.count вокруг игрока:
-// дальние пересоздаются рядом. Бандитов и полицию добавляют gangs.js / wanted.js.
+// дальние пересоздаются рядом (в самом пустом секторе, вне поля зрения). Бандитов и полицию
+// добавляют gangs.js / wanted.js. Дальше CONFIG.npc.lodDistance люди рисуются упрощённо (crowd.js).
 export class NPCManager {
   constructor(game) {
     this.game = game;
     this.list = [];
     this._recycleTimer = 0;
+    this.crowd = new CrowdRenderer(game.scene);
     const p = game.player.position;
     for (let i = 0; i < CONFIG.npc.count; i++) this.spawnCivilian(p.x, p.z, 5, CONFIG.npc.spawnRadius, false);
 
@@ -732,7 +889,7 @@ export class NPCManager {
         if (n.position.distanceToSquared(position) > r2) continue;
         if (n.panic <= 0 && game.rng.chance(0.3)) n.say(game.rng.pick(LINES.scream));
         n.panic = 8;
-        if (n.state === NPC_STATE.IDLE) n._enter(NPC_STATE.WALK);
+        if (n.state === NPC_STATE.IDLE || n.state === NPC_STATE.TALK || n.state === NPC_STATE.GOTO_CAR) n._enter(NPC_STATE.WALK);
       }
     });
   }
@@ -782,23 +939,90 @@ export class NPCManager {
   spawnCivilian(x, z, minR, maxR, outOfView = true) {
     const spot = this.randomSidewalkSpot(x, z, minR, maxR, outOfView);
     if (!spot) return null;
-    return this.add(new NPC(this.game, this.game.rng, { ...spot, role: 'civilian' }));
+    const npc = this.add(new NPC(this.game, this.game.rng, { ...spot, role: 'civilian' }));
+    npc._pickDestination();
+    return npc;
+  }
+
+  // Прохожий появляется там, где людей меньше всего: вокруг игрока 8 секторов,
+  // выбираем самый пустой (так люди распределены по городу, а не толпятся).
+  _spawnSpread(p, minR, maxR) {
+    const counts = new Array(8).fill(0);
+    const sector = (x, z) => ((Math.floor(((Math.atan2(x - p.x, z - p.z) + Math.PI) / (Math.PI * 2)) * 8) % 8) + 8) % 8;
+    for (const n of this.list) if (n.role === 'civilian' && !n.isDead) counts[sector(n.position.x, n.position.z)]++;
+    const min = Math.min(...counts);
+    const want = counts.map((c, i) => (c === min ? i : -1)).filter((i) => i >= 0);
+    const s = this.game.rng.pick(want);
+    const a = ((s + 0.5) / 8) * Math.PI * 2 - Math.PI;
+    const r = this.game.rng.range(minR, maxR);
+    const cx = p.x + Math.sin(a) * r, cz = p.z + Math.cos(a) * r;
+    // Ищем тротуар около центра сектора, но не на глазах у игрока.
+    const spot = this.randomSidewalkSpot(cx, cz, 0, 40, false);
+    if (!spot || this.game.inView(spot.x, 1, spot.z, 1.5) && Math.hypot(spot.x - p.x, spot.z - p.z) < 110) return null;
+    const npc = this.add(new NPC(this.game, this.game.rng, { ...spot, role: 'civilian' }));
+    npc._pickDestination();
+    return npc;
+  }
+
+  // Двое прохожих рядом останавливаются поговорить.
+  _pairTalks(time) {
+    const cand = this.list.filter((n) => (n.role === 'civilian' || (n.role === 'gang' && !n.follower)) && !n.lod &&
+      n.model.root.visible && (n.state === NPC_STATE.WALK || n.state === NPC_STATE.IDLE) &&
+      n.panic <= 0 && !n.jogger && (n._talkAgain ?? 0) < time);
+    const rng = this.game.rng;
+    for (let i = 0; i < cand.length; i++) {
+      const a = cand[i];
+      for (let j = i + 1; j < cand.length; j++) {
+        const b = cand[j];
+        if (a.role !== b.role || a.gang !== b.gang) continue;
+        if (a.position.distanceToSquared(b.position) > 49 || !rng.chance(0.3)) continue;
+        const mx = (a.position.x + b.position.x) / 2, mz = (a.position.z + b.position.z) / 2;
+        const ang = Math.atan2(a.position.x - b.position.x, a.position.z - b.position.z);
+        const T = rng.range(7, 16);
+        a.startTalk(b, mx, mz, ang, T);
+        b.startTalk(a, mx, mz, ang + Math.PI, T);
+        a._talkAgain = b._talkAgain = time + T + rng.range(30, 60);
+        return;
+      }
+    }
+  }
+
+  // Прохожий садится в припаркованную машину рядом и уезжает.
+  _useParkedCars() {
+    const parked = this.game.traffic?.parked ?? [];
+    if (!parked.length) return;
+    const rng = this.game.rng;
+    for (const n of this.list) {
+      if (n.role !== 'civilian' || n.state !== NPC_STATE.WALK || n.panic > 0 || n.jogger || n.lod) continue;
+      const car = parked.find((v) => !v.driver && !v.removed && !v._claimed && v.position.distanceToSquared(n.position) < 14 * 14);
+      if (!car || !rng.chance(0.15)) continue;
+      car._claimed = true;
+      n.carTarget = car;
+      n._enter(NPC_STATE.GOTO_CAR);
+      return;
+    }
   }
 
   update(dt) {
     const N = CONFIG.npc;
     const p = this.game.player.position;
-    const vis2 = N.visibleDistance ** 2, freeze2 = N.freezeDistance ** 2;
+    const vis2 = N.visibleDistance ** 2, freeze2 = N.freezeDistance ** 2, lod2 = N.lodDistance ** 2;
+    this.time = (this.time ?? 0) + dt;
     for (let i = this.list.length - 1; i >= 0; i--) {
       const npc = this.list[i];
       const d2 = (npc.position.x - p.x) ** 2 + (npc.position.z - p.z) ** 2;
       npc.model.root.visible = d2 < vis2;
+      // Дальние люди — упрощённая фигура (crowd.js), водители далёких машин не рисуются.
+      const lod = d2 > lod2 && !npc.ragdoll && !npc.vehicle;
+      if (lod !== npc.lod) npc.lod = lod;
+      npc.model.body.visible = npc.vehicle ? d2 < N.driverVisible ** 2 : !lod;
       if (d2 > freeze2 && npc.state !== NPC_STATE.FIGHT && !npc.vehicle) continue;
       npc.update(dt);
       if (npc.isDead && npc.stateTime > N.corpseTime && d2 > 900) this.remove(npc);
     }
 
-    // Раз в секунду: дальних прохожих убираем, недостающих создаём рядом с игроком.
+    // Раз в секунду: дальних прохожих убираем, недостающих создаём (распределённо, вне поля
+    // зрения), кто-то останавливается поговорить или уезжает на машине.
     this._recycleTimer -= dt;
     if (this._recycleTimer > 0) return;
     this._recycleTimer = 1;
@@ -809,6 +1033,13 @@ export class NPCManager {
       if (d > N.recycleDistance || (npc.isDead && d > 60)) this.remove(npc);
       else if (!npc.isDead) civilians++;
     }
-    if (civilians < N.count) this.spawnCivilian(p.x, p.z, 45, 130);
+    for (let k = 0; k < 3 && civilians < N.count; k++) if (this._spawnSpread(p, 30, 130)) civilians++;
+    this._pairTalks(this.time);
+    this._useParkedCars();
+  }
+
+  // Раз в кадр: упрощённые фигуры дальних людей.
+  renderCrowd(dt) {
+    this.crowd.update(dt, this.list);
   }
 }

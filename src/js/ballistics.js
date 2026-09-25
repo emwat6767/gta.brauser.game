@@ -58,7 +58,7 @@ export function raycastVehicles(game, o, d, maxT, ignore) {
     const cos = Math.cos(v.heading), sin = Math.sin(v.heading);
     const lox = rx * cos - rz * sin, loz = rx * sin + rz * cos;
     const ldx = d.x * cos - d.z * sin, ldz = d.x * sin + d.z * cos;
-    const r = rayBox(lox, o.y - v.position.y, loz, ldx, d.y, ldz, -0.95, 0.2, -2.3, 0.95, 1.45, 2.3, best ? best.t : maxT);
+    const r = rayBox(lox, o.y - v.position.y, loz, ldx, d.y, ldz, -0.95, 0.2, -2.3, 0.95, v.hitHeight ?? 1.45, 2.3, best ? best.t : maxT);
     if (r) {
       const n = new THREE.Vector3(r.nx * cos + r.nz * sin, r.ny, -r.nx * sin + r.nz * cos);
       best = { t: r.t, normal: n, vehicle: v };

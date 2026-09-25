@@ -758,7 +758,8 @@ export class World {
   }
 
   // Граф тротуаров: 4 угла каждого квартала, соединённые вдоль сторон квартала
-  // и "зебрами" через улицы к соседним кварталам.
+  // (с промежуточными точками через ~27 м — чтобы люди стояли не только на углах)
+  // и "зебрами" через улицы к соседним кварталам (только между углами).
   _buildWaypoints() {
     const s = this.roadHalf + this.sidewalk / 2;
     const n = this.blocksPerAxis;
@@ -782,6 +783,24 @@ export class World {
       for (let i = 0; i < n; i++) {
         if (i + 1 < n) { link(at(i, j)[1], at(i + 1, j)[0]); link(at(i, j)[2], at(i + 1, j)[3]); }
         if (j + 1 < n) { link(at(i, j)[3], at(i, j + 1)[0]); link(at(i, j)[2], at(i, j + 1)[1]); }
+      }
+    }
+    // Промежуточные точки на сторонах квартала: угол — 1/3 — 2/3 — угол.
+    const MIDS = 2;
+    for (const c of corners) {
+      for (let k = 0; k < 4; k++) {
+        const a = c[k], b = c[(k + 1) % 4];
+        a.links.splice(a.links.indexOf(b), 1);
+        b.links.splice(b.links.indexOf(a), 1);
+        let prev = a;
+        for (let m = 1; m <= MIDS; m++) {
+          const t = m / (MIDS + 1);
+          const mid = add(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, a.block);
+          mid.mid = true;
+          link(prev, mid);
+          prev = mid;
+        }
+        link(prev, b);
       }
     }
   }

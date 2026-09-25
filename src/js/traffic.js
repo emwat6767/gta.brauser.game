@@ -1,14 +1,20 @@
 import { CONFIG } from './config.js';
 import { Vehicle } from './vehicle.js';
-import { NPC, policeLook } from './npc.js';
+import { NPC, NPC_STATE, policeLook } from './npc.js';
 import { clamp, wrapAngle } from './utils.js';
 
 // Машины под управлением ИИ.
 //   RoadNetwork   — граф перекрёстков (узлы = пересечения осей улиц, world.roadLines).
 //   AIDriver      — "водитель": едет по правой полосе от перекрёстка к перекрёстку,
-//                   тормозит перед препятствиями, сдаёт назад, если застрял.
-//                   Режим 'pursuit' — погоня за игроком (полиция).
-//   TrafficManager — держит N машин с водителями вокруг игрока, дальние пересоздаёт.
+//                   стоит на красный свет (lights.js), тормозит перед препятствиями,
+//                   сдаёт назад, если застрял. Режимы:
+//                     'cruise'  — спокойная езда по городу;
+//                     'pursuit' — погоня за target (по умолчанию игрок): полиция, бандиты;
+//                     'flee'    — удирает на скорости, светофоры не замечает;
+//                     'park'    — прижимается к бордюру и останавливается (водитель выходит).
+//   TrafficManager — держит N машин с водителями вокруг игрока (появляются и исчезают
+//                   вне поля зрения), припаркованные машины у бордюров (parked), в которые
+//                   садятся прохожие, и редкие парковки машин из потока.
 //
 // Движение правостороннее: полоса смещена от оси улицы вправо на laneOffset.
 // "Вправо" для направления (dx, dz) — это (-dz, dx), как и везде в проекте.
@@ -47,7 +53,8 @@ export class AIDriver {
   constructor(game, vehicle, mode = 'cruise') {
     this.game = game;
     this.vehicle = vehicle;
-    this.mode = mode;               // 'cruise' | 'pursuit'
+    this.mode = mode;               // 'cruise' | 'pursuit' | 'flee' | 'park'
+    this.target = null;             // за кем погоня (null — игрок)
     this.net = game.roads;
     this.prev = null;               // последний пройденный перекрёсток
     this.route = [];                // следующие перекрёстки
@@ -75,7 +82,30 @@ export class AIDriver {
     this._extendRoute();
   }
 
-  // Продолжение маршрута: без разворотов; в погоне — к игроку, иначе случайно (чаще прямо).
+  // Встать на дорожный граф там, где машина уже стоит (например, отъезжает от бордюра):
+  // ближайшая ось улицы, направление — по курсу машины.
+  attachToRoad() {
+    const v = this.vehicle;
+    const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+    const [ni, nj] = this.net.nearest(v.position.x, v.position.z);
+    const alongX = Math.abs(fx) > Math.abs(fz);
+    const w = this.game.world;
+    let a, b;
+    if (alongX) {
+      const i0 = clamp(Math.floor((v.position.x - w.gridMin) / w.blockSize), 0, this.net.n - 2);
+      a = fx > 0 ? [i0, nj] : [i0 + 1, nj];
+      b = fx > 0 ? [i0 + 1, nj] : [i0, nj];
+    } else {
+      const j0 = clamp(Math.floor((v.position.z - w.gridMin) / w.blockSize), 0, this.net.n - 2);
+      a = fz > 0 ? [ni, j0] : [ni, j0 + 1];
+      b = fz > 0 ? [ni, j0 + 1] : [ni, j0];
+    }
+    this.prev = a;
+    this.route = [b];
+    this._extendRoute();
+  }
+
+  // Продолжение маршрута: без разворотов; в погоне — к цели, иначе случайно (чаще прямо).
   _extendRoute() {
     const rng = this.game.rng;
     while (this.route.length < 3) {
@@ -97,9 +127,13 @@ export class AIDriver {
     }
   }
 
+  _targetPos() {
+    const t = this.target ?? this.game.player;
+    return t.vehicle ? t.vehicle.position : t.position;
+  }
+
   _goalNode() {
-    const p = this.game.player;
-    const tp = p.vehicle ? p.vehicle.position : p.position;
+    const tp = this._targetPos();
     return this.net.nearest(tp.x, tp.z);
   }
 
@@ -143,6 +177,7 @@ export class AIDriver {
     }
 
     let tx, tz, desired;
+    this.atLight = false;
     const chase = this.mode === 'pursuit' ? this._pursuitTarget() : null;
     if (chase) {
       tx = chase.x;
@@ -165,8 +200,36 @@ export class AIDriver {
       tx = along > L ? W.x - ix * (along - L) : W.x;
       tz = along > L ? W.z - iz * (along - L) : W.z;
       const d = Math.hypot(W.x - v.position.x, W.z - v.position.z);
-      desired = this.mode === 'pursuit' ? T.pursuitSpeed : this.cruiseSpeed;
-      if (W.turn && d < 24) desired = Math.min(desired, this.mode === 'pursuit' ? 9 : T.turnSpeed);
+      const fast = this.mode === 'pursuit' || this.mode === 'flee';
+      desired = this.mode === 'pursuit' ? T.pursuitSpeed : this.mode === 'flee' ? T.fleeSpeed : this.cruiseSpeed;
+      if (W.turn && d < 24) desired = Math.min(desired, fast ? 9 : T.turnSpeed);
+      // Светофор: на жёлтый/красный останавливаемся у стоп-линии (погоня и беглецы — нет).
+      const lights = this.game.lights;
+      if (lights && !fast && this.mode !== 'park') {
+        const N = this.net.pos(this.route[0]);
+        const toNode = (N.x - v.position.x) * ix + (N.z - v.position.z) * iz;
+        const stop = this.game.world.roadHalf + 3;
+        if (toNode > stop - 1.5 && toNode < stop + 30) {
+          const sig = lights.state(lights.nodeIndex(this.route[0]), ix !== 0 ? 'x' : 'z');
+          if (sig === 'red' || (sig === 'yellow' && toNode - stop > Math.max(0, speed) * 0.9)) {
+            desired = Math.min(desired, Math.max(0, (toNode - stop) * 0.7));
+            this.atLight = true;
+          }
+        }
+      }
+      // Парковка: съезжаем к бордюру в нескольких метрах впереди и встаём.
+      if (this.mode === 'park') {
+        // Цель — точка у бордюра впереди; едем медленно, пока не прижмёмся, потом встаём.
+        const w = this.game.world;
+        const N = this.net.pos(this.route[0]);
+        const curb = w.roadHalf - 1.4;
+        const lateral = ix !== 0 ? (v.position.z - N.z) * ix : -(v.position.x - N.x) * iz; // от оси улицы вправо
+        tx = v.position.x + ix * 9 - iz * (curb - lateral);
+        tz = v.position.z + iz * 9 + ix * (curb - lateral);
+        this.parkTime = (this.parkTime ?? 0) + dt;
+        desired = lateral < curb - 0.6 && this.parkTime < 10 ? 4 : 0;
+        if (desired === 0 && Math.abs(speed) < 0.4) this.parked = true;
+      }
     }
 
     const ang = wrapAngle(Math.atan2(tx - v.position.x, tz - v.position.z) - v.heading);
@@ -177,12 +240,23 @@ export class AIDriver {
     if (obstacle) {
       desired = Math.min(desired, Math.max(0, (obstacle.dist - 4.5) * 0.9));
       this.blockedTime += dt;
-      if (obstacle.who === this.game.player && this.blockedTime > 1.5 && this.honkCooldown <= 0) {
-        this.honkCooldown = 4;
+      // Сигналит тому, кто загородил дорогу (не на светофоре).
+      const nearPlayer = v.position.distanceToSquared(this.game.player.position) < 60 * 60;
+      if (nearPlayer && this.honkCooldown <= 0 && (obstacle.who === this.game.player ? this.blockedTime > 1.5
+        : this.blockedTime > 6 && !obstacle.who?.ai?.atLight && this.game.rng.chance(dt * 0.15))) {
+        this.honkCooldown = 12;
         this.game.hud?.say(v, 'Би-бип!');
       }
     } else {
       this.blockedTime = 0;
+    }
+    // Долго стоим за чужой машиной не у светофора (затор, "пробка" на перекрёстке) —
+    // пробуем сдать назад и объехать.
+    if (obstacle && !this.atLight && this.blockedTime > 12 && !chase) {
+      this.blockedTime = 0;
+      this.reverseTime = 1.6;
+      this.reverseSteer = this.game.rng.chance(0.5) ? 1 : -1;
+      this.stuckTotal = (this.stuckTotal ?? 0) + 1;
     }
 
     if (desired < 0.3) {
@@ -208,15 +282,15 @@ export class AIDriver {
     }
   }
 
-  // Погоня: если игрок близко и в прямой видимости — едем прямо к нему.
+  // Погоня: если цель близко и в прямой видимости — едем прямо к ней.
   _pursuitTarget() {
-    const p = this.game.player;
-    const tp = p.vehicle ? p.vehicle.position : p.position;
+    const p = this.target ?? this.game.player;
+    const tp = this._targetPos();
     const v = this.vehicle;
     const d = Math.hypot(tp.x - v.position.x, tp.z - v.position.z);
     if (d > 45 || !this._lineOfSight(tp)) return null;
     const lead = p.vehicle ? 0.6 : 0;
-    const vel = p.vehicle ? p.vehicle.velocity : p.velocity;
+    const vel = p.vehicle ? p.vehicle.velocity : p.velocity ?? { x: 0, z: 0 };
     const speed = p.vehicle ? (d < 10 ? 12 : CONFIG.traffic.pursuitSpeed) : d < 14 ? 0 : 14;
     return { x: tp.x + vel.x * lead, z: tp.z + vel.z * lead, speed };
   }
@@ -245,9 +319,10 @@ export class AIDriver {
       if (side > halfWidth) return;
       if (!best || f < best.dist) best = { dist: f, who };
     };
+    const prey = (this.target ?? player).vehicle;
     for (const o of this.game.vehicles) {
       if (o === v) continue;
-      if (chase && o === player.vehicle) continue; // полиция таранит
+      if (chase && o === prey) continue; // погоня таранит
       for (const c of o.circles) test(c.x, c.z, 1.9, o);
     }
     if (!player.vehicle && !player.isDead && !(chase && this.mode === 'pursuit')) {
@@ -261,21 +336,55 @@ export class AIDriver {
   }
 }
 
+// Случайный тип машины для потока (такси и седаны чаще).
+const TYPE_WEIGHTS = [['sedan', 0.34], ['taxi', 0.14], ['sports', 0.12], ['van', 0.18], ['pickup', 0.22]];
+export function randomCarType(rng) {
+  let r = rng.next();
+  for (const [t, w] of TYPE_WEIGHTS) if ((r -= w) < 0) return t;
+  return 'sedan';
+}
+
 export class TrafficManager {
   constructor(game) {
     this.game = game;
     this.cars = [];   // { vehicle, driver } — управляемый трафик
+    this.parked = []; // машины у бордюров без водителя
     this._timer = 0;
+    this._parkTimer = 20;
   }
 
-  // Создать машину с ИИ-водителем на дороге в кольце minR..maxR от игрока.
-  // color — цвет кузова (по умолчанию случайный), driver — опции NPC-водителя ({ role, gang, look }).
-  createAICar({ police = false, mode = 'cruise', minR = CONFIG.traffic.spawnMin, maxR = CONFIG.traffic.spawnMax, color, driver: who } = {}) {
+  // Место у бордюра по ходу движения в кольце minR..maxR от точки from (вне поля зрения, если близко).
+  curbSpot(from, minR, maxR, hidden = true) {
+    const { world, rng } = this.game;
+    const L = world.roadLines;
+    const off = world.roadHalf - 1.4;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const k = rng.int(0, L.length - 1);
+      const b = rng.int(0, L.length - 2);
+      const u = L[b] + rng.range(22, world.blockSize - 22); // между перекрёстками
+      const side = rng.chance(0.5) ? 1 : -1;
+      const alongX = rng.chance(0.5);
+      // Правостороннее движение: у края +Z едут на +X, у края −X — на +Z.
+      const spot = alongX
+        ? { x: u, z: L[k] + side * off, heading: side > 0 ? Math.PI / 2 : -Math.PI / 2 }
+        : { x: L[k] - side * off, z: u, heading: side > 0 ? 0 : Math.PI };
+      const d = Math.hypot(spot.x - from.x, spot.z - from.z);
+      if (d < minR || d > maxR) continue;
+      if (hidden && d < 170 && this.game.inView(spot.x, 1, spot.z, 3)) continue;
+      if (this.game.vehicles.some((v) => v.position.distanceToSquared({ x: spot.x, y: 0, z: spot.z }) < 64)) continue;
+      return spot;
+    }
+    return null;
+  }
+
+  // Создать машину с ИИ-водителем на дороге в кольце minR..maxR от игрока (не на глазах).
+  // color — цвет кузова (по умолчанию случайный), driver — опции NPC-водителя ({ role, gang, look }),
+  // type — тип машины (по умолчанию случайный), near — центр кольца вместо игрока.
+  createAICar({ police = false, mode = 'cruise', minR = CONFIG.traffic.spawnMin, maxR = CONFIG.traffic.spawnMax, color, driver: who, type, near } = {}) {
     const { game } = this;
-    const { rng, roads, camera } = game;
-    const p = game.player.position;
-    const camDir = camera.getWorldDirection(camera.position.clone());
-    for (let attempt = 0; attempt < 30; attempt++) {
+    const { rng, roads } = game;
+    const p = near ?? game.player.position;
+    for (let attempt = 0; attempt < 40; attempt++) {
       const a = [rng.int(0, roads.n - 1), rng.int(0, roads.n - 1)];
       const b = rng.pick(roads.neighbors(a));
       const t = rng.range(0.25, 0.75);
@@ -283,10 +392,14 @@ export class TrafficManager {
       const x = A.x + (B.x - A.x) * t, z = A.z + (B.z - A.z) * t;
       const d = Math.hypot(x - p.x, z - p.z);
       if (d < minR || d > maxR) continue;
-      if (d < 120 && ((x - p.x) * camDir.x + (z - p.z) * camDir.z) / d > 0.3 && attempt < 24) continue; // не на глазах
+      // Не на глазах у игрока: в кадре и ближе 170 м — ищем другое место.
+      const pd = Math.hypot(x - game.player.position.x, z - game.player.position.z);
+      if (pd < 170 && game.inView(x, 1, z, 3)) continue;
       if (game.vehicles.some((o) => o.position.distanceToSquared({ x, y: 0, z }) < 100)) continue;
 
-      const vehicle = new Vehicle(game, { x, z, color: color ?? rng.pick(CONFIG.traffic.colors), police });
+      const vehicle = new Vehicle(game, {
+        x, z, color: color ?? rng.pick(CONFIG.traffic.colors), police, type: police ? 'sedan' : type ?? randomCarType(rng),
+      });
       const ai = new AIDriver(game, vehicle, mode);
       ai.placeOnSegment(a, b, t, mode === 'pursuit' ? 10 : 6);
       const driver = new NPC(game, rng, {
@@ -302,12 +415,63 @@ export class TrafficManager {
     return null;
   }
 
+  // Припаркованная машина у бордюра (вне поля зрения).
+  _spawnParked() {
+    const { game } = this;
+    const spot = this.curbSpot(game.player.position, 30, 150);
+    if (!spot) return null;
+    const v = new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading, color: game.rng.pick(CONFIG.traffic.colors), type: randomCarType(game.rng) });
+    v.parked = true;
+    game.addVehicle(v);
+    this.parked.push(v);
+    return v;
+  }
+
+  // Прохожий дошёл до припаркованной машины: садится и уезжает в поток.
+  driveAway(v, npc) {
+    const i = this.parked.indexOf(v);
+    if (i >= 0) this.parked.splice(i, 1);
+    v.parked = false;
+    v._claimed = false;
+    if (v.driver || v.removed) {
+      npc._enter(NPC_STATE.WALK);
+      return;
+    }
+    npc.enterVehicle(v);
+    const ai = new AIDriver(this.game, v, 'cruise');
+    ai.attachToRoad();
+    v.ai = ai;
+    this.cars.push({ vehicle: v, driver: npc });
+  }
+
+  // Машина из потока паркуется, водитель выходит и идёт по делам.
+  _parkOne() {
+    const p = this.game.player.position;
+    const car = this.cars.find((c) => c.vehicle.ai?.mode === 'cruise' && c.driver.role === 'civilian' &&
+      c.vehicle.position.distanceTo(p) < 120 && c.vehicle.position.distanceTo(p) > 30);
+    if (car) car.vehicle.ai.mode = 'park';
+  }
+
+  _finishParking() {
+    for (const c of [...this.cars]) {
+      const v = c.vehicle;
+      if (!v.ai?.parked) continue;
+      const npc = c.driver;
+      npc.exitVehicle();
+      npc._pickDestination?.();
+      this.cars.splice(this.cars.indexOf(c), 1);
+      v.parked = true;
+      this.parked.push(v);
+    }
+  }
+
   removeCar(vehicle) {
     if (vehicle.driver && vehicle.driver !== this.game.player) this.game.npcs.remove(vehicle.driver);
     this.game.removeVehicle(vehicle);
   }
 
   update(dt) {
+    this._finishParking();
     this._timer -= dt;
     if (this._timer > 0) return;
     this._timer = 0.5;
@@ -317,22 +481,43 @@ export class TrafficManager {
 
     // Угнанные/брошенные машины больше не трафик.
     this.cars = this.cars.filter((c) => !c.vehicle.removed && c.vehicle.ai && c.vehicle.driver === c.driver);
+    this.parked = this.parked.filter((v) => !v.removed && !v.driver);
 
     for (const c of [...this.cars]) {
-      if (c.vehicle.position.distanceTo(p) > T.despawnDistance) {
+      const v = c.vehicle;
+      const d = v.position.distanceTo(p);
+      const hidden = !game.inView(v.position.x, 1, v.position.z, 3);
+      // Далеко — убираем; застрявшую в заторе и невидимую — тоже (появится другая).
+      if (d > T.despawnDistance || (d > 190 && this.cars.length > T.count && hidden) ||
+        (hidden && d > 40 && (v.ai?.stuckTotal ?? 0) >= 2 && v.ai?.mode === 'cruise')) {
         this.removeCar(c.vehicle);
         this.cars.splice(this.cars.indexOf(c), 1);
       }
     }
+    for (const v of [...this.parked]) {
+      if (v.position.distanceTo(p) > 200 && !game.inView(v.position.x, 1, v.position.z, 3)) {
+        game.removeVehicle(v);
+        this.parked.splice(this.parked.indexOf(v), 1);
+      }
+    }
+    // Детализация машин по расстоянию до камеры.
+    const cam = game.camera.position;
+    for (const v of game.vehicles) v.setDetail(v.position.distanceToSquared(cam) < T.detailDistance ** 2);
     // Брошенные машины (не стартовые) далеко от игрока убираем.
     for (const v of [...game.vehicles]) {
-      if (v.persistent || v.driver || v.ai) continue;
+      if (v.persistent || v.driver || v.ai || v.parked) continue;
       if (v.position.distanceTo(p) > T.despawnDistance + 60) game.removeVehicle(v);
     }
 
-    if (this.cars.length < T.count) {
+    // Пополнение: по одной-две за раз, чтобы не было всплесков.
+    for (let k = 0; k < 2 && this.cars.length < T.count; k++) {
       const car = this.createAICar();
       if (car) this.cars.push(car);
+    }
+    if (this.parked.length < T.parkedCount) this._spawnParked();
+    if ((this._parkTimer -= 0.5) <= 0) {
+      this._parkTimer = game.rng.range(25, 50);
+      this._parkOne();
     }
   }
 }

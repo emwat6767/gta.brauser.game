@@ -56,11 +56,7 @@ export class Input {
       this.down.add(e.code);
     });
     window.addEventListener('keyup', (e) => this.down.delete(e.code));
-    window.addEventListener('blur', () => {
-      this.down.clear();
-      this.virtualDown.clear();
-      this.moveX = this.moveY = 0;
-    });
+    window.addEventListener('blur', () => this.releaseAll());
 
     document.addEventListener('pointerlockchange', () => {
       this.pointerLocked = document.pointerLockElement === this.element;
@@ -103,6 +99,14 @@ export class Input {
     } catch {
       // Pointer lock недоступен (например, в iframe) — работает вращение мышью с зажатой кнопкой.
     }
+  }
+
+  // Всё отпустить (потеря фокуса, пауза): иначе персонаж продолжит идти сам.
+  releaseAll() {
+    this.down.clear();
+    this.virtualDown.clear();
+    this.moveX = this.moveY = 0;
+    this.dragging = false;
   }
 
   // --- API для сенсорных контролов ---

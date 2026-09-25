@@ -319,11 +319,13 @@ export class Humanoid {
   //   aim        — null или наклон прицела вниз (рад): руки с оружием вытянуты к цели
   //   reload     — 0..1, фаза перезарядки (0 — нет)
   //   kick       — 0..1, отдача после выстрела
+  //   gesture    — null | 'talk' (жестикулирует) | 'phone' (говорит по телефону) |
+  //                'hands' (руки вверх) | 'wave' (машет) | 'cheer' (руки вверх, радуется)
   // }
   animate(dt, state) {
     const {
       speed = 0, airborne = false, pose = 'normal', fall = 0, sitHeight = 0.5,
-      guard = false, attack = 0, attackSide = 1, aim = null, reload = 0, kick = 0,
+      guard = false, attack = 0, attackSide = 1, aim = null, reload = 0, kick = 0, gesture = null,
     } = state;
     const t = this.t;
     this.time += dt;
@@ -372,6 +374,34 @@ export class Humanoid {
         else { t.shoulderLx = sx; t.elbowL = el; t.shoulderLz = sz; }
         t.spineY = 0.35 * ext * attackSide;
         t.spineX = 0.12 + 0.1 * ext;
+      }
+    }
+
+    // --- Жесты (только верх тела, когда руки свободны) ---
+    if (gesture && pose === 'normal' && !airborne && attack <= 0 && aim === null && !guard) {
+      const g = this.time;
+      if (gesture === 'talk') {
+        // Объясняет что-то руками: предплечья вперёд, кисти ходят вверх-вниз.
+        t.shoulderRx = -0.55 + Math.sin(g * 3.1) * 0.25; t.shoulderRz = -0.18;
+        t.elbowR = -1.25 + Math.sin(g * 4.3) * 0.3;
+        t.shoulderLx = -0.35 + Math.sin(g * 2.3 + 1) * 0.2; t.shoulderLz = 0.16;
+        t.elbowL = -0.9 + Math.sin(g * 3.7 + 2) * 0.25;
+        t.spineY = Math.sin(g * 0.9) * 0.12;
+      } else if (gesture === 'phone') {
+        // Телефон у уха.
+        t.shoulderRx = -0.35; t.shoulderRz = -0.55; t.elbowR = -2.45;
+        t.spineY = Math.sin(g * 0.6) * 0.15;
+      } else if (gesture === 'hands') {
+        t.shoulderLx = t.shoulderRx = -2.7;
+        t.shoulderLz = 0.35; t.shoulderRz = -0.35;
+        t.elbowL = t.elbowR = -0.5;
+      } else if (gesture === 'wave') {
+        t.shoulderRx = -2.6; t.shoulderRz = -0.3 + Math.sin(g * 9) * 0.35; t.elbowR = -0.4;
+      } else if (gesture === 'cheer') {
+        const k = Math.sin(g * 6) * 0.25;
+        t.shoulderLx = t.shoulderRx = -2.8 + k;
+        t.shoulderLz = 0.45; t.shoulderRz = -0.45;
+        t.elbowL = t.elbowR = -0.3;
       }
     }
 

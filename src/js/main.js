@@ -16,6 +16,7 @@ import { TouchControls } from './ui/touch.js';
 import { GangSystem } from './gangs.js';
 import { WantedSystem } from './wanted.js';
 import { RoadNetwork, TrafficManager } from './traffic.js';
+import { TrafficLights } from './lights.js';
 import { Effects } from './effects.js';
 import { SoundSystem } from './audio.js';
 import { PickupSystem } from './pickups.js';
@@ -41,7 +42,11 @@ const IS_TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
 if (IS_TOUCH) {
   Object.assign(CONFIG.graphics, CONFIG.graphics.mobile);
   CONFIG.traffic.count = CONFIG.traffic.mobileCount;
+  CONFIG.traffic.parkedCount = CONFIG.traffic.mobileParkedCount;
+  CONFIG.npc.count = CONFIG.npc.mobileCount;
+  CONFIG.npc.lodDistance = CONFIG.npc.mobileLodDistance;
 }
+const _frustum = new THREE.Frustum(), _pv = new THREE.Matrix4(), _sphere = new THREE.Sphere();
 const SUN_DIR = new THREE.Vector3(0.45, 0.8, 0.3).normalize();
 
 class Game {
@@ -64,6 +69,7 @@ class Game {
     });
     this.npcs = new NPCManager(this);
     this.roads = new RoadNetwork(this.world);
+    this.lights = new TrafficLights(this);
     this.gangs = new GangSystem(this);
     this.traffic = new TrafficManager(this);
     this.wanted = new WantedSystem(this);
@@ -180,6 +186,13 @@ class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  // Видна ли точка (сфера радиуса r) камере — чтобы не создавать людей и машины на глазах.
+  inView(x, y, z, r = 1) {
+    _sphere.center.set(x, y, z);
+    _sphere.radius = r;
+    return _frustum.intersectsSphere(_sphere);
+  }
+
   addVehicle(vehicle) {
     this.vehicles.push(vehicle);
     return vehicle;
@@ -262,6 +275,7 @@ class Game {
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
       this.pickups.update(frameTime);
+      this.lights.update(frameTime, this.player);
       this.heists.update(frameTime);
       this.turf.update(frameTime);
       this.missions.update(frameTime);
@@ -271,6 +285,9 @@ class Game {
     }
 
     this.cameraRig.update(frameTime);
+    this.camera.updateMatrixWorld();
+    _frustum.setFromProjectionMatrix(_pv.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
+    this.npcs.renderCrowd(frameTime);
     this._updateSun();
     this.sky.position.copy(this.camera.position);
     this.renderer.render(this.scene, this.camera);
@@ -287,6 +304,7 @@ class Game {
 
   pause() {
     this.paused = true;
+    this.input.releaseAll();
     this.events.emit('game:pause');
   }
 

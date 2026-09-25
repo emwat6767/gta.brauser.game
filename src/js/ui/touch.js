@@ -5,6 +5,12 @@
 //   прыжок/ручник, сесть/выйти/грабить; пауза и БАНДА (позвать/отпустить отряд) — справа вверху
 // Контролы включаются автоматически на устройствах с сенсорным экраном
 // (или при первом касании) и передают действия в Input (press/release/setMoveAxes/addLook).
+//
+// Защита от "залипания": отпускание пальца может не дойти до зоны джойстика (открылась
+// пауза/меню, браузер отменил жест, вкладка свернулась, захват указателя потерян). Поэтому
+// джойстик сбрасывается по pointerup/pointercancel на всём документе, lostpointercapture,
+// touchend без оставшихся касаний, blur/visibilitychange, паузе и открытию меню,
+// а в update() — если активных касаний больше нет.
 
 const JOY_RADIUS = 60;         // px
 const RUN_THRESHOLD = 0.9;     // доля радиуса, после которой персонаж бежит
@@ -30,6 +36,8 @@ export class TouchControls {
     this.joyId = null;
     this.lookId = null;
     this._labels = {};
+    this.touchCount = 0;   // сколько пальцев сейчас на экране (по TouchEvent)
+    this._sawTouch = false;
 
     this.joyZone = this.root.querySelector('.joy-zone');
     this.joyBase = this.root.querySelector('.joy-base');
@@ -43,6 +51,51 @@ export class TouchControls {
     this._bindJoystick();
     this._bindLook();
     this._bindButtons();
+    this._bindSafety();
+  }
+
+  // Отпустить всё: джойстик, обзор, удерживаемые кнопки (переключатель прицела не трогаем).
+  resetAll() {
+    this._endJoystick();
+    this.lookId = null;
+    for (const btn of this.buttons) {
+      if (btn.dataset.toggle) continue;
+      btn.classList.remove('pressed');
+      for (const a of btn.dataset.action.split(' ')) if (a !== 'pause') this.input.release(a);
+    }
+  }
+
+  _bindSafety() {
+    const onUp = (e) => {
+      if (e.pointerId === this.joyId) this._endJoystick();
+      if (e.pointerId === this.lookId) this.lookId = null;
+    };
+    document.addEventListener('pointerup', onUp, true);
+    document.addEventListener('pointercancel', onUp, true);
+    const countTouches = (e) => {
+      this._sawTouch = true;
+      this.touchCount = e.touches.length;
+      if (e.touches.length === 0) this.resetAll();
+    };
+    for (const type of ['touchstart', 'touchend', 'touchcancel']) {
+      window.addEventListener(type, countTouches, { passive: true, capture: true });
+    }
+    window.addEventListener('blur', () => this.resetAll());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.resetAll();
+    });
+    this.game.events.on('game:pause', () => {
+      this.resetAll();
+      if (this.input.virtualDown.has('aim') || this.root.querySelector('[data-toggle="aim"]')?.classList.contains('on')) this.setToggle('aim', false);
+    });
+  }
+
+  _endJoystick() {
+    this.joyId = null;
+    this.input.setMoveAxes(0, 0);
+    this.input.release('run');
+    this.joyBase.classList.remove('active');
+    this.joyKnob.style.transform = '';
   }
 
   enable() {
@@ -69,14 +122,11 @@ export class TouchControls {
       else this.input.release('run');
     };
     const end = (e) => {
-      if (e.pointerId !== this.joyId) return;
-      this.joyId = null;
-      this.input.setMoveAxes(0, 0);
-      this.input.release('run');
-      this.joyBase.classList.remove('active');
-      this.joyKnob.style.transform = '';
+      if (e.pointerId === this.joyId) this._endJoystick();
     };
     zone.addEventListener('pointerdown', (e) => {
+      // Новый палец в зоне джойстика, а старый "потерялся" — начинаем заново с нового.
+      if (this.joyId !== null && e.pointerId !== this.joyId && this.touchCount <= 1) this._endJoystick();
       if (this.joyId !== null) return;
       e.preventDefault();
       this.joyId = e.pointerId;
@@ -95,6 +145,7 @@ export class TouchControls {
     });
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
+    zone.addEventListener('lostpointercapture', end);
   }
 
   _bindLook() {
@@ -119,6 +170,7 @@ export class TouchControls {
     };
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
+    zone.addEventListener('lostpointercapture', end);
   }
 
   _bindButtons() {
@@ -148,6 +200,7 @@ export class TouchControls {
       };
       btn.addEventListener('pointerup', up);
       btn.addEventListener('pointercancel', up);
+      btn.addEventListener('lostpointercapture', up);
     }
   }
 
@@ -169,6 +222,8 @@ export class TouchControls {
   // Подписи кнопок зависят от ситуации (пешком / в машине / рядом с машиной).
   update() {
     if (!this.enabled) return;
+    // Сторож: джойстик "держится", а пальцев на экране нет (или открыто меню) — отпускаем.
+    if (this.joyId !== null && ((this._sawTouch && this.touchCount === 0) || this.game.menuOpen)) this._endJoystick();
     const p = this.game.player;
     const inCar = !!p.vehicle;
     const gun = inCar || p.isDead ? null : p.gun;

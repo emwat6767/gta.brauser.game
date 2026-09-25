@@ -76,7 +76,11 @@ export const CONFIG = {
   },
 
   npc: {
-    count: 8,               // прохожих вокруг игрока (5-10 по ТЗ); дальние пересоздаются рядом
+    count: 36,              // прохожих вокруг игрока; дальние пересоздаются рядом
+    mobileCount: 20,
+    lodDistance: 42,        // дальше — упрощённая фигура без анимации (crowd.js)
+    mobileLodDistance: 30,
+    driverVisible: 45,      // водителей дальних машин не рисуем
     spawnRadius: 140,       // NPC появляются вокруг игрока
     recycleDistance: 210,   // прохожие дальше этого исчезают и появляются заново рядом с игроком
     visibleDistance: 150,   // дальше — модель скрыта (экономия draw calls)
@@ -259,11 +263,15 @@ export const CONFIG = {
 
   // Машины на дорогах.
   traffic: {
-    count: 8,
-    mobileCount: 5,
+    count: 18,
+    mobileCount: 10,
+    parkedCount: 10,        // машин у бордюров вокруг игрока (в них садятся прохожие)
+    mobileParkedCount: 6,
     cruiseSpeed: 12,        // ~43 км/ч
     turnSpeed: 6,
     pursuitSpeed: 24,
+    fleeSpeed: 26,          // удирающие (угонщики в случайных событиях)
+    detailDistance: 75,     // дальше у машин не рисуются салон, бамперы, фары
     laneOffset: 1.75,       // от оси улицы вправо (правостороннее движение)
     spawnMin: 70,
     spawnMax: 170,
