@@ -12,6 +12,7 @@ import { CameraRig } from './camera.js';
 import { resolveInteractions } from './interactions.js';
 import { HUD } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
+import { TouchControls } from './ui/touch.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти)
@@ -20,6 +21,8 @@ import { Minimap } from './ui/minimap.js';
 // Все системы получают ссылку на game и обращаются друг к другу через неё.
 
 const SKY = { top: 0x3f86d8, horizon: 0xd3e2ec, bottom: 0xa7b3ba };
+const IS_TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
+if (IS_TOUCH) Object.assign(CONFIG.graphics, CONFIG.graphics.mobile);
 const SUN_DIR = new THREE.Vector3(0.45, 0.8, 0.3).normalize();
 
 class Game {
@@ -38,6 +41,7 @@ class Game {
     this.cameraRig = new CameraRig(this);
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
+    this.touch = new TouchControls(this);
 
     this.paused = true;
     this.clock = new THREE.Clock();
@@ -46,11 +50,11 @@ class Game {
 
   _initRenderer(container) {
     const G = CONFIG.graphics;
-    const r = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    const r = new THREE.WebGLRenderer({ antialias: G.antialias, powerPreference: 'high-performance' });
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, G.maxPixelRatio));
     r.setSize(window.innerWidth, window.innerHeight);
     r.shadowMap.enabled = true;
-    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.shadowMap.type = G.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.05;
     container.appendChild(r.domElement);
@@ -172,6 +176,7 @@ class Game {
     this.renderer.render(this.scene, this.camera);
     this.hud.update(frameTime);
     this.minimap.update(frameTime);
+    this.touch.update();
     input.endFrame();
   }
 
@@ -213,6 +218,12 @@ try {
     playButton.textContent = game.started ? 'Продолжить' : 'Играть';
   };
   const play = () => {
+    if (game.input.touchActive && !document.fullscreenElement) {
+      // На телефоне — полноэкранный режим и альбомная ориентация, если браузер разрешит.
+      Promise.resolve(document.documentElement.requestFullscreen?.())
+        .then(() => window.screen.orientation?.lock?.('landscape'))
+        .catch(() => {});
+    }
     game.started = true;
     game.resume();
     showMenu(false);

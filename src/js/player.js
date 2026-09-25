@@ -58,7 +58,9 @@ export class Player {
       mx /= l;
       mz /= l;
     }
-    const targetSpeed = f || s ? (input.isDown('run') ? P.runSpeed : P.walkSpeed) : 0;
+    // Джойстик даёт неполное отклонение — идём медленнее.
+    const amount = Math.min(1, Math.hypot(f, s));
+    const targetSpeed = (input.isDown('run') ? P.runSpeed : P.walkSpeed) * amount;
 
     // Разгон к желаемой скорости.
     const accel = this.grounded ? P.accel : P.airAccel;

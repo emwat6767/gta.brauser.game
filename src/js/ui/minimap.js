@@ -24,18 +24,19 @@ export class Minimap {
     this.game = game;
     this.canvas = document.getElementById('minimap');
     this.ctx = this.canvas.getContext('2d');
-    this.size = 200;              // CSS-пиксели
     this.radiusMeters = 110;      // видимый радиус, м
-    this._resize();
-    window.addEventListener('resize', () => this._resize());
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
     this.map = this._renderStatic();
   }
 
-  _resize() {
+  // Размер берётся из CSS (на телефоне миникарта меньше).
+  resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.dpr = dpr;
-    this.canvas.width = this.size * dpr;
-    this.canvas.height = this.size * dpr;
+    this.size = this.canvas.clientWidth || 200;
+    this.dpr = dpr * (this.size / 200); // метки и шрифт масштабируются вместе с картой
+    this.canvas.width = Math.round(this.size * dpr);
+    this.canvas.height = Math.round(this.size * dpr);
   }
 
   _renderStatic() {

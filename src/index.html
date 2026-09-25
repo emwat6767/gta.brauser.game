@@ -37,11 +37,21 @@
     <div id="bubbles"></div>
   </div>
 
+  <!-- Сенсорное управление (включается на телефонах, см. js/ui/touch.js) -->
+  <div id="touch">
+    <div class="look-zone"></div>
+    <div class="joy-zone"><div class="joy-base"><div class="joy-knob"></div></div></div>
+    <button type="button" class="tbtn tbtn-attack" data-id="attack" data-action="attack">УДАР</button>
+    <button type="button" class="tbtn tbtn-jump" data-id="jump" data-action="jump handbrake">ПРЫЖОК</button>
+    <button type="button" class="tbtn tbtn-interact" data-id="interact" data-action="interact" hidden>СЕСТЬ</button>
+    <button type="button" class="tbtn tbtn-pause" data-id="pause" data-action="pause" aria-label="Пауза">II</button>
+  </div>
+
   <div id="overlay">
     <div class="panel">
       <h1>OPEN CITY</h1>
       <p class="subtitle">фундамент браузерного открытого мира</p>
-      <table class="controls">
+      <table class="controls controls-desktop">
         <tr><td>W A S D</td><td>движение, в машине — газ / тормоз / руль</td></tr>
         <tr><td>Мышь</td><td>обзор, колесо — приблизить / отдалить</td></tr>
         <tr><td>Shift</td><td>бег (разбегитесь — и прохожие падают)</td></tr>
@@ -49,6 +59,12 @@
         <tr><td>E</td><td>сесть в ближайшую машину / выйти</td></tr>
         <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
       </table>
+      <table class="controls controls-touch">
+        <tr><td>Джойстик слева</td><td>ходьба, до упора — бег; в машине — газ, тормоз, руль</td></tr>
+        <tr><td>Свайп справа</td><td>поворот камеры</td></tr>
+        <tr><td>Кнопки</td><td>удар, прыжок / ручник, сесть / выйти, пауза</td></tr>
+      </table>
+      <p class="rotate-hint">Лучше играть, повернув телефон горизонтально</p>
       <p id="overlay-status">Загрузка…</p>
       <button id="play" disabled>Играть</button>
     </div>

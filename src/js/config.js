@@ -101,9 +101,21 @@ export const CONFIG = {
 
   graphics: {
     maxPixelRatio: 2,
+    antialias: true,
+    softShadows: true,
     shadowMapSize: 2048,
     shadowRange: 75,        // полуразмер области теней вокруг игрока
     fogNear: 180,
     fogFar: 780,
+    // Профиль для телефонов/планшетов (включается автоматически в main.js).
+    mobile: {
+      maxPixelRatio: 1.5,
+      antialias: false,
+      softShadows: false,
+      shadowMapSize: 1024,
+      shadowRange: 50,
+      fogNear: 120,
+      fogFar: 520,
+    },
   },
 };

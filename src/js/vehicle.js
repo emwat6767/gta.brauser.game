@@ -234,10 +234,10 @@ export class Vehicle {
     this.braking = false;
     if (throttle > 0) {
       if (vf < -0.5) { vf = moveTowards(vf, 0, V.brakeDecel * dt); this.braking = true; }
-      else vf += V.accel * (1 - clamp(vf / V.maxSpeed, 0, 1)) * dt;
+      else vf += V.accel * throttle * (1 - clamp(vf / V.maxSpeed, 0, 1)) * dt;
     } else if (throttle < 0) {
       if (vf > 0.5) { vf = moveTowards(vf, 0, V.brakeDecel * dt); this.braking = true; }
-      else vf -= V.reverseAccel * (1 - clamp(-vf / V.maxReverse, 0, 1)) * dt;
+      else vf -= V.reverseAccel * -throttle * (1 - clamp(-vf / V.maxReverse, 0, 1)) * dt;
     } else {
       vf = moveTowards(vf, 0, (this.driver ? V.coastDecel : V.parkedDecel) * dt);
     }
