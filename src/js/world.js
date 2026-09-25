@@ -259,20 +259,29 @@ export class World {
     const stripes = new THREE.InstancedMesh(stripe, this.mats.stripes, count);
     const m = new THREE.Object3D();
     let k = 0;
-    for (const cx of this.roadLines) {
-      for (const cz of this.roadLines) {
+    // Зебра нужна только там, где по обе стороны улицы есть тротуар (у крайних улиц
+    // снаружи — трава, туда переход не ведёт).
+    const inner = (v) => v > this.gridMin && v < this.gridMax;
+    const lines = this.roadLines;
+    const edge = (c) => c === lines[0] || c === lines[lines.length - 1];
+    for (const cx of lines) {
+      for (const cz of lines) {
         for (const sign of [-1, 1]) {
           for (const s of across) {
-            // Переход через улицу вдоль Z: полоски вдоль Z, разложены по X.
-            m.position.set(cx + s, 0.01, cz + sign * offset);
-            m.rotation.set(0, 0, 0);
-            m.updateMatrix();
-            stripes.setMatrixAt(k++, m.matrix);
-            // Переход через улицу вдоль X.
-            m.position.set(cx + sign * offset, 0.01, cz + s);
-            m.rotation.set(0, Math.PI / 2, 0);
-            m.updateMatrix();
-            stripes.setMatrixAt(k++, m.matrix);
+            // Переход через улицу вдоль Z (x = cx): полоски вдоль Z, разложены по X.
+            if (!edge(cx) && inner(cz + sign * offset)) {
+              m.position.set(cx + s, 0.01, cz + sign * offset);
+              m.rotation.set(0, 0, 0);
+              m.updateMatrix();
+              stripes.setMatrixAt(k++, m.matrix);
+            }
+            // Переход через улицу вдоль X (z = cz).
+            if (!edge(cz) && inner(cx + sign * offset)) {
+              m.position.set(cx + sign * offset, 0.01, cz + s);
+              m.rotation.set(0, Math.PI / 2, 0);
+              m.updateMatrix();
+              stripes.setMatrixAt(k++, m.matrix);
+            }
           }
         }
       }

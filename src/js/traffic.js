@@ -254,7 +254,8 @@ export class AIDriver {
       test(player.position.x, player.position.z, 1.4, player);
     }
     for (const n of this.game.npcs.list) {
-      if (!n.vehicle && n.model.root.visible) test(n.position.x, n.position.z, 1.3, n);
+      // Тела не останавливают машины (рэгдолл сам отталкивается кузовом).
+      if (!n.vehicle && !n.isDead && n.model.root.visible) test(n.position.x, n.position.z, 1.3, n);
     }
     return best;
   }

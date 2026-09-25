@@ -617,8 +617,10 @@ export class NPCManager {
     const cam = camera.getWorldDirection(new THREE.Vector3());
     for (let attempt = 0; attempt < 25; attempt++) {
       const from = rng.pick(nodes);
-      const links = allowed ? from.links.filter((n) => allowed.has(n.id)) : from.links;
-      const to = rng.pick(links.length ? links : from.links);
+      // Только вдоль тротуара своего квартала — не на переходе посреди проезжей части.
+      const links = from.links.filter((n) => n.block === from.block && (!allowed || allowed.has(n.id)));
+      if (!links.length) continue;
+      const to = rng.pick(links);
       const t = rng.range(0.1, 0.9);
       const px = lerp(from.x, to.x, t) + rng.range(-1, 1);
       const pz = lerp(from.z, to.z, t) + rng.range(-1, 1);

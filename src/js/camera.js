@@ -114,7 +114,13 @@ export class CameraRig {
 
     // Лёгкое расширение FOV на скорости.
     const speed = vehicle ? Math.abs(vehicle.speed) : 0;
-    const fov = C.fov + (C.aimFov - C.fov) * ab + clamp(speed / CONFIG.vehicle.maxSpeed, 0, 1) * 12;
+    // На вытянутом вверх экране (телефон в портрете) расширяем вертикальный угол, чтобы
+    // по горизонтали было видно не меньше ~62°.
+    const aspect = this.camera.aspect;
+    const baseFov = aspect < 1.2
+      ? Math.max(C.fov, (2 * Math.atan(Math.tan((62 * Math.PI) / 360) / aspect) * 180) / Math.PI)
+      : C.fov;
+    const fov = Math.min(100, baseFov + (C.aimFov - C.fov) * ab + clamp(speed / CONFIG.vehicle.maxSpeed, 0, 1) * 12);
     if (Math.abs(fov - this.camera.fov) > 0.01) {
       this.camera.fov = damp(this.camera.fov, fov, 9, dt);
       this.camera.updateProjectionMatrix();

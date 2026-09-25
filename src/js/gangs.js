@@ -50,8 +50,9 @@ export class GangSystem {
     let spot = null;
     for (let attempt = 0; attempt < 20 && !spot; attempt++) {
       const from = game.rng.pick(nodes);
-      const inside = from.links.filter((n) => gang.nodes.has(n.id));
-      const to = game.rng.pick(inside.length ? inside : from.links);
+      // Вдоль тротуара того же квартала (не на переходе через дорогу).
+      const side = from.links.filter((n) => n.block === from.block);
+      const to = game.rng.pick(side);
       const t = game.rng.range(0.05, 0.3); // держатся ближе к углам — "тусовки"
       const x = from.x + (to.x - from.x) * t + game.rng.range(-1.2, 1.2);
       const z = from.z + (to.z - from.z) * t + game.rng.range(-1.2, 1.2);

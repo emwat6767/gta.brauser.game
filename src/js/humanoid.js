@@ -126,6 +126,17 @@ const JOINTS = [
 ];
 
 const DOWN = new THREE.Vector3(0, -1, 0);
+// Точки хвата оружия (X — влево, Y — вверх, Z — вперёд по стволу, от груди).
+const CHEST = new THREE.Vector3(0, 0.46, 0);
+const GRIPS = {
+  pistolAim: { right: [-0.05, -0.02, 0.5], left: [-0.02, -0.06, 0.46] },
+  rifleAim: { right: [-0.1, -0.02, 0.24], left: [-0.07, -0.06, 0.5] },
+  rifleCarry: { right: [-0.12, -0.08, 0.24], left: [-0.05, -0.1, 0.48] },
+};
+const _aimF = new THREE.Vector3(), _aimU = new THREE.Vector3(), _tR = new THREE.Vector3(), _tL = new THREE.Vector3();
+const _s = new THREE.Vector3(), _d = new THREE.Vector3(), _pole = new THREE.Vector3(), _u = new THREE.Vector3();
+const _e = new THREE.Vector3(), _f = new THREE.Vector3(), _gx = new THREE.Vector3(), _gy = new THREE.Vector3(), _gz = new THREE.Vector3();
+const _qGun = new THREE.Quaternion(), _qArm = new THREE.Quaternion();
 const _up = new THREE.Vector3(), _left = new THREE.Vector3(), _fwd = new THREE.Vector3(), _tmp = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _q = { body: new THREE.Quaternion(), spine: new THREE.Quaternion(), upper: new THREE.Quaternion(), lower: new THREE.Quaternion() };
@@ -453,5 +464,68 @@ export class Humanoid {
       this.body.rotation.x = 0;
       this.body.position.y = j.bodyY;
     }
+
+    // Оружие: при прицеле руки ставятся на рукоять/цевьё (IK), ствол смотрит по прицелу;
+    // двуручное без прицела — "у пояса" стволом вперёд-вниз.
+    const grip = armed && reload <= 0 && !airborne
+      ? aim !== null ? (twoHanded ? 'rifleAim' : 'pistolAim') : twoHanded ? 'rifleCarry' : null
+      : null;
+    if (grip) this._holdWeapon(grip, grip === 'rifleCarry' ? 0.75 : aim - 0.12 * kick);
+    else this._gunInHand();
+  }
+
+  // --- Хват оружия (IK рук) ----------------------------------------------------
+
+  // Цели для кистей в "системе прицела": X — влево, Y — вверх, Z — по стволу; от груди.
+  _holdWeapon(mode, pitch) {
+    const G = GRIPS[mode];
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    _aimF.set(0, -sp, cp);          // ствол (в системе spine)
+    _aimU.set(0, cp, sp);           // "верх" оружия
+    const toSpine = (o, out) => out.set(CHEST.x + o[0], CHEST.y, CHEST.z)
+      .addScaledVector(_aimU, o[1]).addScaledVector(_aimF, o[2]);
+    this._armIK(this.shoulderR, this.elbowR, toSpine(G.right, _tR), -1);
+    this._armIK(this.shoulderL, this.elbowL, toSpine(G.left, _tL), 1);
+    // Ствол — строго по прицелу, независимо от наклона предплечья.
+    if (this.weaponMesh) {
+      _gx.crossVectors(_aimU, _aimF);
+      _qGun.setFromRotationMatrix(_m.makeBasis(_gx, _aimU, _aimF));
+      _qArm.copy(this.shoulderR.quaternion).multiply(this.elbowR.quaternion); // локоть в системе spine
+      this.weaponMesh.quaternion.copy(_qArm.invert()).multiply(_qGun);
+      this.weaponMesh.position.set(0, -0.3, 0);
+    }
+  }
+
+  // Оружие вдоль предплечья (опущенная рука, перезарядка, прыжок).
+  _gunInHand() {
+    if (!this.weaponMesh) return;
+    this.weaponMesh.position.set(0, -0.3, 0.015);
+    this.weaponMesh.rotation.set(Math.PI / 2, 0, 0);
+  }
+
+  // Двухзвенная IK: плечо + предплечье (по 0.3 м) дотягиваются до цели (система spine).
+  // side: -1 — правая рука (локоть уходит вправо-вниз), 1 — левая.
+  _armIK(shoulder, elbow, target, side) {
+    const a = 0.3, b = 0.3;
+    _s.copy(shoulder.position);
+    _d.subVectors(target, _s);
+    const d = clamp(_d.length(), 0.08, a + b - 1e-3);
+    _d.normalize();
+    // Колено-"полюс": локоть смотрит вниз и чуть наружу.
+    _pole.set(side * 0.45, -1, -0.2);
+    _pole.addScaledVector(_d, -_pole.dot(_d)).normalize();
+    const cosA = clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1);
+    const sinA = Math.sqrt(1 - cosA * cosA);
+    _u.copy(_d).multiplyScalar(cosA).addScaledVector(_pole, sinA).normalize(); // плечевая кость
+    _e.copy(_s).addScaledVector(_u, a);                                        // локоть
+    _f.subVectors(target, _e).normalize();                                      // предплечье
+    // Кость руки — это -Y сустава; сгиб в локте — вокруг его X в сторону +Z.
+    _gy.copy(_u).negate();
+    _gz.copy(_f).addScaledVector(_u, -_f.dot(_u));
+    if (_gz.lengthSq() < 1e-8) _gz.set(0, 0, 1).addScaledVector(_u, -_u.z);
+    _gz.normalize();
+    _gx.crossVectors(_gy, _gz);
+    shoulder.quaternion.setFromRotationMatrix(_m.makeBasis(_gx, _gy, _gz));
+    elbow.rotation.set(-Math.acos(clamp(_u.dot(_f), -1, 1)), 0, 0);
   }
 }
