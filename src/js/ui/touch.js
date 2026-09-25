@@ -154,6 +154,7 @@ export class TouchControls {
     const inCar = !!p.vehicle;
     this._setLabel('jump', inCar ? 'РУЧНИК' : 'ПРЫЖОК');
     this._setLabel('attack', inCar || p.isDead ? '' : 'УДАР');
-    this._setLabel('interact', inCar ? 'ВЫЙТИ' : p.findEnterableVehicle() ? 'СЕСТЬ' : '');
+    const v = inCar ? null : p.findEnterableVehicle();
+    this._setLabel('interact', inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : '');
   }
 }

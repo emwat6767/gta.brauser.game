@@ -30,6 +30,13 @@ export const CONFIG = {
     jumpSpeed: 5.8,
     turnSpeed: 12,          // скорость поворота модели к направлению движения
     enterDistance: 2.2,     // макс. расстояние до кузова, чтобы сесть в машину (E)
+    health: 100,
+    punchDamage: 15,
+    regenDelay: 8,          // через сколько секунд без урона начинает восстанавливаться здоровье
+    regenRate: 3,           // ед. здоровья в секунду
+    respawnDelay: 4,        // "ПОТРАЧЕНО" / "АРЕСТОВАН" на экране, секунд
+    hospital: { x: -3, z: 40.5, heading: 0 },      // где появляемся после смерти
+    policeStation: { x: 40.5, z: -40.5, heading: Math.PI }, // после ареста
   },
 
   vehicle: {
@@ -67,14 +74,62 @@ export const CONFIG = {
   },
 
   npc: {
-    count: 8,               // 5-10 по ТЗ
+    count: 8,               // прохожих вокруг игрока (5-10 по ТЗ); дальние пересоздаются рядом
     spawnRadius: 140,       // NPC появляются вокруг игрока
+    recycleDistance: 210,   // прохожие дальше этого исчезают и появляются заново рядом с игроком
+    visibleDistance: 150,   // дальше — модель скрыта (экономия draw calls)
+    freezeDistance: 230,    // дальше — NPC не обновляется
     radius: 0.33,
     walkSpeed: [1.2, 1.7],
     panicSpeed: 5.2,        // бегство после толчка
+    fightSpeed: 5.4,        // бег к противнику
     idleChance: 0.2,        // шанс постоять на углу
     runKnockSpeed: 5,       // игрок быстрее этого сбивает NPC с ног, медленнее — просто толкает
     downTime: [2.2, 3.4],   // сколько лежит сбитый NPC
+    corpseTime: 25,         // через сколько секунд тело исчезает (если игрок далеко)
+    // Здоровье и урон кулаком по ролям.
+    roles: {
+      civilian: { health: 40, damage: 7, cooldown: 0.6 },
+      gang: { health: 60, damage: 8, cooldown: 0.35 },
+      police: { health: 70, damage: 9, cooldown: 0.4 },
+    },
+  },
+
+  // Банды: территории — это кварталы [i, j] (см. world.blocks). friendly — банда игрока.
+  gangs: {
+    membersPerBlock: 2,
+    aggroRadius: 14,        // враждебная банда нападает, если игрок пешком на её территории ближе этого
+    helpRadius: 28,         // на этом расстоянии свои приходят на помощь
+    respawnDelay: 40,       // пополнение банды, секунд
+    list: [
+      { id: 'green', name: 'Семья с Зелёной улицы', color: '#2f9e44', friendly: true, blocks: [[3, 5], [4, 5], [5, 5], [4, 6]] },
+      { id: 'purple', name: 'Пурпурные короли', color: '#8e44c9', blocks: [[6, 3], [7, 3], [6, 4], [7, 4], [8, 4]] },
+      { id: 'yellow', name: 'Лос Амарильос', color: '#e6b000', blocks: [[1, 2], [2, 2], [1, 3], [2, 3]] },
+    ],
+  },
+
+  // Розыск и полиция.
+  wanted: {
+    maxFootCops: 8,         // пеших полицейских максимум (2 на звезду)
+    maxCars: 3,             // патрульных машин максимум (со 2-й звезды)
+    spawnInterval: 2.5,
+    bustTime: 1.2,          // сколько полицейский должен держать игрока (1-2 звезды), чтобы арестовать
+    calmTime: 16,           // без преступлений столько секунд (+4 на звезду) — минус звезда
+    policeDamageFrom: 3,    // с этого уровня полиция бьёт, а не арестовывает
+  },
+
+  // Машины на дорогах.
+  traffic: {
+    count: 8,
+    mobileCount: 5,
+    cruiseSpeed: 12,        // ~43 км/ч
+    turnSpeed: 6,
+    pursuitSpeed: 24,
+    laneOffset: 1.75,       // от оси улицы вправо (правостороннее движение)
+    spawnMin: 70,
+    spawnMax: 170,
+    despawnDistance: 260,
+    colors: [0xb03a2e, 0x1f618d, 0xd4ac0d, 0x5d6d7e, 0xecf0f1, 0x1e8449, 0x7d3c98, 0x17202a, 0xca6f1e, 0x85929e],
   },
 
   camera: {

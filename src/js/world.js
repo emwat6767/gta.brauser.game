@@ -130,6 +130,14 @@ export class World {
     return false;
   }
 
+  // Квартал, в "клетке" которого находится точка (между осями улиц), или null.
+  blockAt(x, z) {
+    const i = Math.floor((x - this.gridMin) / this.blockSize);
+    const j = Math.floor((z - this.gridMin) / this.blockSize);
+    if (i < 0 || j < 0 || i >= this.blocksPerAxis || j >= this.blocksPerAxis) return null;
+    return this.blocks[j * this.blocksPerAxis + i];
+  }
+
   nearestWaypoint(x, z) {
     let best = null, bestD = Infinity;
     for (const n of this.waypoints) {
@@ -541,8 +549,8 @@ export class World {
     const s = this.roadHalf + this.sidewalk / 2;
     const n = this.blocksPerAxis;
     const corners = []; // [block][0..3]: 0 SW, 1 SE, 2 NE, 3 NW (S = -Z, E = +X)
-    const add = (x, z) => {
-      const node = { id: this.waypoints.length, x, z, links: [] };
+    const add = (x, z, block) => {
+      const node = { id: this.waypoints.length, x, z, block, links: [] };
       this.waypoints.push(node);
       return node;
     };
@@ -551,7 +559,7 @@ export class World {
       b.links.push(a);
     };
     for (const b of this.blocks) {
-      const c = [add(b.x0 + s, b.z0 + s), add(b.x1 - s, b.z0 + s), add(b.x1 - s, b.z1 - s), add(b.x0 + s, b.z1 - s)];
+      const c = [add(b.x0 + s, b.z0 + s, b), add(b.x1 - s, b.z0 + s, b), add(b.x1 - s, b.z1 - s, b), add(b.x0 + s, b.z1 - s, b)];
       link(c[0], c[1]); link(c[1], c[2]); link(c[2], c[3]); link(c[3], c[0]);
       corners.push(c);
     }

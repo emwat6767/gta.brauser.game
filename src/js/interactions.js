@@ -18,21 +18,25 @@ export function resolveInteractions(game) {
     }
   }
 
+  // Пешие NPC рядом с игроком (дальние заморожены и не сталкиваются).
+  const p = player.position;
+  const near = npcs.filter((n) => !n.vehicle && n.model.root.visible && Math.abs(n.position.x - p.x) < 120 && Math.abs(n.position.z - p.z) < 120);
+
   // --- Машина <-> пешеходы ---
   for (const v of vehicles) {
     if (player.isOnFoot) vehicleVsPlayer(v, player);
-    for (const npc of npcs) vehicleVsNpc(game, v, npc);
+    for (const npc of near) vehicleVsNpc(v, npc);
   }
 
   // --- Игрок <-> NPC ---
   if (player.isOnFoot) {
-    for (const npc of npcs) playerVsNpc(player, npc);
+    for (const npc of near) playerVsNpc(player, npc);
   }
 
   // --- NPC <-> NPC (просто расталкиваются) ---
-  for (let a = 0; a < npcs.length; a++) {
-    for (let b = a + 1; b < npcs.length; b++) {
-      separateCircles(npcs[a].position, npcs[a].radius, npcs[b].position, npcs[b].radius);
+  for (let a = 0; a < near.length; a++) {
+    for (let b = a + 1; b < near.length; b++) {
+      separateCircles(near[a].position, near[a].radius, near[b].position, near[b].radius);
     }
   }
 }
@@ -69,6 +73,14 @@ function vehicleVsPlayer(v, player) {
   for (const c of v.circles) {
     const hit = separateCircles({ x: c.x, z: c.z }, v.radius, player.position, player.radius, 0, 1);
     if (!hit) continue;
+    const approach = v.velocity.x * hit.nx + v.velocity.z * hit.nz;
+    if (approach > 4.5 && !player.isDown) {
+      // Сбит машиной: урон и отлёт.
+      player.knockDown(v.velocity.x * 0.8 + hit.nx * 2, v.velocity.z * 0.8 + hit.nz * 2, Math.min(6, approach * 0.3));
+      player.takeDamage((approach - 3) * 4, v.driver ?? v, hit.nx, hit.nz, 'vehicle');
+      v.velocity.multiplyScalar(0.9);
+      continue;
+    }
     const vn = player.velocity.x * hit.nx + player.velocity.z * hit.nz;
     if (vn < 0) {
       player.velocity.x -= vn * hit.nx;
@@ -77,20 +89,22 @@ function vehicleVsPlayer(v, player) {
   }
 }
 
-function vehicleVsNpc(game, v, npc) {
+function vehicleVsNpc(v, npc) {
   for (const c of v.circles) {
     const hit = separateCircles({ x: c.x, z: c.z }, v.radius, npc.position, npc.radius, 0, 1);
     if (!hit) continue;
     // Скорость машины в сторону пешехода.
     const approach = v.velocity.x * hit.nx + v.velocity.z * hit.nz;
+    const by = v.driver ?? v;
     if (approach > 3.5) {
       const up = Math.min(7, approach * 0.35);
-      const done = npc.knockDown(v.velocity.x * 1.1 + hit.nx * 2, v.velocity.z * 1.1 + hit.nz * 2, up, v.driver ?? v, 'vehicle');
+      const done = npc.knockDown(v.velocity.x * 1.1 + hit.nx * 2, v.velocity.z * 1.1 + hit.nz * 2, up, by, 'vehicle');
       if (done) {
+        npc.takeDamage((approach - 2.5) * 5, by, hit.nx, hit.nz, 'vehicle');
         v.velocity.multiplyScalar(0.92);
       }
     } else if (approach > 0.8) {
-      npc.stumble(hit.nx, hit.nz, 2 + approach, v.driver ?? v);
+      npc.stumble(hit.nx, hit.nz, 2 + approach, by);
     }
     return;
   }
@@ -99,7 +113,7 @@ function vehicleVsNpc(game, v, npc) {
 function playerVsNpc(player, npc) {
   // Игрок сдвигается на 30%, NPC — на 70%: игрок "проталкивается".
   const hit = separateCircles(player.position, player.radius, npc.position, npc.radius, 0.3, 0.7);
-  if (!hit || npc.isDown) return;
+  if (!hit || npc.isDown || player.isDown) return;
   const approach = player.velocity.x * hit.nx + player.velocity.z * hit.nz;
   if (approach < 0.5) return;
   if (player.horizontalSpeed > CONFIG.npc.runKnockSpeed) {

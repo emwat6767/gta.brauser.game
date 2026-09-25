@@ -27,11 +27,19 @@
         <tr><td>Мышь</td><td>камера (колесо — зум)</td></tr>
         <tr><td>Shift</td><td>бег</td></tr>
         <tr><td>Space</td><td>прыжок / ручник</td></tr>
-        <tr><td>E</td><td>сесть в машину / выйти</td></tr>
+        <tr><td>F / ЛКМ</td><td>удар</td></tr>
+        <tr><td>E</td><td>сесть в машину / угнать / выйти</td></tr>
         <tr><td>Esc</td><td>пауза</td></tr>
       </table>
     </div>
     <div id="minimap-wrap"><canvas id="minimap"></canvas></div>
+    <div id="stats">
+      <div id="wanted" aria-label="Уровень розыска"><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="health-bar" aria-label="Здоровье"><div id="health-fill"></div></div>
+    </div>
+    <div id="zone"></div>
+    <div id="damage-flash"></div>
+    <div id="big-message" class="hidden"></div>
     <div id="speedometer" class="hidden"><span id="speed-value">0</span><small>км/ч</small></div>
     <div id="prompt" class="hidden"></div>
     <div id="bubbles"></div>
@@ -50,13 +58,14 @@
   <div id="overlay">
     <div class="panel">
       <h1>OPEN CITY</h1>
-      <p class="subtitle">фундамент браузерного открытого мира</p>
+      <p class="subtitle">банды, полиция и трафик в браузерном открытом мире</p>
       <table class="controls controls-desktop">
         <tr><td>W A S D</td><td>движение, в машине — газ / тормоз / руль</td></tr>
         <tr><td>Мышь</td><td>обзор, колесо — приблизить / отдалить</td></tr>
         <tr><td>Shift</td><td>бег (разбегитесь — и прохожие падают)</td></tr>
         <tr><td>Space</td><td>прыжок, в машине — ручник</td></tr>
-        <tr><td>E</td><td>сесть в ближайшую машину / выйти</td></tr>
+        <tr><td>F / ЛКМ</td><td>удар (в захвате мыши — левая кнопка)</td></tr>
+        <tr><td>E</td><td>сесть в машину, угнать с водителем, выйти</td></tr>
         <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
       </table>
       <table class="controls controls-touch">

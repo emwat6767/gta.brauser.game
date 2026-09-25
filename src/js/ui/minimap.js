@@ -120,6 +120,13 @@ export class Minimap {
     ctx.fillStyle = COLORS.background;
     ctx.fillRect(cx - this.radiusMeters * 1.5, cz - this.radiusMeters * 1.5, this.radiusMeters * 3, this.radiusMeters * 3);
     ctx.drawImage(this.map, -world.half, -world.half, world.size, world.size);
+    // Территории банд — полупрозрачные кварталы цвета банды.
+    for (const gang of this.game.gangs?.gangs ?? []) {
+      ctx.fillStyle = gang.color;
+      ctx.globalAlpha = 0.38;
+      for (const b of gang.blocks) ctx.fillRect(b.x0 + 3, b.z0 + 3, b.x1 - b.x0 - 6, b.z1 - b.z0 - 6);
+    }
+    ctx.globalAlpha = 1;
     ctx.restore();
 
     this._drawBlips(R);
@@ -150,24 +157,38 @@ export class Minimap {
     const ctx = this.ctx;
     const d = this.dpr;
 
-    // NPC — маленькие точки (упавшие — красные).
+    const flash = Math.floor(performance.now() / 250) % 2 === 0;
+    const gangColor = (id) => this.game.gangs?.byId.get(id)?.color ?? '#ffe27a';
+
+    // NPC: прохожие — светлые точки, бандиты — цвет банды, полиция мигает, погибшие — серые.
     for (const npc of npcs.list) {
+      if (npc.vehicle) continue;
       const [x, y] = this.toScreen(npc.position.x, npc.position.z);
       if ((x - R) ** 2 + (y - R) ** 2 > R * R) continue;
-      ctx.fillStyle = npc.isDown ? '#ff4d4d' : '#ffe27a';
+      let color = '#f3e6b0', r = 2.6;
+      if (npc.isDead) color = '#7a7a7a';
+      else if (npc.role === 'gang') { color = gangColor(npc.gang); r = 3.2; }
+      else if (npc.role === 'police') { color = flash ? '#3d7cff' : '#ff3b3b'; r = 3.4; }
+      ctx.fillStyle = '#111';
       ctx.beginPath();
-      ctx.arc(x, y, 3 * d, 0, Math.PI * 2);
+      ctx.arc(x, y, (r + 1) * d, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, r * d, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Машины — синие квадраты; далёкие прижимаются к краю карты.
+    // Машины: полиция мигает, трафик — мелкие серые, свободные — синие (далёкие прижаты к краю).
     for (const v of vehicles) {
       if (v === player.vehicle) continue;
       let [x, y] = this.toScreen(v.position.x, v.position.z);
       const dx = x - R, dy = y - R;
       const dist = Math.hypot(dx, dy);
       const edge = R - 10 * d;
-      let s = 5 * d;
+      const traffic = !!v.ai && !v.police;
+      if (traffic && dist > edge) continue;
+      let s = (traffic ? 3.5 : 5) * d;
       if (dist > edge) {
         x = R + (dx / dist) * edge;
         y = R + (dy / dist) * edge;
@@ -175,7 +196,7 @@ export class Minimap {
       }
       ctx.fillStyle = '#1b1b1b';
       ctx.fillRect(x - s - d, y - s - d, (s + d) * 2, (s + d) * 2);
-      ctx.fillStyle = '#4aa3ff';
+      ctx.fillStyle = v.police && v.sirenOn ? (flash ? '#ff3b3b' : '#3d7cff') : traffic ? '#a9b0b8' : '#4aa3ff';
       ctx.fillRect(x - s, y - s, s * 2, s * 2);
     }
 

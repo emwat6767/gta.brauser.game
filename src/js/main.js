@@ -13,16 +13,24 @@ import { resolveInteractions } from './interactions.js';
 import { HUD } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
 import { TouchControls } from './ui/touch.js';
+import { GangSystem } from './gangs.js';
+import { WantedSystem } from './wanted.js';
+import { RoadNetwork, TrafficManager } from './traffic.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
-//   1. ввод камеры, E (сесть/выйти)
-//   2. симуляция фиксированными подшагами: player -> vehicles -> npcs -> interactions
-//   3. камера, солнце/тени, рендер, HUD, миникарта
+//   1. ввод камеры, E (сесть/выйти/угнать)
+//   2. симуляция фиксированными подшагами:
+//      player -> vehicles -> npcs -> gangs -> wanted -> traffic -> interactions
+//   3. камера, солнце/тени, рендер, HUD, миникарта, сенсорные кнопки
+//   4. "ПОТРАЧЕНО"/"АРЕСТОВАН" -> через несколько секунд возрождение
 // Все системы получают ссылку на game и обращаются друг к другу через неё.
 
 const SKY = { top: 0x3f86d8, horizon: 0xd3e2ec, bottom: 0xa7b3ba };
 const IS_TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
-if (IS_TOUCH) Object.assign(CONFIG.graphics, CONFIG.graphics.mobile);
+if (IS_TOUCH) {
+  Object.assign(CONFIG.graphics, CONFIG.graphics.mobile);
+  CONFIG.traffic.count = CONFIG.traffic.mobileCount;
+}
 const SUN_DIR = new THREE.Vector3(0.45, 0.8, 0.3).normalize();
 
 class Game {
@@ -36,8 +44,17 @@ class Game {
     this.textures = createTextures(this.renderer);
     this.world = new World(this);
     this.player = new Player(this);
-    this.vehicles = CONFIG.vehicle.spawns.map((spawn) => new Vehicle(this, spawn));
+    this.vehicles = CONFIG.vehicle.spawns.map((spawn) => {
+      const v = new Vehicle(this, spawn);
+      v.persistent = true; // стартовые машины не убираются трафиком
+      return v;
+    });
     this.npcs = new NPCManager(this);
+    this.roads = new RoadNetwork(this.world);
+    this.gangs = new GangSystem(this);
+    this.traffic = new TrafficManager(this);
+    this.wanted = new WantedSystem(this);
+    this.downState = null; // { kind: 'wasted' | 'busted', timer }
     this.cameraRig = new CameraRig(this);
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
@@ -139,8 +156,51 @@ class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  addVehicle(vehicle) {
+    this.vehicles.push(vehicle);
+    return vehicle;
+  }
+
+  // Убрать машину из мира (водителя-NPC убирает вызывающий код).
+  removeVehicle(vehicle) {
+    if (vehicle.driver === this.player) return;
+    const i = this.vehicles.indexOf(vehicle);
+    if (i >= 0) this.vehicles.splice(i, 1);
+    vehicle.dispose();
+  }
+
+  // Игрок погиб или арестован: крупная надпись, через несколько секунд — возрождение.
+  onPlayerDown(kind) {
+    if (this.downState) return;
+    this.downState = { kind, timer: CONFIG.player.respawnDelay };
+    if (kind === 'wasted') this.hud.showBigMessage('ПОТРАЧЕНО', '#d32f2f');
+    else this.hud.showBigMessage('АРЕСТОВАН', '#4f8dff');
+    this.events.emit('player:down', { kind });
+  }
+
+  bustPlayer() {
+    const p = this.player;
+    if (p.isDead || this.downState) return;
+    if (p.vehicle) p.exitVehicle();
+    p.stun(CONFIG.player.respawnDelay + 1);
+    this.onPlayerDown('busted');
+  }
+
+  _respawn() {
+    const P = CONFIG.player;
+    const point = this.downState.kind === 'wasted' ? P.hospital : P.policeStation;
+    this.downState = null;
+    this.wanted.clear();
+    this.player.respawn(point);
+    this.cameraRig.yaw = point.heading;
+    this.cameraRig.initialized = false;
+    this.hud.hideBigMessage();
+    this.events.emit('player:respawn', { point });
+  }
+
   _toggleVehicle() {
     const p = this.player;
+    if (p.isDown || this.downState) return;
     if (p.vehicle) {
       p.exitVehicle();
     } else {
@@ -154,6 +214,9 @@ class Game {
     this.player.update(dt);
     for (const v of this.vehicles) v.update(dt);
     this.npcs.update(dt);
+    this.gangs.update(dt);
+    this.wanted.update(dt);
+    this.traffic.update(dt);
     resolveInteractions(this);
   }
 
@@ -168,6 +231,7 @@ class Game {
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
+      if (this.downState && (this.downState.timer -= frameTime) <= 0) this._respawn();
     }
 
     this.cameraRig.update(frameTime);

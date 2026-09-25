@@ -107,7 +107,8 @@ function sharedAssets() {
 // ----------------------------------------------------------------- Машина
 
 export class Vehicle {
-  constructor(game, { x, z, heading = 0, color = 0xc0392b }) {
+  // opts: { x, z, heading, color, police }
+  constructor(game, { x, z, heading = 0, color = 0xc0392b, police = false }) {
     const V = CONFIG.vehicle;
     this.game = game;
     this.position = new THREE.Vector3(x, game.world.getGroundHeight(x, z), z);
@@ -118,7 +119,12 @@ export class Vehicle {
     this.spin = 0;           // доп. вращение от ударов
     this.steer = 0;
     this.braking = false;
-    this.driver = null;
+    this.driver = null;      // Player или NPC за рулём
+    this.ai = null;          // ИИ-водитель (traffic.js), если за рулём NPC
+    this.controls = { throttle: 0, steer: 0, handbrake: false }; // -1..1, + руль = влево
+    this.police = police;
+    this.sirenOn = false;
+    this.removed = false;
     this.radius = V.collisionRadius;
     this.circleOffsets = V.circleOffsets;
     this.seatHipHeight = 0.5;
@@ -127,7 +133,8 @@ export class Vehicle {
     this._pitch = 0;
     this._roll = 0;
     this._prevForward = 0;
-    this._buildModel(color);
+    this._buildModel(police ? 0xf4f4f2 : color);
+    if (police) this._addPoliceKit();
     game.scene.add(this.root);
     this.updateCircles();
     this._syncVisual(0);
@@ -180,6 +187,36 @@ export class Vehicle {
     this.wheelSpin = 0;
   }
 
+  // Чёрно-белая раскраска и мигалка на крыше.
+  _addPoliceKit() {
+    const S = sharedAssets();
+    S.policeBand ??= mergeColored([
+      { geometry: new THREE.BoxGeometry(1.94, 0.24, 2.3).translate(0, 0.56, -0.1), color: 0x111418 },
+      { geometry: new THREE.BoxGeometry(1.0, 0.08, 0.3).translate(0, 1.46, -0.46), color: 0x222222 },
+    ]);
+    const band = new THREE.Mesh(S.policeBand, S.trimMat);
+    band.castShadow = true;
+    this.body.add(band);
+    this.sirenRed = new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff1a1a, emissiveIntensity: 0.2 });
+    this.sirenBlue = new THREE.MeshStandardMaterial({ color: 0x000055, emissive: 0x1a5cff, emissiveIntensity: 0.2 });
+    const lamp = new THREE.BoxGeometry(0.42, 0.1, 0.24);
+    const red = new THREE.Mesh(lamp, this.sirenRed);
+    red.position.set(0.24, 1.53, -0.46);
+    const blue = new THREE.Mesh(lamp, this.sirenBlue);
+    blue.position.set(-0.24, 1.53, -0.46);
+    this.body.add(red, blue);
+  }
+
+  // Убрать машину из мира (трафик за пределами видимости и т.п.).
+  dispose() {
+    this.removed = true;
+    this.root.removeFromParent();
+    this.paintMat.dispose();
+    this.tailMat.dispose();
+    this.sirenRed?.dispose();
+    this.sirenBlue?.dispose();
+  }
+
   // Центры кругов коллизии в мировых координатах.
   updateCircles() {
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
@@ -214,12 +251,28 @@ export class Vehicle {
     return candidates[0];
   }
 
+  // Кто ведёт машину, тот и заполняет controls: игрок — с клавиатуры/джойстика, NPC — ИИ.
+  _readControls(dt) {
+    const c = this.controls;
+    const player = this.game.player;
+    if (this.driver && this.driver === player && !player.isDead) {
+      const input = this.game.input;
+      c.throttle = input.axis('backward', 'forward');
+      c.steer = input.axis('right', 'left');
+      c.handbrake = input.isDown('handbrake');
+    } else if (this.driver && this.ai) {
+      this.ai.drive(dt, c);
+    } else {
+      c.throttle = 0;
+      c.steer = 0;
+      c.handbrake = false;
+    }
+    return c;
+  }
+
   update(dt) {
     const V = CONFIG.vehicle;
-    const input = this.driver ? this.game.input : null;
-    const throttle = input ? input.axis('backward', 'forward') : 0;
-    const steerInput = input ? input.axis('right', 'left') : 0; // + = влево (heading растёт)
-    const handbrake = input ? input.isDown('handbrake') : false;
+    const { throttle, steer: steerInput, handbrake } = this._readControls(dt);
 
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     const rx = -fz, rz = fx; // "вправо"
@@ -313,5 +366,10 @@ export class Vehicle {
       w.spinner.rotation.x = this.wheelSpin;
     }
     this.tailMat.emissiveIntensity = this.braking ? 2.5 : 0.35;
+    if (this.police) {
+      const phase = this.sirenOn ? Math.floor(performance.now() / 160) % 2 : -1;
+      this.sirenRed.emissiveIntensity = phase === 0 ? 3 : 0.2;
+      this.sirenBlue.emissiveIntensity = phase === 1 ? 3 : 0.2;
+    }
   }
 }
