@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open City</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Three.js подключается с CDN через import map: в модулях пишем import * as THREE from 'three'. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud">
+    <div id="fps" data-level="good">FPS --</div>
+    <div id="help-hint"><b>H</b> — управление</div>
+    <div id="help" class="hidden">
+      <h3>Управление</h3>
+      <table>
+        <tr><td>W A S D</td><td>движение / газ, тормоз, руль</td></tr>
+        <tr><td>Мышь</td><td>камера (колесо — зум)</td></tr>
+        <tr><td>Shift</td><td>бег</td></tr>
+        <tr><td>Space</td><td>прыжок / ручник</td></tr>
+        <tr><td>F / ЛКМ</td><td>удар / выстрел</td></tr>
+        <tr><td>ПКМ / C</td><td>прицел (зум)</td></tr>
+        <tr><td>Q, 1–4</td><td>смена оружия (патроны бесконечные)</td></tr>
+        <tr><td>E</td><td>сесть в машину / угнать / выйти / ограбить банк</td></tr>
+        <tr><td>T</td><td>позвать банду / отпустить</td></tr>
+        <tr><td>J</td><td>меню банды: задания, репутация, районы</td></tr>
+        <tr><td>X</td><td>суперсила: Халк / Железный человек / обычный</td></tr>
+        <tr><td>Z</td><td>Железный человек: вниз (Space — вверх)</td></tr>
+        <tr><td>M</td><td>звук вкл/выкл</td></tr>
+        <tr><td>Esc</td><td>пауза</td></tr>
+      </table>
+    </div>
+    <div id="minimap-wrap"><canvas id="minimap"></canvas></div>
+    <div id="stats">
+      <div id="money-box"><div id="money">$0</div><div id="money-pop"></div></div>
+      <div id="wanted" aria-label="Уровень розыска"><i></i><i></i><i></i><i></i><i></i></div>
+      <div id="health-bar" aria-label="Здоровье"><div id="health-fill"></div></div>
+      <div id="weapon-panel">
+        <span id="weapon-name">Кулаки</span><span id="weapon-ammo"></span>
+        <div id="reload-bar" class="hidden"><div id="reload-fill"></div></div>
+      </div>
+    </div>
+    <div id="crosshair" class="hidden"><i></i><i></i><i></i><i></i></div>
+    <div id="hitmarker"><span></span></div>
+    <div id="toast"></div>
+    <div id="zone"></div>
+    <div id="damage-flash"></div>
+    <div id="big-message" class="hidden"></div>
+    <div id="speedometer" class="hidden"><span id="speed-value">0</span><small>км/ч</small></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="bubbles"></div>
+    <div id="news"></div>
+    <div id="top-center">
+      <div id="objective" class="hidden"></div>
+      <div id="heist" class="hidden"><div id="heist-label"></div><div id="heist-bar"><div id="heist-fill"></div></div></div>
+    </div>
+  </div>
+
+  <!-- Сенсорное управление (включается на телефонах, см. js/ui/touch.js) -->
+  <div id="touch">
+    <div class="look-zone"></div>
+    <div class="joy-zone"><div class="joy-base"><div class="joy-knob"></div></div></div>
+    <button type="button" class="tbtn tbtn-attack" data-id="attack" data-action="attack">УДАР</button>
+    <button type="button" class="tbtn tbtn-jump" data-id="jump" data-action="jump handbrake">ПРЫЖОК</button>
+    <button type="button" class="tbtn tbtn-interact" data-id="interact" data-action="interact" hidden>СЕСТЬ</button>
+    <button type="button" class="tbtn tbtn-aim" data-id="aim" data-toggle="aim" hidden>ПРИЦЕЛ</button>
+    <button type="button" class="tbtn tbtn-reload" data-id="reload" data-action="reload" hidden>ПЕРЕЗ.</button>
+    <button type="button" class="tbtn tbtn-weapon" data-id="weapon" data-action="nextWeapon">ОРУЖИЕ</button>
+    <button type="button" class="tbtn tbtn-squad" data-id="squad" data-action="squad">БАНДА</button>
+    <button type="button" class="tbtn tbtn-jobs" data-id="jobs" data-action="jobs">ЗАДАНИЯ</button>
+    <button type="button" class="tbtn tbtn-power" data-id="power" data-action="power">СИЛА</button>
+    <button type="button" class="tbtn tbtn-descend" data-id="descend" data-action="descend" hidden>ВНИЗ</button>
+    <button type="button" class="tbtn tbtn-pause" data-id="pause" data-action="pause" aria-label="Пауза">II</button>
+  </div>
+
+  <!-- Меню банды: репутация, задания, районы (js/ui/gang-menu.js) -->
+  <div id="gang-menu" class="hidden">
+    <div class="gm-panel">
+      <div class="gm-head"><div id="gm-title">Банда</div><button type="button" id="gm-close">Закрыть</button></div>
+      <div id="gm-body"></div>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>OPEN CITY</h1>
+      <p class="subtitle">живой город: банды делят районы, полиция, погони, ограбления — и режимы Халка и Железного человека</p>
+      <table class="controls controls-desktop">
+        <tr><td>W A S D</td><td>движение, в машине — газ / тормоз / руль</td></tr>
+        <tr><td>Мышь</td><td>обзор, колесо — приблизить / отдалить</td></tr>
+        <tr><td>Shift</td><td>бег (разбегитесь — и прохожие падают)</td></tr>
+        <tr><td>Space</td><td>прыжок, в машине — ручник</td></tr>
+        <tr><td>F / ЛКМ</td><td>удар или выстрел (в захвате мыши — левая кнопка)</td></tr>
+        <tr><td>ПКМ / C</td><td>прицеливание с зумом</td></tr>
+        <tr><td>Q, 1–4</td><td>смена оружия (кулаки, пистолет, обрез, автомат) — патроны бесконечные</td></tr>
+        <tr><td>E</td><td>сесть в машину, угнать с водителем, выйти; у двери банка ($) — ограбить</td></tr>
+        <tr><td>T</td><td>позвать банду: бойцы идут за вами, садятся в машину, бьют полицию, прохожих и чужие банды</td></tr>
+        <tr><td>J</td><td>меню банды: задания (угон, зачистка, магазин, доставка), репутация, войны за районы</td></tr>
+        <tr><td>X</td><td>суперсила: Халк (удар, суперпрыжок, E — поднять машину) → Железный человек (полёт: Space/Z, Shift, F — залп) → обычный</td></tr>
+        <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
+      </table>
+      <table class="controls controls-touch">
+        <tr><td>Джойстик слева</td><td>ходьба, до упора — бег; в машине — газ, тормоз, руль</td></tr>
+        <tr><td>Свайп справа</td><td>поворот камеры</td></tr>
+        <tr><td>Кнопки</td><td>удар / огонь (с автонаведением), прицел, оружие, прыжок / ручник, сесть / выйти / грабить</td></tr>
+        <tr><td>БАНДА · ЗАДАНИЯ · СИЛА</td><td>справа вверху: отряд, меню банды, суперсила</td></tr>
+      </table>
+      <p class="rotate-hint">Лучше играть, повернув телефон горизонтально</p>
+      <p id="overlay-status">Загрузка…</p>
+      <button id="play" disabled>Играть</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+  <script>
+    // Если модули не загрузились (нет интернета для CDN или страница открыта через file://).
+    setTimeout(function () {
+      if (!window.__gameReady) {
+        document.getElementById('overlay-status').textContent =
+          'Не удалось запустить игру. Нужен локальный веб-сервер (не file://) и доступ к cdn.jsdelivr.net — см. README.';
+      }
+    }, 12000);
+  </script>
+</body>
+</html>
