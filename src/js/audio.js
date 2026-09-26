@@ -11,6 +11,13 @@ export class SoundSystem {
     this.master = null;
     this.muted = false;
     this.noise = null;
+    this.loops = null;
+    // Вкладка скрыта — кадры не идут, громкость петель (мотор, сирена) не обновляется: глушим всё.
+    document.addEventListener('visibilitychange', () => {
+      if (!this.ctx) return;
+      if (document.hidden) this.ctx.suspend();
+      else this.ctx.resume();
+    });
   }
 
   unlock() {
@@ -157,6 +164,17 @@ export class SoundSystem {
     this._tone({ when: when + 0.42, duration: 0.4, freq: 720, freqEnd: 700, type: 'square', gain: g, pan });
   }
 
+  // Клаксон: два коротких гудка ("би-бип").
+  horn(position) {
+    if (!this.ctx || this.muted) return;
+    const { gain, pan } = this._place(position);
+    const when = this.ctx.currentTime;
+    for (const [dt, dur] of [[0, 0.16], [0.22, 0.3]]) {
+      this._tone({ when: when + dt, duration: dur, freq: 415, type: 'square', gain: 0.1 * gain, pan });
+      this._tone({ when: when + dt, duration: dur, freq: 523, type: 'square', gain: 0.08 * gain, pan });
+    }
+  }
+
   // Взрыв: низкий удар + шипение.
   explosion(position) {
     if (!this.ctx || this.muted) return;
@@ -182,6 +200,95 @@ export class SoundSystem {
     const when = this.ctx.currentTime;
     this._tone({ when, duration: 0.18, freq: 1800, freqEnd: 300, type: 'sawtooth', gain: 0.25 * gain, pan });
     this._noise({ when, duration: 0.12, type: 'highpass', freq: 3000, gain: 0.4 * gain, pan });
+  }
+
+  // Постоянные звуки: мотор машины игрока и сирена ближайшей полицейской машины.
+  // Узлы создаются один раз, дальше меняются только частота и громкость.
+  _makeLoops() {
+    const ctx = this.ctx;
+    const eng = { a: ctx.createOscillator(), b: ctx.createOscillator(), filter: ctx.createBiquadFilter(), gain: ctx.createGain() };
+    eng.a.type = 'sawtooth';
+    eng.b.type = 'square';
+    eng.filter.type = 'lowpass';
+    eng.filter.Q.value = 3;
+    eng.gain.gain.value = 0;
+    eng.a.connect(eng.filter);
+    eng.b.connect(eng.filter);
+    eng.filter.connect(eng.gain).connect(this.master);
+    eng.a.start();
+    eng.b.start();
+    // Сирена "вой": тон плавает вверх-вниз (LFO на частоту).
+    const sir = { osc: ctx.createOscillator(), lfo: ctx.createOscillator(), depth: ctx.createGain(), gain: ctx.createGain(),
+      pan: ctx.createStereoPanner ? ctx.createStereoPanner() : null };
+    sir.osc.type = 'triangle';
+    sir.osc.frequency.value = 1050;
+    sir.lfo.frequency.value = 0.3;
+    sir.depth.gain.value = 400;
+    sir.lfo.connect(sir.depth).connect(sir.osc.frequency);
+    sir.gain.gain.value = 0;
+    sir.osc.connect(sir.gain);
+    (sir.pan ? sir.gain.connect(sir.pan) : sir.gain).connect(this.master);
+    sir.osc.start();
+    sir.lfo.start();
+    // Реактивные ботинки Железного человека: шум с полосовым фильтром.
+    const jet = { src: ctx.createBufferSource(), filter: ctx.createBiquadFilter(), gain: ctx.createGain() };
+    jet.src.buffer = this.noise;
+    jet.src.loop = true;
+    jet.filter.type = 'bandpass';
+    jet.filter.frequency.value = 800;
+    jet.filter.Q.value = 0.8;
+    jet.gain.gain.value = 0;
+    jet.src.connect(jet.filter).connect(jet.gain).connect(this.master);
+    jet.src.start();
+    return { eng, sir, jet };
+  }
+
+  // Раз в кадр (и на паузе — чтобы петли затихли).
+  update() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const { eng, sir, jet } = (this.loops ??= this._makeLoops());
+    const game = this.game;
+    const t = this.ctx.currentTime;
+    const quiet = game.paused || game.menuOpen || this.muted;
+    // Мотор: обороты растут внутри передачи и падают при переключении.
+    const v = game.player.vehicle;
+    let engineGain = 0;
+    if (v && !quiet && !v.wrecked) {
+      const s = Math.abs(v.forwardSpeed ?? v.speed);
+      const gears = [0, 7, 13, 19, 26, 34, 80];
+      let gi = 0;
+      while (gi < gears.length - 2 && s > gears[gi + 1]) gi++;
+      const rpm = Math.min(1, (s - gears[gi]) / (gears[gi + 1] - gears[gi]));
+      const thr = Math.abs(v.controls.throttle);
+      const f = 36 + rpm * 60 + gi * 6 + thr * 8;
+      eng.a.frequency.setTargetAtTime(f, t, 0.05);
+      eng.b.frequency.setTargetAtTime(f * 0.5, t, 0.05);
+      eng.filter.frequency.setTargetAtTime(220 + rpm * 600 + thr * 450, t, 0.08);
+      engineGain = 0.035 + thr * 0.05 + rpm * 0.02;
+    }
+    eng.gain.gain.setTargetAtTime(engineGain, t, 0.1);
+    // Сирена ближайшей машины с мигалкой.
+    let best = null, bestD = 150;
+    if (!quiet) {
+      for (const c of game.vehicles) {
+        if (!c.sirenOn || c.wrecked) continue;
+        const d = c.position.distanceTo(game.camera.position);
+        if (d < bestD) { bestD = d; best = c; }
+      }
+    }
+    let sirenGain = 0;
+    if (best) {
+      const { gain, pan } = this._place(best.position);
+      sirenGain = Math.min(0.1, gain * 0.3);
+      sir.pan?.pan.setTargetAtTime(pan, t, 0.1);
+    }
+    sir.gain.gain.setTargetAtTime(sirenGain, t, 0.2);
+    // Полёт
+    const flying = !quiet && game.powers?.mode === 'ironman' && game.powers.flying;
+    const pv = game.player.velocity;
+    const sp = Math.hypot(pv.x, pv.y, pv.z);
+    jet.filter.frequency.setTargetAtTime(600 + Math.min(sp, 45) * 35, t, 0.1);
+    jet.gain.gain.setTargetAtTime(flying ? 0.12 + Math.min(sp, 45) * 0.006 : 0, t, 0.12);
   }
 
   // Включение суперсилы.

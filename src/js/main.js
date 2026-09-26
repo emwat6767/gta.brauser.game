@@ -62,6 +62,8 @@ class Game {
     this.input = new Input(this.renderer.domElement);
     this.textures = createTextures(this.renderer);
     this.effects = new Effects(this.scene);
+    this.effects.renderer = this.renderer;
+    this.effects.camera = this.camera;
     this.audio = new SoundSystem(this);
     this.world = new World(this);
     this.player = new Player(this);
@@ -307,6 +309,7 @@ class Game {
     this.hud.update(frameTime);
     this.minimap.update(frameTime);
     this.touch.update();
+    this.audio.update();
     input.endFrame();
   }
 

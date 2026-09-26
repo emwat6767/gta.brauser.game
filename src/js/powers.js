@@ -172,6 +172,7 @@ export class PowerSystem {
       game.chaos.blast(p.position, 7 * k, 55 * k, 16 * k, p, { ignore: p });
       game.effects.ring(p.position, 9 * k);
       game.effects.burst(_o.copy(p.position).setY(p.position.y + 0.3), { x: 0, y: 0.5, z: 0 }, 'dust', 40);
+      game.effects.dustRing(p.position, 3 + 5 * k);
       game.cameraRig.addShake?.(0.6 * k);
       game.audio.slam?.(p.position, k);
     }
@@ -208,6 +209,7 @@ export class PowerSystem {
       if (hit.kind === 'vehicle') hit.vehicle.damage?.(40, p);
       game.effects.burst(end, { x: 0, y: 1, z: 0 }, 'energy', 18);
       game.effects.ring(end, 3.5, 0x9fe6ff);
+      game.effects.puff('smoke', end, { x: 0, y: 1, z: 0 }, 0.5);
       game.chaos.blast(end, 3.2, 35, 9, p, { ignore: p });
     }
     game.events.emit('weapon:fired', { shooter: p, weapon: 'repulsor', position: hand.clone() });

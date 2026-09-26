@@ -356,6 +356,9 @@ export class ChaosSystem {
       }
       if ((f.x - pp.x) ** 2 + (f.z - pp.z) ** 2 < 100 * 100) {
         game.effects.burst(_v.set(f.x, f.y + 0.3, f.z), { x: 0, y: 2.2, z: 0 }, 'water', 3);
+        if (Math.random() < dt * 14) {
+          game.effects.puff('spray', _v, { x: (Math.random() - 0.5) * 1.6, y: 8 + Math.random() * 3, z: (Math.random() - 0.5) * 1.6 }, 1);
+        }
       }
     }
   }

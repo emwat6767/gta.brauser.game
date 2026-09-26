@@ -6,6 +6,8 @@ import * as THREE from 'three';
 //   burst(point, dir, kind, n)   — частицы: 'blood' | 'spark' | 'dust' | 'energy' | 'fire' | 'debris' | 'water'
 //   explosion(point, scale)      — взрыв: вспышка, огонь, дым, обломки
 //   ring(point, radius)          — ударная волна по земле (расходящееся кольцо)
+//   puff(kind, point, vel, scale) — облако: 'fire' | 'smoke' | 'haze' | 'dust' | 'spray' (растёт, всплывает, тает)
+//   dustRing(point, radius)      — кольцо пыли (удар о землю)
 
 const MAX_TRACERS = 48;
 const MAX_PARTICLES = 500;
@@ -23,6 +25,127 @@ const COLORS = {
 const SPEED = { spark: 5, blood: 2.2, dust: 1.6, energy: 6, fire: 3.5, debris: 6, water: 4 };
 const LIFE = { spark: 0.25, energy: 0.3, fire: 0.45 };
 const MAX_RINGS = 6;
+
+// Облака — мягкие круглые спрайты с размером в метрах. Огонь светится (складывается с фоном),
+// дым и пыль — обычная прозрачность. Количество ограничено: старые облака переиспользуются.
+const PUFF = {
+  fire: { c0: 0xffd98a, c1: 0xd2340c, life: [0.45, 0.8], s0: 1.1, s1: 2.4, rise: 2.4, alpha: 0.85, add: true },
+  smoke: { c0: 0x1c1a19, c1: 0x57534f, life: [3, 4.5], s0: 1.3, s1: 6.5, rise: 1.8, alpha: 0.72 },
+  haze: { c0: 0x8f8a84, c1: 0xb9b5b0, life: [1.6, 2.4], s0: 0.5, s1: 2.2, rise: 1.2, alpha: 0.35 },
+  dust: { c0: 0x8c7f6d, c1: 0xa89d8c, life: [1, 1.6], s0: 1.2, s1: 4.4, rise: 0.35, alpha: 0.6 },
+  spray: { c0: 0xeef7ff, c1: 0xa8cdea, life: [0.8, 1.2], s0: 0.35, s1: 1.4, rise: -4.5, alpha: 0.6 }, // вода: вверх и вниз
+};
+// Шейдер облаков пишет цвет в кадр как есть, поэтому храним его без перевода в линейное пространство.
+for (const k in PUFF) {
+  PUFF[k].c0 = new THREE.Color().setHex(PUFF[k].c0, THREE.LinearSRGBColorSpace);
+  PUFF[k].c1 = new THREE.Color().setHex(PUFF[k].c1, THREE.LinearSRGBColorSpace);
+}
+const PUFF_VS = `
+attribute vec3 pcolor;
+attribute float psize;
+attribute float palpha;
+uniform float uScale;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vColor = pcolor;
+  vAlpha = palpha;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_PointSize = psize * uScale / max(0.5, -mv.z);
+  gl_Position = projectionMatrix * mv;
+}`;
+const PUFF_FS = `
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  float d = length(gl_PointCoord - 0.5);
+  float a = vAlpha * smoothstep(0.5, 0.12, d);
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(vColor, a);
+}`;
+
+class PuffLayer {
+  constructor(scene, max, additive) {
+    this.max = max;
+    this.pos = new Float32Array(max * 3).fill(-9999);
+    this.col = new Float32Array(max * 3);
+    this.size = new Float32Array(max);
+    this.alpha = new Float32Array(max);
+    this.vel = new Float32Array(max * 3);
+    this.life = new Float32Array(max);
+    this.maxLife = new Float32Array(max);
+    this.scale = new Float32Array(max);
+    this.kind = new Array(max).fill(null);
+    this.next = 0;
+    this.active = 0;
+    const g = new THREE.BufferGeometry();
+    const attr = (a, n) => new THREE.BufferAttribute(a, n).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', attr(this.pos, 3));
+    g.setAttribute('pcolor', attr(this.col, 3));
+    g.setAttribute('psize', attr(this.size, 1));
+    g.setAttribute('palpha', attr(this.alpha, 1));
+    this.material = new THREE.ShaderMaterial({
+      uniforms: { uScale: { value: 400 } }, vertexShader: PUFF_VS, fragmentShader: PUFF_FS,
+      transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+    this.points = new THREE.Points(g, this.material);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = additive ? 3 : 2;
+    scene.add(this.points);
+  }
+
+  add(kind, point, vel, scale) {
+    const K = PUFF[kind];
+    const i = this.next;
+    this.next = (i + 1) % this.max;
+    if (!this.kind[i]) this.active++;
+    this.kind[i] = K;
+    this.pos[i * 3] = point.x;
+    this.pos[i * 3 + 1] = point.y;
+    this.pos[i * 3 + 2] = point.z;
+    this.vel[i * 3] = vel.x;
+    this.vel[i * 3 + 1] = vel.y;
+    this.vel[i * 3 + 2] = vel.z;
+    this.maxLife[i] = this.life[i] = K.life[0] + Math.random() * (K.life[1] - K.life[0]);
+    this.scale[i] = scale * (0.8 + Math.random() * 0.4);
+    this.alpha[i] = 0;
+  }
+
+  update(dt, uScale) {
+    this.material.uniforms.uScale.value = uScale;
+    if (!this.active) return;
+    const c = new THREE.Color();
+    for (let i = 0; i < this.max; i++) {
+      const K = this.kind[i];
+      if (!K) continue;
+      this.life[i] -= dt;
+      if (this.life[i] <= 0) {
+        this.kind[i] = null;
+        this.active--;
+        this.alpha[i] = 0;
+        this.pos[i * 3 + 1] = -9999;
+        continue;
+      }
+      const t = 1 - this.life[i] / this.maxLife[i];
+      const drag = Math.max(0, 1 - 2.2 * dt);
+      this.vel[i * 3] *= drag;
+      this.vel[i * 3 + 2] *= drag;
+      this.vel[i * 3 + 1] = this.vel[i * 3 + 1] * drag + K.rise * 2.2 * dt;
+      this.pos[i * 3] += this.vel[i * 3] * dt;
+      this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
+      this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      const grow = 1 - (1 - t) * (1 - t);
+      this.size[i] = (K.s0 + (K.s1 - K.s0) * grow) * this.scale[i];
+      this.alpha[i] = K.alpha * (t < 0.12 ? t / 0.12 : Math.pow((1 - t) / 0.88, 1.3));
+      c.copy(K.c0).lerp(K.c1, Math.min(1, t * 1.4));
+      this.col[i * 3] = c.r;
+      this.col[i * 3 + 1] = c.g;
+      this.col[i * 3 + 2] = c.b;
+    }
+    const a = this.points.geometry.attributes;
+    a.position.needsUpdate = a.pcolor.needsUpdate = a.psize.needsUpdate = a.palpha.needsUpdate = true;
+  }
+}
 
 export class Effects {
   constructor(scene) {
@@ -92,6 +215,11 @@ export class Effects {
     this.nextRing = 0;
     this.flashMat = flashMat;
 
+    this.smokeLayer = new PuffLayer(scene, 110, false);
+    this.fireLayer = new PuffLayer(scene, 70, true);
+    this.renderer = null; // main.js: для размера облаков в пикселях
+    this.camera = null;
+
     scene.add(this.tracers, this.particles);
   }
 
@@ -121,6 +249,42 @@ export class Effects {
     this.burst(point, up, 'dust', Math.round(30 * scale));
     this.burst(point, up, 'debris', Math.round(16 * scale));
     this.ring(point, 7 * scale, 0xffc27a);
+    // Огненный шар и столб дыма.
+    const v = { x: 0, y: 0, z: 0 };
+    const p = { x: 0, y: 0, z: 0 };
+    for (let n = Math.round(9 * scale); n > 0; n--) {
+      const a = Math.random() * Math.PI * 2, r = Math.random();
+      p.x = point.x + Math.cos(a) * r * scale;
+      p.y = point.y + 0.4 + Math.random() * scale;
+      p.z = point.z + Math.sin(a) * r * scale;
+      v.x = Math.cos(a) * (2 + Math.random() * 4) * scale;
+      v.y = (1.5 + Math.random() * 3) * scale;
+      v.z = Math.sin(a) * (2 + Math.random() * 4) * scale;
+      this.puff('fire', p, v, 1.3 * scale);
+    }
+    for (let n = Math.round(7 * scale); n > 0; n--) {
+      const a = Math.random() * Math.PI * 2;
+      p.x = point.x + Math.cos(a) * scale;
+      p.y = point.y + 1 + Math.random() * scale;
+      p.z = point.z + Math.sin(a) * scale;
+      v.x = Math.cos(a) * (0.8 + Math.random() * 1.5);
+      v.y = 2 + Math.random() * 2.5;
+      v.z = Math.sin(a) * (0.8 + Math.random() * 1.5);
+      this.puff('smoke', p, v, scale);
+    }
+  }
+
+  puff(kind, point, vel = { x: 0, y: 0, z: 0 }, scale = 1) {
+    (PUFF[kind].add ? this.fireLayer : this.smokeLayer).add(kind, point, vel, scale);
+  }
+
+  dustRing(point, radius = 5) {
+    const n = Math.min(14, Math.round(radius * 2));
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2 + Math.random() * 0.3;
+      this.puff('dust', { x: point.x + Math.cos(a) * 0.8, y: point.y + 0.4, z: point.z + Math.sin(a) * 0.8 },
+        { x: Math.cos(a) * radius * 1.4, y: 0.4, z: Math.sin(a) * radius * 1.4 }, 0.7 + radius * 0.06);
+    }
   }
 
   tracer(from, to, tint = null, life = 0.07) {
@@ -212,6 +376,12 @@ export class Effects {
       this.particles.geometry.attributes.position.needsUpdate = true;
       this.particles.geometry.attributes.color.needsUpdate = true;
     }
+
+    // Размер облака: psize (м) * uScale / расстояние = пиксели.
+    const uScale = this.renderer && this.camera
+      ? (this.renderer.getContext().drawingBufferHeight * this.camera.projectionMatrix.elements[5]) / 2 : 400;
+    this.smokeLayer.update(dt, uScale);
+    this.fireLayer.update(dt, uScale);
 
     for (const m of this.flashes) {
       if (!m.visible) continue;

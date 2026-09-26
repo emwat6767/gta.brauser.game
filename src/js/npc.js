@@ -83,6 +83,7 @@ export const LINES = {
   police: ['Стоять! Полиция!', 'Руки за голову!', 'Ни с места!'],
   carjacked: ['Моя машина!', 'Эй! Вор!', 'Верни тачку!'],
   scream: ['А-а-а!', 'Стреляют!', 'Бегите!', 'Помогите!'],
+  blast: ['А-а-а!', 'Взрыв!', 'Бегите!', 'Что это было?!', 'Спасайтесь!'],
 };
 
 export function randomCivilianLook(rng) {
@@ -203,6 +204,11 @@ export class NPC {
   }
 
   _enter(state) {
+    // Не дошёл до машины (испугался, ввязался в драку) — её может взять другой.
+    if (this.carTarget && state !== NPC_STATE.GOTO_CAR) {
+      this.carTarget._claimed = false;
+      this.carTarget = null;
+    }
     this.state = state;
     this.stateTime = 0;
   }
@@ -334,8 +340,7 @@ export class NPC {
   _updateGotoCar(dt) {
     const v = this.carTarget;
     if (!v || v.removed || v.driver || this.panic > 0 || this.stateTime > 25) {
-      this.carTarget = null;
-      this._enter(NPC_STATE.WALK);
+      this._enter(NPC_STATE.WALK); // снимет и пометку с машины
       return 0;
     }
     const door = v.localToWorld2D(1.6, -0.2);
@@ -343,6 +348,7 @@ export class NPC {
     const d = Math.hypot(dx, dz);
     if (d < 0.9) {
       this.carTarget = null;
+      v._claimed = false;
       this.game.traffic.driveAway(v, this);
       return 0;
     }
@@ -935,17 +941,22 @@ export class NPCManager {
     const p = game.player.position;
     for (let i = 0; i < CONFIG.npc.count; i++) this.spawnCivilian(p.x, p.z, 5, CONFIG.npc.spawnRadius, false);
 
-    // Выстрелы пугают прохожих: разбегаются от стрелка.
-    game.events.on('weapon:fired', ({ shooter, position }) => {
-      const r2 = CONFIG.npc.panicRadius ** 2;
-      for (const n of this.list) {
-        if (n.role !== 'civilian' || n.vehicle || n.isDown || n === shooter) continue;
-        if (n.position.distanceToSquared(position) > r2) continue;
-        if (n.panic <= 0 && game.rng.chance(0.3)) n.say(game.rng.pick(LINES.scream));
-        n.panic = 8;
-        if (n.state === NPC_STATE.IDLE || n.state === NPC_STATE.TALK || n.state === NPC_STATE.GOTO_CAR) n._enter(NPC_STATE.WALK);
-      }
-    });
+    // Выстрелы и взрывы пугают прохожих: разбегаются.
+    game.events.on('weapon:fired', ({ shooter, position }) => this.scare(position, CONFIG.npc.panicRadius, shooter));
+    game.events.on('chaos:blast', ({ point, radius, attacker }) => this.scare(point, Math.max(CONFIG.npc.panicRadius, radius * 7), attacker, LINES.blast));
+  }
+
+  // Прохожие в радиусе от точки разбегаются (стрельба, взрыв, удар Халка).
+  scare(position, radius, shooter = null, lines = LINES.scream) {
+    const rng = this.game.rng;
+    const r2 = radius * radius;
+    for (const n of this.list) {
+      if (n.role !== 'civilian' || n.vehicle || n.isDown || n === shooter) continue;
+      if (n.position.distanceToSquared(position) > r2) continue;
+      if (n.panic <= 0 && rng.chance(0.3)) n.say(rng.pick(lines));
+      n.panic = 8;
+      if (n.state === NPC_STATE.IDLE || n.state === NPC_STATE.TALK || n.state === NPC_STATE.GOTO_CAR) n._enter(NPC_STATE.WALK);
+    }
   }
 
   add(npc) {

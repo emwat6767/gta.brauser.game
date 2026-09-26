@@ -246,6 +246,7 @@ export class AIDriver {
         : this.blockedTime > 6 && !obstacle.who?.ai?.atLight && this.game.rng.chance(dt * 0.15))) {
         this.honkCooldown = 12;
         this.game.hud?.say(v, 'Би-бип!');
+        this.game.audio?.horn(v.position);
       }
     } else {
       this.blockedTime = 0;

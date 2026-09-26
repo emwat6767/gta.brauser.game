@@ -32,7 +32,7 @@ export const VEHICLE_TYPES = {
     name: 'Спорткар', speed: 1.3, accel: 1.55, grip: 1.3, height: 1.15,
     body: [[-2.2, 0.26], [2.2, 0.26], [2.32, 0.36], [2.28, 0.56], [0.95, 0.7], [-1.45, 0.76], [-2.2, 0.74], [-2.3, 0.48]],
     cabin: [[-1.4, 0.72], [0.9, 0.7], [0.0, 1.1], [-0.95, 1.12]],
-    driver: [0.36, -0.45, -0.3], dash: 0.78, spoiler: true,
+    driver: [0.36, -0.45, -0.3], dash: 0.78, spoiler: true, lightY: 0.47,
     seats: [[-0.36, -0.45, -0.3]],
     doors: [[-1.7, -0.45]],
   },
@@ -113,6 +113,19 @@ function typeAssets(typeId) {
       .translate(x, (p0[1] + p1[1]) / 2, (p0[0] + p1[0]) / 2);
   };
 
+  // Поверхность кузова спереди (front) или сзади на высоте y — с учётом фаски; туда ставим фары и номера.
+  const bodyZ = (y, front) => {
+    let best = front ? -Infinity : Infinity;
+    const P = T.body;
+    for (let i = 0; i < P.length; i++) {
+      const [z0, y0] = P[i], [z1, y1] = P[(i + 1) % P.length];
+      if (y0 === y1 || (y - y0) * (y - y1) > 0) continue;
+      const z = z0 + ((z1 - z0) * (y - y0)) / (y1 - y0);
+      best = front ? Math.max(best, z) : Math.min(best, z);
+    }
+    return best + (front ? 0.05 : -0.05);
+  };
+
   const C = T.cabin;
   const paintParts = [{ geometry: extrude(T.body, 1.76, 0.06) }];
   if (!T.van) {
@@ -146,8 +159,8 @@ function typeAssets(typeId) {
     { geometry: arch(-1.33), color: 0x0d0d0d },
     { geometry: box(0.2, 0.1, 0.13, 1.0, T.dash + 0.06, dz + 0.98), color: 0x222222 }, // зеркала
     { geometry: box(0.2, 0.1, 0.13, -1.0, T.dash + 0.06, dz + 0.98), color: 0x222222 },
-    { geometry: box(0.5, 0.12, 0.02, 0, 0.4, 2.33), color: 0xe8e4d0 },   // номера
-    { geometry: box(0.5, 0.12, 0.02, 0, 0.62, -2.3), color: 0xe8e4d0 },
+    { geometry: box(0.5, 0.12, 0.02, 0, 0.4, Math.max(2.33, bodyZ(0.4, true))), color: 0xe8e4d0 },   // номера
+    { geometry: box(0.5, 0.12, 0.02, 0, 0.62, Math.min(-2.3, bodyZ(0.62, false))), color: 0xe8e4d0 },
     // Салон (виден через стёкла): сиденья водителя и пассажиров, торпедо, руль.
     { geometry: box(1.56, 0.2, 0.35, 0, T.dash, dz + 0.92), color: 0x2b2b2b },
     { geometry: new THREE.TorusGeometry(0.17, 0.025, 6, 18).rotateX(0.4).translate(dx, T.dash + 0.01, dz + 0.56), color: 0x151515 },
@@ -159,10 +172,16 @@ function typeAssets(typeId) {
   if (T.bed) trimParts.push({ geometry: box(1.68, 0.06, 1.6, 0, 0.9, -1.42), color: 0x1d1d1d });
   if (T.van) {
     // Задние двери со стёклами, полоса по борту, тёмный низ.
-    trimParts.push({ geometry: box(1.5, 0.5, 0.04, 0, 1.55, -2.27), color: 0x1b2833 });
-    trimParts.push({ geometry: box(0.03, 1.5, 0.05, 0, 1.2, -2.27), color: 0x333333 });
-    trimParts.push({ geometry: box(1.8, 0.14, 3.2, 0, 1.0, -0.55), color: 0x2c3e50 });
-    trimParts.push({ geometry: box(1.8, 0.16, 4.3, 0, 0.42, 0), color: 0x2b2b2b });
+    // (кузов с фаской шире 1.76 — детали чуть выступают из него)
+    const back = bodyZ(1.2, false);
+    trimParts.push({ geometry: box(0.66, 0.46, 0.04, 0.4, 1.56, back), color: 0x1b2833 });
+    trimParts.push({ geometry: box(0.66, 0.46, 0.04, -0.4, 1.56, back), color: 0x1b2833 });
+    trimParts.push({ geometry: box(0.04, 1.5, 0.05, 0, 1.18, back), color: 0x333333 });
+    trimParts.push({ geometry: box(0.05, 0.2, 0.05, 0.1, 1.12, back - 0.03), color: 0x888888 }); // ручка
+    trimParts.push({ geometry: box(1.94, 0.14, 3.2, 0, 1.0, -0.55), color: 0x2c3e50 });
+    trimParts.push({ geometry: box(1.94, 0.16, 4.3, 0, 0.42, 0), color: 0x2b2b2b });
+    // Боковое окно у сдвижной двери.
+    for (const x of [0.95, -0.95]) trimParts.push({ geometry: box(0.03, 0.42, 0.9, x, 1.56, -0.2), color: 0x1b2833 });
   }
   if (T.taxi) {
     trimParts.push({ geometry: box(0.62, 0.2, 0.26, 0, 1.52, -0.45), color: 0xffe066 });
@@ -170,14 +189,15 @@ function typeAssets(typeId) {
   }
   const trim = mergeColored(trimParts);
   const glass = extrude(C, T.glassWidth ?? 1.56, 0);
-  const hy = T.van ? 0.7 : 0.62;
+  const hy = T.lightY ?? (T.van ? 0.7 : 0.62);
+  const hz = bodyZ(hy, true), tz = bodyZ(hy + 0.06, false);
   const headlights = mergeColored([
-    { geometry: box(0.36, 0.14, 0.06, 0.62, hy, 2.25) },
-    { geometry: box(0.36, 0.14, 0.06, -0.62, hy, 2.25) },
+    { geometry: box(0.36, 0.14, 0.06, 0.62, hy, hz) },
+    { geometry: box(0.36, 0.14, 0.06, -0.62, hy, hz) },
   ]);
   const taillights = mergeColored([
-    { geometry: box(0.38, 0.12, 0.05, 0.62, hy + 0.06, -2.25) },
-    { geometry: box(0.38, 0.12, 0.05, -0.62, hy + 0.06, -2.25) },
+    { geometry: box(0.38, 0.12, 0.05, 0.62, hy + 0.06, tz) },
+    { geometry: box(0.38, 0.12, 0.05, -0.62, hy + 0.06, tz) },
   ]);
   const set = { paint, trim, glass, headlights, taillights };
   ASSETS.set(typeId, set);
@@ -215,6 +235,7 @@ export class Vehicle {
     this.parked = false;     // стоит у бордюра без водителя (traffic.js)
     this.health = this.spec.height > 1.8 ? 160 : 110;
     this.wrecked = false;    // взорвалась и выгорела
+    this.burn = 0;           // > 0 — горит (с), потом до -25 — тлеет
     this.air = null;         // в полёте: { vy, roll, rollSpeed }
     this.carried = false;
     this.color = color;
@@ -437,11 +458,24 @@ export class Vehicle {
       return;
     }
     // Дым и огонь (повреждена / горит) — только рядом с игроком.
-    if ((this.health < 35 || this.burn > 0) && this.position.distanceToSquared(this.game.player.position) < 90 * 90) {
-      if (this.burn > 0) this.burn -= dt;
-      if (Math.random() < dt * (this.burn > 0 ? 18 : 5)) {
-        const hood = this.localToWorld2D(0, 1.6);
-        this.game.effects.burst({ x: hood.x, y: this.position.y + 1.1, z: hood.z }, { x: 0, y: 0.8, z: 0 }, this.burn > 0 ? 'fire' : 'dust', 1);
+    // Горит (burn > 0) → тлеет и дымит ещё 25 с → остаётся остов; повреждённая — серый дымок из-под капота.
+    if (this.burn > 0) this.burn -= dt;
+    else if (this.wrecked && this.burn > -25) this.burn -= dt;
+    if ((this.health < 35 || this.wrecked) && this.burn > -25 && this.position.distanceToSquared(this.game.player.position) < 110 * 110) {
+      const fx = this.game.effects;
+      const hood = this.localToWorld2D((Math.random() - 0.5) * 0.9, this.wrecked ? (Math.random() - 0.3) * 2.4 : 1.6);
+      const at = { x: hood.x, y: this.position.y + 1.05, z: hood.z };
+      const drift = { x: (Math.random() - 0.5) * 0.6, y: 0.6, z: (Math.random() - 0.5) * 0.6 };
+      if (this.burn > 0) {
+        const k = Math.min(1, this.burn / 6) * 0.4 + 0.6; // к концу пожар слабеет
+        if (Math.random() < dt * 12) fx.puff('fire', at, drift, (0.8 + Math.random() * 0.4) * k);
+        if (Math.random() < dt * 5) fx.puff('smoke', { x: at.x, y: at.y + 1.4, z: at.z }, drift, k);
+        if (Math.random() < dt * 6) fx.burst(at, { x: 0, y: 0.8, z: 0 }, 'fire', 2);
+      } else if (this.wrecked) {
+        if (Math.random() < dt * 1.6) fx.puff('smoke', at, drift, 0.5 + Math.max(0, 25 + this.burn) * 0.01);
+      } else if (Math.random() < dt * (this.health < 15 ? 5 : 2.5)) {
+        fx.puff('haze', at, drift, this.health < 15 ? 1 : 0.7);
+        if (this.health < 15 && Math.random() < 0.3) fx.puff('fire', at, drift, 0.35);
       }
     }
     if (this.air) {
