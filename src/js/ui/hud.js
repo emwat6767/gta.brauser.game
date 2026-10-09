@@ -83,6 +83,14 @@ export class HUD {
     });
   }
 
+  // Название места (район, достопримечательность) — той же табличкой, что территории банд.
+  announce(text, color = '#f2f2f2') {
+    this.zoneEl.textContent = text;
+    this.zoneEl.style.color = color;
+    this.zoneEl.classList.add('show');
+    this._zoneTimer = 3;
+  }
+
   // Индикатор попадания в центре экрана: белый — попал, красный — убил.
   hitMarker(killed, headshot) {
     this._hitTimer = killed ? 0.35 : 0.15;

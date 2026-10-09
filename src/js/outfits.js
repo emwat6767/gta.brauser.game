@@ -253,3 +253,8 @@ export function outfitByArchetype(rng, arch) {
   return { ...civilianLook(rng, {}), ...ARCH[arch](rng) };
 }
 export const ARCHETYPES = Object.keys(ARCH);
+
+export const ARCHETYPE_NAMES = {
+  street: 'Уличный стиль', casual: 'Повседневный', business: 'Деловой костюм', sport: 'Спорт', tourist: 'Турист',
+  biker: 'Байкер', winter: 'Зимний', elegant: 'Элегантный', worker: 'Рабочий', punk: 'Панк', trendy: 'Модный',
+};

@@ -51,6 +51,8 @@ export const NPC_STATE = {
   GOTO_CAR: 'gotocar', // идёт к припаркованной машине, чтобы уехать на ней
   RETREAT: 'retreat', // ранен — отступает от противника, потом возвращается
   GOTO: 'goto',       // идёт к точке (охранник — к своему посту), затем стоит
+  GOTO_BENCH: 'gotobench', // идёт к скамейке
+  SIT: 'sit',         // сидит на скамейке
 };
 
 // Места в строю отряда: [вправо, назад] от игрока, м. По бокам, а не прямо за спиной —
@@ -142,6 +144,9 @@ export class NPC {
     this.partner = null;  // собеседник (TALK)
     this.dest = null;     // куда идёт по своим делам (узел графа тротуаров)
     this.carTarget = null; // машина, к которой идёт (GOTO_CAR)
+    this.bench = null;     // скамейка, на которой сидит или к которой идёт
+    this.benchSlot = 0;
+    this.benchSpot = null;
     this.speed = 0;
     this.state = NPC_STATE.WALK;
     this.stateTime = 0;
@@ -183,7 +188,74 @@ export class NPC {
     return this.state === NPC_STATE.FIGHT || this.isDown || !!this.vehicle;
   }
 
+  // Скамейка: освободить место (встал, испугался, сбили, ушёл).
+  _releaseBench() {
+    const b = this.bench;
+    if (!b) return;
+    if (b.slots) b.slots[this.benchSlot] = null;
+    this.bench = null;
+  }
+
+  // Пойти посидеть на ближайшей свободной скамейке (до 16 м). true — пошёл.
+  _goSit() {
+    const bench = this.game.npcs.findBench(this.position.x, this.position.z, 16);
+    if (!bench) return false;
+    bench.slots ??= [null, null];
+    const slot = bench.slots[0] ? 1 : 0;
+    bench.slots[slot] = this;
+    this.bench = bench;
+    this.benchSlot = slot;
+    const side = slot === 0 ? -0.38 : 0.38, h = bench.heading;
+    this.benchSpot = {
+      x: bench.x + Math.cos(h) * side - Math.sin(h) * 0.04,
+      z: bench.z - Math.sin(h) * side - Math.cos(h) * 0.04,
+    };
+    this._enter(NPC_STATE.GOTO_BENCH);
+    return true;
+  }
+
+  _updateGotoBench(dt) {
+    const b = this.bench, g = this.benchSpot;
+    if (!b || b.dyn || b.alive === false || this.panic > 0 || this.stateTime > 25) {
+      this._enter(NPC_STATE.WALK);
+      return 0;
+    }
+    const dx = g.x - this.position.x, dz = g.z - this.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.3) {
+      this.position.x = g.x;
+      this.position.z = g.z;
+      this.heading = b.heading;
+      this.idleTime = this.rng.range(20, 60);
+      this.activity = null;
+      this.knock.set(0, 0, 0);
+      this._enter(NPC_STATE.SIT);
+      return 0;
+    }
+    this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 8, dt);
+    const step = Math.min(this.walkSpeed * dt, d);
+    this.position.x += Math.sin(this.heading) * step;
+    this.position.z += Math.cos(this.heading) * step;
+    return this.walkSpeed;
+  }
+
+  _updateSit(dt) {
+    const b = this.bench;
+    if (!b || b.dyn || b.alive === false || this.panic > 0 || this.stateTime > this.idleTime) {
+      // Встаёт и идёт дальше (шаг вперёд, чтобы не торчать из скамейки).
+      this.position.x += Math.sin(this.heading) * 0.6;
+      this.position.z += Math.cos(this.heading) * 0.6;
+      this._enter(NPC_STATE.WALK);
+      return 0;
+    }
+    this.position.x = this.benchSpot.x;
+    this.position.z = this.benchSpot.z;
+    this.heading = dampAngle(this.heading, b.heading, 6, dt);
+    return 0;
+  }
+
   _enter(state) {
+    if (this.bench && state !== NPC_STATE.SIT && state !== NPC_STATE.GOTO_BENCH) this._releaseBench();
     // Не дошёл до машины (испугался, ввязался в драку) — её может взять другой.
     if (this.carTarget && state !== NPC_STATE.GOTO_CAR) {
       this.carTarget._claimed = false;
@@ -262,6 +334,7 @@ export class NPC {
     if (this.role !== 'civilian' && this.node === this.dest) this.dest = null;
     if (this.role === 'civilian') {
       if (!this.dest || this.node === this.dest || this.rng.chance(0.02)) this._pickDestination();
+      if (!this.jogger && !this.fighter && !(this.phoneWalk > 0) && this.rng.chance(0.05) && this._goSit()) return true;
       if (this.jogger || !this.rng.chance(this.node?.mid ? 0.1 : this.idleChance)) {
         if (!this.jogger && !this.fighter && !(this.phoneWalk > 0) && this.rng.chance(0.07)) {
           this.phoneWalk = this.rng.range(8, 20); // идёт и говорит по телефону
@@ -450,6 +523,12 @@ export class NPC {
       case NPC_STATE.GOTO:
         speed = this._updateGoto(dt);
         break;
+      case NPC_STATE.GOTO_BENCH:
+        speed = this._updateGotoBench(dt);
+        break;
+      case NPC_STATE.SIT:
+        speed = this._updateSit(dt);
+        break;
       case NPC_STATE.FIGHT:
         speed = this._updateFight(dt);
         break;
@@ -501,11 +580,11 @@ export class NPC {
     this.model.root.position.set(this.position.x, this.visualY, this.position.z);
     this.model.root.rotation.y = this.heading;
     if (this.lod) return; // вдали — упрощённая фигура без анимации (crowd.js)
-    const pose = this.isDown ? 'down' : this.state === NPC_STATE.STUMBLE ? 'stumble' : 'normal';
+    const pose = this.isDown ? 'down' : this.state === NPC_STATE.STUMBLE ? 'stumble' : this.state === NPC_STATE.SIT ? 'sit' : 'normal';
     // Оружие видно только в драке (в остальное время "в кармане"); грабитель им угрожает.
     this.model.setWeapon(this.menace ?? (this.gun && this.state === NPC_STATE.FIGHT ? this.gun.type : null));
     this.model.animate(dt, {
-      speed, pose, fall: this.fall,
+      speed, pose, fall: this.fall, sitHeight: 0.52,
       guard: !this.gun && this.state === NPC_STATE.FIGHT && speed < 1,
       attack: this.melee.t, attackSide: this.melee.side,
       aim: this.shooting ? this.aimPitch : this.menace && this.state === NPC_STATE.IDLE ? 0.08 : null,
@@ -962,9 +1041,23 @@ export class NPCManager {
       npc.vehicle = null;
     }
     if (npc.fighter) this.fighters.release(npc.fighter);
+    npc._releaseBench();
     npc.model.dispose();
     const i = this.list.indexOf(npc);
     if (i >= 0) this.list.splice(i, 1);
+  }
+
+  // Ближайшая свободная скамейка в радиусе r: из площади (world.benchSpots) и уличных (chaos.js, пока целые).
+  findBench(x, z, r) {
+    let best = null, bestD = r * r;
+    const consider = (b) => {
+      if (b.slots && b.slots[0] && b.slots[1]) return;
+      const d = (b.x - x) ** 2 + (b.z - z) ** 2;
+      if (d < bestD) { bestD = d; best = b; }
+    };
+    for (const b of this.game.world.benchSpots ?? []) consider(b);
+    for (const p of this.game.chaos?._near(x, z, r) ?? []) if (p.type === 'bench' && p.alive && !p.dyn) consider(p);
+    return best;
   }
 
   // Кто появится на этом месте: боец из ростера (пока их меньше CONFIG.npc.fighters) или обычный житель района.

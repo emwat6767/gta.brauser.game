@@ -370,6 +370,19 @@ body.touch #touch {
   border-color: rgba(210, 180, 255, 0.75);
 }
 
+#touch .tbtn-time,
+#touch .tbtn-outfit {
+  right: calc(66px + env(safe-area-inset-right, 0px));
+  width: 46px;
+  height: 46px;
+  font-size: 8px;
+  background: rgba(30, 110, 170, 0.55);
+  border-color: rgba(150, 215, 255, 0.75);
+}
+
+#touch .tbtn-time { top: calc(60px + env(safe-area-inset-top, 0px)); }
+#touch .tbtn-outfit { top: calc(112px + env(safe-area-inset-top, 0px)); }
+
 #touch .tbtn-descend {
   right: calc(116px + env(safe-area-inset-right, 0px));
   bottom: calc(100px + env(safe-area-inset-bottom, 0px));

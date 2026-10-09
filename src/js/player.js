@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { Humanoid } from './humanoid.js';
+import { Humanoid, DEFAULT_LOOK } from './humanoid.js';
+import { outfitByArchetype, ARCHETYPES, ARCHETYPE_NAMES } from './outfits.js';
 import { Melee, findTargetInFront } from './combat.js';
 import { Arsenal } from './weapons.js';
 import { fireShot, aimPoint, lineOfSight } from './ballistics.js';
@@ -73,6 +74,24 @@ export class Player {
 
   get gun() {
     return this.arsenal.gun;
+  }
+
+  // Переодеться (клавиша O): по кругу — обычная одежда и образы горожан (деловой, байкер, спорт...).
+  // Каждый раз вещи немного другие; кожа и волосы остаются своими.
+  changeOutfit() {
+    const list = ['default', ...ARCHETYPES];
+    this.outfitIndex = ((this.outfitIndex ?? 0) + 1) % list.length;
+    const arch = list[this.outfitIndex];
+    let look = {}, name = 'Обычная одежда';
+    if (arch !== 'default') {
+      look = {
+        ...outfitByArchetype(this.game.rng, arch),
+        skin: DEFAULT_LOOK.skin, hair: DEFAULT_LOOK.hair, hairStyle: 'default', beard: 'none', scale: 1, bulk: 1, tattoo: 0,
+      };
+      name = ARCHETYPE_NAMES[arch];
+    }
+    this.model.setLook(look);
+    this.game.hud?.toast(`Образ: ${name}`, 1.6);
   }
 
   update(dt) {

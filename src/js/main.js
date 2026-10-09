@@ -32,6 +32,7 @@ import { IncidentDirector } from './incidents.js';
 import { PowerSystem } from './powers.js';
 import { ChaosSystem } from './chaos.js';
 import { DayNight, createSky } from './daynight.js';
+import { Places } from './places.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
@@ -100,6 +101,7 @@ class Game {
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
     this.nameplates = new Nameplates(this);
+    this.places = new Places(this);
     this.touch = new TouchControls(this);
     this.gangMenu = new GangMenu(this);
     this.menuOpen = false; // меню банды открыто — симуляция стоит
@@ -261,6 +263,7 @@ class Game {
       if (input.wasPressed('squad')) this.squad.toggle();
       if (input.wasPressed('power')) this.powers.cycle();
       if (input.wasPressed('timeOfDay')) this.daynight.nextPhase();
+      if (input.wasPressed('outfit') && !this.player.isDead && !this.downState) this.player.changeOutfit();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
@@ -270,6 +273,7 @@ class Game {
       this.turf.update(frameTime);
       this.incidents.update(frameTime);
       this.daynight.update(frameTime);
+      this.places.update(frameTime);
       this.missions.update(frameTime);
       this.effects.update(frameTime);
       this.save.update(frameTime);

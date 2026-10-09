@@ -103,30 +103,31 @@ export class Humanoid {
     this.root = new THREE.Group();
     this.root.scale.setScalar(L.scale);
     this.body = group(this.root);
-    mesh(G.pelvis, this.body);
+    this._m = {};   // меши по частям — чтобы сменить одежду (setLook) без пересборки иерархии
+    this._m.pelvis = mesh(G.pelvis, this.body);
 
     // Ноги
     this.hipL = group(this.body, D.hipX, HIP_Y, 0);
     this.hipR = group(this.body, -D.hipX, HIP_Y, 0);
     for (const [hip, side] of [[this.hipL, 'L'], [this.hipR, 'R']]) {
-      mesh(G.thigh, hip);
+      this._m['thigh' + side] = mesh(G.thigh, hip);
       const knee = group(hip, 0, -0.44, 0);
-      mesh(G.shin, knee);
+      this._m['shin' + side] = mesh(G.shin, knee);
       const ankle = group(knee, 0, -0.42, 0);
-      mesh(G.foot, ankle);
+      this._m['foot' + side] = mesh(G.foot, ankle);
       this['knee' + side] = knee;
       this['ankle' + side] = ankle;
     }
 
     // Корпус и руки
     this.spine = group(this.body, 0, SPINE_Y, 0);
-    mesh(G.spine, this.spine);
+    this._m.spine = mesh(G.spine, this.spine);
     this.shoulderL = group(this.spine, D.shoulderX, SHOULDER_Y, 0);
     this.shoulderR = group(this.spine, -D.shoulderX, SHOULDER_Y, 0);
     for (const [shoulder, side] of [[this.shoulderL, 'L'], [this.shoulderR, 'R']]) {
-      mesh(G['upperArm' + side], shoulder);
+      this._m['upperArm' + side] = mesh(G['upperArm' + side], shoulder);
       const elbow = group(shoulder, 0, -0.3, 0);
-      mesh(G['foreArm' + side], elbow);
+      this._m['foreArm' + side] = mesh(G['foreArm' + side], elbow);
       this['elbow' + side] = elbow;
     }
 
@@ -139,6 +140,31 @@ export class Humanoid {
     this.weaponMesh = null;
     this.ragdoll = null;
     this._joints = Object.fromEntries(JOINT_NAMES.map((n) => [n, new THREE.Vector3()]));
+  }
+
+  // Сменить одежду и внешность "на лету" (игрок переодевается): геометрия берётся из того же кэша.
+  setLook(look) {
+    if (!this._geo || this.ragdoll) return;
+    const L = { ...DEFAULT_LOOK, ...look };
+    const old = this._geo;
+    this._geo = acquireGeometries(L);
+    const G = this._geo.set, M = this._m, D = bodyDims(L);
+    M.pelvis.geometry = G.pelvis;
+    M.spine.geometry = G.spine;
+    for (const side of ['L', 'R']) {
+      M['thigh' + side].geometry = G.thigh;
+      M['shin' + side].geometry = G.shin;
+      M['foot' + side].geometry = G.foot;
+      M['upperArm' + side].geometry = G['upperArm' + side];
+      M['foreArm' + side].geometry = G['foreArm' + side];
+    }
+    this.hipL.position.x = D.hipX;
+    this.hipR.position.x = -D.hipX;
+    this.shoulderL.position.x = D.shoulderX;
+    this.shoulderR.position.x = -D.shoulderX;
+    this.root.scale.setScalar(L.scale);
+    this.look = L;
+    releaseGeometries(old);
   }
 
   // Освободить геометрию (NPC убран из мира). Модель после этого использовать нельзя.

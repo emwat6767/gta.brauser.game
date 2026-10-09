@@ -143,7 +143,6 @@ function buildPlaza(world, { plain, metal, addMesh, glowMat, collide, group }) {
     ].map((geometry, i) => ({ geometry: geometry.rotateY(a + Math.PI).translate(bx, H, bz), color: col(i < 2 ? '#8a5a33' : '#2b2b2b') }));
     parts.push(...benchParts);
     world.benchSpots.push({ x: bx, z: bz, heading: a + Math.PI, y: H });
-    collide(bx - 0.5, bx + 0.5, bz - 0.5, bz + 0.5, H + 0.9, false);
   }
   addMesh(mergeColored(parts), plain, { name: 'plaza' });
   // Вода.
@@ -160,6 +159,7 @@ function buildPlaza(world, { plain, metal, addMesh, glowMat, collide, group }) {
   }
   jets.push({ geometry: new THREE.ConeGeometry(0.16, 2.6, 8).translate(cx, H + 3.4, cz), color: col('#d6f1ff') });
   addMesh(mergeColored(jets), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }), { cast: false, name: 'fountain-jets' });
+  world.landmarks.plaza = { x: cx, z: cz, name: 'Площадь Чемпионов' };
   collide(cx - 4.6, cx + 4.6, cz - 4.6, cz + 4.6, H + 1.0);
   collide(cx - 1.5, cx + 1.5, cz - 1.5, cz + 1.5, H + 6, false);
 
