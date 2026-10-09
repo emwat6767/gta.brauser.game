@@ -122,5 +122,24 @@ export function createTextures(renderer) {
   }
   const windows = finish(wc);
 
-  return { asphalt, road, sidewalk, grass, windows };
+  // --- Светящиеся окна для ночи (та же сетка, что у фасада) -----------------
+  const lr = createRng(2024);
+  const [lc, lctx] = canvas(512, 512);
+  lctx.fillStyle = '#000';
+  lctx.fillRect(0, 0, 512, 512);
+  const warm = ['#ffe3a1', '#ffd27a', '#fff0c8', '#ffc66b', '#cfe6ff', '#ffd9f0'];
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      if (!lr.chance(0.42)) continue;
+      lctx.fillStyle = lr.pick(warm);
+      lctx.globalAlpha = lr.range(0.65, 1);
+      lctx.fillRect(col * 64 + 13, row * 64 + 14, 38, 34);
+      lctx.globalAlpha = 1;
+      lctx.fillStyle = '#000';                      // импост
+      lctx.fillRect(col * 64 + 31, row * 64 + 14, 2, 34);
+    }
+  }
+  const windowsLit = finish(lc);
+
+  return { asphalt, road, sidewalk, grass, windows, windowsLit };
 }

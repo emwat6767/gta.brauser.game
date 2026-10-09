@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { NPC, NPC_STATE, LINES, randomCivilianLook, policeLook } from './npc.js';
-import { randomCarType } from './traffic.js';
+import { randomCar } from './traffic.js';
 import { Vehicle } from './vehicle.js';
 
 // Случайные происшествия в городе — происходят сами, без участия игрока (он может вмешаться):
@@ -231,10 +231,11 @@ export class IncidentDirector {
     if (!spot) return null;
     const fx = Math.sin(spot.heading), fz = Math.cos(spot.heading);
     // Вторая машина въехала сзади под углом.
-    const a = game.addVehicle(new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading + 0.25, color: game.rng.pick(CONFIG.traffic.colors), type: randomCarType(game.rng) }));
+    const crashTypes = ['sedan', 'taxi', 'suv', 'muscle', 'pickup', 'sports', 'retro', 'lowrider', 'convertible', 'sedan'];
+    const a = game.addVehicle(new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading + 0.25, ...randomCar(game.rng, game.rng.pick(crashTypes)) }));
     const b = game.addVehicle(new Vehicle(game, {
       x: spot.x - fx * 4.4 + fz * 0.8, z: spot.z - fz * 4.4 - fx * 0.8, heading: spot.heading - 0.35,
-      color: game.rng.pick(CONFIG.traffic.colors), type: randomCarType(game.rng),
+      ...randomCar(game.rng, game.rng.pick(crashTypes)),
     }));
     for (const v of [a, b]) { v.parked = true; v.crashed = true; }
     const pos = new THREE.Vector3(spot.x - fx * 2.2, 0.8, spot.z - fz * 2.2);
@@ -282,7 +283,7 @@ export class IncidentDirector {
 
   _startChase() {
     const { game } = this;
-    const thief = game.traffic.createAICar({ mode: 'flee', minR: 70, maxR: 150, type: game.rng.pick(['sports', 'sedan', 'pickup']) });
+    const thief = game.traffic.createAICar({ mode: 'flee', minR: 70, maxR: 150, type: game.rng.pick(['sports', 'sedan', 'pickup', 'muscle', 'hyper', 'convertible', 'cyber']) });
     if (!thief) return null;
     thief.driver.incident = true;
     const units = [];

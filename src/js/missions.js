@@ -16,8 +16,8 @@ const _col = new THREE.Color();
 // Место у бордюра (парковка по ходу движения) в кольце minR..maxR от точки from.
 const parkingSpot = (game, from, minR, maxR) => game.traffic.curbSpot(from, minR, maxR, false);
 
-function spawnCar(game, spot, color) {
-  const car = new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading, color });
+function spawnCar(game, spot, color, type = 'sedan') {
+  const car = new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading, color, type });
   car.persistent = true;
   return game.addVehicle(car);
 }
@@ -49,7 +49,7 @@ class StealCar {
   start() {
     const spot = parkingSpot(this.game, this.game.player.position, 140, 300);
     if (!spot) return false;
-    this.car = spawnCar(this.game, spot, CONFIG.missions.steal.color);
+    this.car = spawnCar(this.game, spot, CONFIG.missions.steal.color, this.game.rng.pick(['hyper', 'muscle', 'limo', 'cyber', 'sports', 'convertible', 'lowrider']));
     return true;
   }
 
@@ -206,7 +206,7 @@ class Delivery {
     if (!spot) return false;
     const drop = parkingSpot(game, spot, D.minDist, D.maxDist);
     if (!drop) return false;
-    this.van = spawnCar(game, spot, D.color);
+    this.van = spawnCar(game, spot, D.color, 'van');
     this.drop = drop;
     this.time = D.time;
     return true;

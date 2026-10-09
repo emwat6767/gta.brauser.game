@@ -28,6 +28,8 @@ export const BINDINGS = {
   power: ['KeyX'],                    // суперсила: обычный → Халк → Железный человек
   descend: ['KeyZ'],                  // Железный человек: вниз
   mute: ['KeyM'],
+  timeOfDay: ['KeyN'],                // перевести время суток к следующей фазе
+  outfit: ['KeyO'],                   // сменить одежду игрока
   toggleHelp: ['KeyH'],
 };
 

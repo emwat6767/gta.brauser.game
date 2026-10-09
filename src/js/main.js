@@ -31,6 +31,7 @@ import { GangMenu } from './ui/gang-menu.js';
 import { IncidentDirector } from './incidents.js';
 import { PowerSystem } from './powers.js';
 import { ChaosSystem } from './chaos.js';
+import { DayNight, createSky } from './daynight.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
@@ -68,8 +69,10 @@ class Game {
     this.effects.camera = this.camera;
     this.audio = new SoundSystem(this);
     this.world = new World(this);
+    this.daynight = new DayNight(this);
     this.player = new Player(this);
-    this.vehicles = CONFIG.vehicle.spawns.map((spawn) => {
+    // Стартовые машины + выставка автосалона (все новые модели; бери любую).
+    this.vehicles = [...CONFIG.vehicle.spawns, ...(this.world.showroomSpawns ?? [])].map((spawn) => {
       const v = new Vehicle(this, spawn);
       v.persistent = true; // стартовые машины не убираются трафиком
       return v;
@@ -125,41 +128,8 @@ class Game {
     this.scene.fog = new THREE.Fog(SKY.horizon, G.fogNear, G.fogFar);
     this.camera = new THREE.PerspectiveCamera(C.fov, window.innerWidth / window.innerHeight, C.near, C.far);
 
-    // Небо: сфера с градиентом и солнцем, всегда вокруг камеры.
-    this.sky = new THREE.Mesh(
-      new THREE.SphereGeometry(900, 32, 16),
-      new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        depthWrite: false,
-        fog: false,
-        uniforms: {
-          top: { value: new THREE.Color(SKY.top) },
-          horizon: { value: new THREE.Color(SKY.horizon) },
-          bottom: { value: new THREE.Color(SKY.bottom) },
-          sunDir: { value: SUN_DIR },
-        },
-        vertexShader: /* glsl */ `
-          varying vec3 vDir;
-          void main() {
-            vDir = normalize(position);
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }`,
-        fragmentShader: /* glsl */ `
-          uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; uniform vec3 sunDir;
-          varying vec3 vDir;
-          void main() {
-            vec3 d = normalize(vDir);
-            float h = d.y;
-            vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.55)) : mix(horizon, bottom, pow(-h, 0.4));
-            float s = max(dot(d, sunDir), 0.0);
-            c += vec3(1.0, 0.9, 0.7) * (pow(s, 900.0) * 6.0 + pow(s, 12.0) * 0.25);
-            gl_FragColor = vec4(c, 1.0);
-            #include <tonemapping_fragment>
-            #include <colorspace_fragment>
-          }`,
-      }),
-    );
-    this.sky.renderOrder = -1;
+    // Небо: сфера с градиентом, облаками, солнцем, луной и звёздами (daynight.js), всегда вокруг камеры.
+    this.sky = createSky();
     this.scene.add(this.sky);
 
     // Отражения для краски и стёкол машин — из того же неба.
@@ -169,7 +139,8 @@ class Game {
     this.envMap = pmrem.fromScene(envScene, 0, 0.1, 2000).texture;
     pmrem.dispose();
 
-    this.scene.add(new THREE.HemisphereLight(0xd4e6ff, 0x5d5446, 1.15));
+    this.hemi = new THREE.HemisphereLight(0xd4e6ff, 0x5d5446, 1.15);
+    this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(G.shadowMapSize, G.shadowMapSize);
@@ -187,8 +158,9 @@ class Game {
     const texel = (CONFIG.graphics.shadowRange * 2) / CONFIG.graphics.shadowMapSize;
     const x = Math.round(p.x / texel) * texel;
     const z = Math.round(p.z / texel) * texel;
+    const dir = this.daynight?.lightDir ?? SUN_DIR;
     this.sun.target.position.set(x, 0, z);
-    this.sun.position.set(x + SUN_DIR.x * 220, SUN_DIR.y * 220, z + SUN_DIR.z * 220);
+    this.sun.position.set(x + dir.x * 220, dir.y * 220, z + dir.z * 220);
   }
 
   _onResize() {
@@ -288,6 +260,7 @@ class Game {
       if (input.wasPressed('interact')) this._toggleVehicle();
       if (input.wasPressed('squad')) this.squad.toggle();
       if (input.wasPressed('power')) this.powers.cycle();
+      if (input.wasPressed('timeOfDay')) this.daynight.nextPhase();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);
@@ -296,6 +269,7 @@ class Game {
       this.heists.update(frameTime);
       this.turf.update(frameTime);
       this.incidents.update(frameTime);
+      this.daynight.update(frameTime);
       this.missions.update(frameTime);
       this.effects.update(frameTime);
       this.save.update(frameTime);
@@ -306,6 +280,7 @@ class Game {
     this.camera.updateMatrixWorld();
     _frustum.setFromProjectionMatrix(_pv.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     this.npcs.renderCrowd(frameTime);
+    this.daynight.frame(frameTime);
     this._updateSun();
     this.sky.position.copy(this.camera.position);
     this.renderer.render(this.scene, this.camera);

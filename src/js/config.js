@@ -15,6 +15,9 @@ export const CONFIG = {
     curbHeight: 0.15,       // высота бордюра/тротуара
     // Кварталы-парки (индексы [i, j] квартала по X и Z) — в них нет зданий.
     parks: [[4, 4], [1, 6], [6, 1], [7, 7], [2, 2]],
+    // Достопримечательности: кварталы под арену, автосалон и небоскрёб-символ (см. landmarks.js).
+    landmarkBlocks: { arena: [3, 3], showroom: [3, 4], tower: [5, 3] },
+    cranes: [[-400, -400], [-300, -300]],   // портовые краны (в блоках порта)
     outskirtsTrees: 170,    // деревья на окраине за внешними улицами
     lampSpacing: 26,        // шаг фонарей вдоль тротуара
     collisionCell: 20,      // размер ячейки сетки коллизий
@@ -66,12 +69,14 @@ export const CONFIG = {
     impactSpin: 0.08,
     // Машины, стоящие в городе при старте. Все — одна модель, разные цвета.
     spawns: [
-      { x: 3, z: 45.3, heading: Math.PI / 2, color: 0xc0392b },
+      { x: 3, z: 45.3, heading: Math.PI / 2, color: 0xc0392b, type: 'muscle', livery: { stripe: 0xf2f2f2 } },
       { x: -16, z: 45.3, heading: Math.PI / 2, color: 0x2e86de },
-      { x: 45.3, z: -12, heading: 0, color: 0xf1c40f },
-      { x: -145.3, z: 110, heading: Math.PI, color: 0x222831 },
-      { x: 230, z: 154.7, heading: -Math.PI / 2, color: 0xecf0f1 },
-      { x: -60, z: -254.7, heading: Math.PI / 2, color: 0x27ae60 },
+      { x: 45.3, z: -12, heading: 0, color: 0xf1c40f, type: 'convertible' },
+      { x: -145.3, z: 110, heading: Math.PI, color: 0x222831, type: 'lowrider' },
+      { x: 230, z: 154.7, heading: -Math.PI / 2, color: 0xecf0f1, type: 'suv' },
+      { x: -60, z: -254.7, heading: Math.PI / 2, color: 0x27ae60, type: 'retro' },
+      { x: 20, z: 54.7, heading: -Math.PI / 2, color: 0xff7a00, type: 'hyper' },
+      { x: -30, z: 54.7, heading: -Math.PI / 2, color: 0xb9bfc7, type: 'cyber' },
     ],
   },
 
@@ -304,6 +309,13 @@ export const CONFIG = {
     spawnMax: 170,
     despawnDistance: 260,
     colors: [0xb03a2e, 0x1f618d, 0xd4ac0d, 0x5d6d7e, 0xecf0f1, 0x1e8449, 0x7d3c98, 0x17202a, 0xca6f1e, 0x85929e],
+  },
+
+  // Смена дня и ночи (daynight.js). start — час старта, dayLength — секунд реального времени на сутки.
+  daynight: {
+    enabled: true,
+    start: 16,
+    dayLength: 1440,
   },
 
   camera: {

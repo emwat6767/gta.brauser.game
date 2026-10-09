@@ -51,14 +51,15 @@ export function raycastVehicles(game, o, d, maxT, ignore) {
     if (v === ignore) continue;
     const rx = o.x - v.position.x, rz = o.z - v.position.z;
     // быстрый отсев: машина далеко от луча
+    const reach = v.reach + 0.6;
     const s = rx * -d.x + rz * -d.z;
-    if (s < -3 || s > maxT + 3) continue;
+    if (s < -reach || s > maxT + reach) continue;
     const cx = rx + d.x * s, cz = rz + d.z * s;
-    if (cx * cx + cz * cz > 9 + 1e-3 && rx * rx + rz * rz > 9) continue;
+    if (cx * cx + cz * cz > reach * reach + 1e-3 && rx * rx + rz * rz > reach * reach) continue;
     const cos = Math.cos(v.heading), sin = Math.sin(v.heading);
     const lox = rx * cos - rz * sin, loz = rx * sin + rz * cos;
     const ldx = d.x * cos - d.z * sin, ldz = d.x * sin + d.z * cos;
-    const r = rayBox(lox, o.y - v.position.y, loz, ldx, d.y, ldz, -0.95, 0.2, -2.3, 0.95, v.hitHeight ?? 1.45, 2.3, best ? best.t : maxT);
+    const r = rayBox(lox, o.y - v.position.y, loz, ldx, d.y, ldz, v.box.x0, 0.2, v.box.z0, v.box.x1, v.hitHeight ?? 1.45, v.box.z1, best ? best.t : maxT);
     if (r) {
       const n = new THREE.Vector3(r.nx * cos + r.nz * sin, r.ny, -r.nx * sin + r.nz * cos);
       best = { t: r.t, normal: n, vehicle: v };

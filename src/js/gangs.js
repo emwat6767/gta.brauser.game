@@ -319,7 +319,7 @@ export class GangSystem {
       // Приезжают на машине.
       const car = game.traffic.createAICar({
         near: c, minR: 80, maxR: 170, mode: 'pursuit', color: new THREE.Color(attacker.color).getHex(),
-        type: game.rng.pick(['van', 'pickup', 'sedan']),
+        type: game.rng.pick(['van', 'pickup', 'sedan', 'suv', 'lowrider']),
         driver: { role: 'gang', gang: attacker.id, look: gangLook(game.rng, attacker.color), weapon: 'pistol' },
       });
       if (car) {
@@ -437,7 +437,7 @@ export class GangSystem {
     if (!gangs.length) return;
     const gang = game.rng.pick(gangs);
     const car = game.traffic.createAICar({
-      minR: 80, maxR: 170, color: new THREE.Color(gang.color).getHex(), type: game.rng.pick(['sedan', 'pickup', 'sports', 'van']),
+      minR: 80, maxR: 170, color: new THREE.Color(gang.color).getHex(), type: game.rng.pick(['sedan', 'pickup', 'sports', 'van', 'suv', 'lowrider', 'muscle']),
       driver: { role: 'gang', gang: gang.id, look: gangLook(game.rng, gang.color), weapon: 'pistol' },
     });
     if (!car) return;

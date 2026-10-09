@@ -46,7 +46,7 @@ export function resolveInteractions(game) {
 
 function vehicleVsVehicle(a, b) {
   const V = CONFIG.vehicle;
-  const reach = 2 * (Math.abs(V.circleOffsets[0]) + V.collisionRadius);
+  const reach = a.reach + b.reach;
   if (a.position.distanceToSquared(b.position) > reach * reach) return;
   for (const ca of a.circles) {
     for (const cb of b.circles) {

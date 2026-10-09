@@ -1,5 +1,6 @@
 import { CONFIG } from './config.js';
 import { Vehicle } from './vehicle.js';
+import { TYPE_WEIGHTS, randomLivery, bodyColor } from './vehicle-models.js';
 import { NPC, NPC_STATE, policeLook } from './npc.js';
 import { clamp, wrapAngle } from './utils.js';
 
@@ -337,12 +338,16 @@ export class AIDriver {
   }
 }
 
-// Случайный тип машины для потока (такси и седаны чаще).
-const TYPE_WEIGHTS = [['sedan', 0.34], ['taxi', 0.14], ['sports', 0.12], ['van', 0.18], ['pickup', 0.22]];
+// Случайный тип машины для потока (седаны и такси чаще, редкие — лимузин, монстр-трак, гиперкар).
 export function randomCarType(rng) {
   let r = rng.next();
   for (const [t, w] of TYPE_WEIGHTS) if ((r -= w) < 0) return t;
   return 'sedan';
+}
+
+// Машина целиком: тип, цвет (у некоторых типов своя палитра) и раскраска.
+export function randomCar(rng, type = randomCarType(rng)) {
+  return { type, color: bodyColor(rng, type, rng.pick(CONFIG.traffic.colors)), livery: randomLivery(rng, type) };
 }
 
 export class TrafficManager {
@@ -416,9 +421,8 @@ export class TrafficManager {
       if (pd < 170 && game.inView(x, 1, z, 3)) continue;
       if (game.vehicles.some((o) => o.position.distanceToSquared({ x, y: 0, z }) < 100)) continue;
 
-      const vehicle = new Vehicle(game, {
-        x, z, color: color ?? rng.pick(CONFIG.traffic.colors), police, type: police ? 'sedan' : type ?? randomCarType(rng),
-      });
+      const car = police ? { type: 'sedan', color: 0xf4f4f2, livery: null } : randomCar(rng, type);
+      const vehicle = new Vehicle(game, { x, z, police, type: car.type, color: color ?? car.color, livery: color != null ? null : car.livery });
       const ai = new AIDriver(game, vehicle, mode);
       ai.placeOnSegment(a, b, t, mode === 'pursuit' ? 10 : 6);
       const driver = new NPC(game, rng, {
@@ -439,7 +443,7 @@ export class TrafficManager {
     const { game } = this;
     const spot = this.curbSpot(game.player.position, 30, 150);
     if (!spot) return null;
-    const v = new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading, color: game.rng.pick(CONFIG.traffic.colors), type: randomCarType(game.rng) });
+    const v = new Vehicle(game, { x: spot.x, z: spot.z, heading: spot.heading, ...randomCar(game.rng) });
     v.parked = true;
     game.addVehicle(v);
     this.parked.push(v);

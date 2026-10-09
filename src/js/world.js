@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { GeometryBuilder, mergeColored } from './geometry.js';
 import { CollisionGrid, pushCircleOutOfBox, circleOverlapsBox } from './collision.js';
-import { clamp } from './utils.js';
+import { clamp, createRng } from './utils.js';
+import { createSignAtlas, Dressing } from './signs.js';
+import { buildHouse, buildWarehouse, towerTop, cylTower } from './buildings.js';
+import { buildLandmarks } from './landmarks.js';
 
 // Открытый мир: земля, сетка улиц, кварталы с тротуарами, здания, парки,
 // фонари, деревья, граница карты. Плюс данные для других систем:
@@ -96,6 +99,8 @@ export class World {
     this.lamps = [];
     this.waypoints = [];
     this._pendingTrees = []; // пустыри, найденные при генерации зданий
+    this.beacons = [];       // красные огни на шпилях и антеннах (мигают, см. landmarks.js)
+    this.landmarks = {};     // достопримечательности: арена, автосалон, площадь... (см. landmarks.js)
 
     this.group = new THREE.Group();
     this.group.name = 'world';
@@ -111,6 +116,8 @@ export class World {
     this._buildBanks();
     this._buildStores();
     this._buildLamps();
+    buildLandmarks(this);
+    this._finishDressing();
     this._buildTrees();
     this._buildBoundary();
     this._buildWaypoints();
@@ -189,6 +196,11 @@ export class World {
     return this.blocks[j * this.blocksPerAxis + i];
   }
 
+  // Район в точке: 'downtown' | 'park' | 'port' | 'suburb' | 'city' (на проезжей части и за городом — null).
+  districtAt(x, z) {
+    return this.blockAt(x, z)?.district ?? null;
+  }
+
   nearestWaypoint(x, z) {
     let best = null, bestD = Infinity;
     for (const n of this.waypoints) {
@@ -207,7 +219,12 @@ export class World {
 
   _materials() {
     const t = this.textures;
+    this.signAtlas = createSignAtlas(createRng(4242));
+    this.dressing = new Dressing(this, this.signAtlas, createRng(CONFIG.seed + 7));
     this.mats = {
+      // Вывески и щиты — без освещения (днём daynight.js их приглушает, ночью они горят), витрины — тёплый свет внутри.
+      sign: new THREE.MeshBasicMaterial({ map: this.signAtlas.texture, color: 0xc8c8c8 }),
+      shop: new THREE.MeshBasicMaterial({ map: this.signAtlas.texture, color: 0x6a6a6a }),
       ground: new THREE.MeshStandardMaterial({ map: t.grass, roughness: 1 }),
       road: new THREE.MeshStandardMaterial({
         map: t.road, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
@@ -218,7 +235,7 @@ export class World {
       }),
       sidewalk: new THREE.MeshStandardMaterial({ map: t.sidewalk, vertexColors: true, roughness: 0.9 }),
       grass: new THREE.MeshStandardMaterial({ map: t.grass, vertexColors: true, roughness: 1 }),
-      facade: new THREE.MeshStandardMaterial({ map: t.windows, vertexColors: true, roughness: 0.8 }),
+      facade: new THREE.MeshStandardMaterial({ map: t.windows, vertexColors: true, roughness: 0.8, emissive: 0xffffff, emissiveMap: t.windowsLit, emissiveIntensity: 0 }),
       plain: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
       stripes: new THREE.MeshStandardMaterial({
         color: 0xe8e8e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
@@ -239,6 +256,7 @@ export class World {
 
   _layoutBlocks() {
     const parks = new Set(CONFIG.world.parks.map(([i, j]) => `${i},${j}`));
+    const special = new Map(Object.entries(CONFIG.world.landmarkBlocks).map(([name, [i, j]]) => [`${i},${j}`, name]));
     const rh = this.roadHalf, sw = this.sidewalk;
     for (let j = 0; j < this.blocksPerAxis; j++) {
       for (let i = 0; i < this.blocksPerAxis; i++) {
@@ -248,8 +266,13 @@ export class World {
           i, j, x0, x1, z0, z1,
           cx: (x0 + x1) / 2, cz: (z0 + z1) / 2,
           minX: x0 + rh, maxX: x1 - rh, minZ: z0 + rh, maxZ: z1 - rh,   // бордюр
-          type: parks.has(`${i},${j}`) ? 'park' : 'buildings',
+          type: parks.has(`${i},${j}`) ? 'park' : special.has(`${i},${j}`) ? special.get(`${i},${j}`) : 'buildings',
         };
+        // Район: порт на юго-западе, окраины-пригород по краю, даунтаун в центре.
+        const port = (i <= 1 && j <= 1) || (i === 2 && j <= 1);
+        block.district = block.type === 'park' ? 'park' : port ? 'port'
+          : i === 0 || j === 0 || i === this.blocksPerAxis - 1 || j === this.blocksPerAxis - 1 ? 'suburb'
+            : Math.hypot((x0 + x1) / 2, (z0 + z1) / 2) < 260 ? 'downtown' : 'city';
         block.lot = { minX: block.minX + sw, maxX: block.maxX - sw, minZ: block.minZ + sw, maxZ: block.maxZ - sw };
         this.blocks.push(block);
       }
@@ -372,6 +395,8 @@ export class World {
         side.flat(l.minX, cz - p, l.maxX, cz + p, h, walk, 4);
         side.flat(cx - p, l.minZ, cx + p, cz - p, h, walk, 4);
         side.flat(cx - p, cz + p, cx + p, l.maxZ, h, walk, 4);
+      } else if (b.district === 'suburb') {
+        grass.flat(l.minX, l.minZ, l.maxX, l.maxZ, h, green, 8);   // дворы пригорода — газон
       } else {
         asphalt.flat(l.minX, l.minZ, l.maxX, l.maxZ, h, lotColor, 8);
       }
@@ -407,6 +432,7 @@ export class World {
   _buildBuildings() {
     const rng = this.rng;
     const base = this.curbHeight;
+    const dressing = this.dressing;
     const chunks = new Map(); // кварталы группируются по 3x3 в один меш
     const chunkOf = (b) => {
       const key = `${Math.floor(b.i / 3)},${Math.floor(b.j / 3)}`;
@@ -415,21 +441,37 @@ export class World {
     };
     const snap = (h) => Math.max(FLOOR, Math.round(h / FLOOR) * FLOOR);
     const color = new THREE.Color();
+    const ctx = { world: this, rng, base, FLOOR };
+    const industrial = [];       // контейнеры и цистерны (одним мешем)
+    const add = (b) => { this.buildings.push(b); this.colliders.add(b); };
 
     for (const block of this.blocks) {
       if (block.type !== 'buildings') continue;
       const chunk = chunkOf(block);
       const parcels = [];
       this._subdivide(block.lot, parcels, 0);
+      const lot = block.lot;
+      const district = block.district;
 
       for (const p of parcels) {
         // Место под банк/магазин: там площадка перед входом и само здание (_buildBanks/_buildStores).
         if (block.reserved.some((r) => overlaps(p, r))) continue;
-        if (rng.chance(0.07)) {
+        if (rng.chance(district === 'suburb' ? 0.04 : 0.07)) {
           // Пустырь: вместо здания — дерево.
           this._pendingTrees.push({ x: (p.minX + p.maxX) / 2, z: (p.minZ + p.maxZ) / 2, y: base });
           continue;
         }
+        if (district === 'suburb') {
+          const house = buildHouse(ctx, p, chunk, dressing);
+          if (house) add({ ...house, type: 'building' });
+          continue;
+        }
+        if (district === 'port') {
+          const r = buildWarehouse(ctx, p, chunk, industrial, industrial.colliders ??= []);
+          if (r && !r.container) add({ ...r, type: 'building' });
+          continue;
+        }
+
         const m = rng.range(0.6, 2.2);
         const x0 = p.minX + m, x1 = p.maxX - m, z0 = p.minZ + m, z1 = p.maxZ - m;
         const w = x1 - x0, d = z1 - z0;
@@ -447,13 +489,29 @@ export class World {
         const roof = color.clone().multiplyScalar(0.55);
         const uOff = rng.int(0, 7) / 8;
 
+        // Круглая башня в даунтауне.
+        if (district === 'downtown' && h > 40 && w > 22 && d > 22 && Math.abs(w - d) < 12 && rng.chance(0.3)) {
+          const r = Math.min(w, d) / 2 - 1;
+          add({ ...cylTower(ctx, chunk, (x0 + x1) / 2, (z0 + z1) / 2, r, h, color), type: 'building' });
+          continue;
+        }
+
         chunk.facade.walls(x0, base, z0, x1, base + h, z1, color, FACADE_TILE_U, FACADE_TILE_V, uOff);
         chunk.plain.flat(x0, z0, x1, z1, base + h, roof);
         // Парапет по краю крыши.
         chunk.plain.walls(x0, base + h, z0, x1, base + h + 0.5, z1, roof);
         let total = h;
+        // Карниз и цоколь: здания перестают быть голыми коробками.
+        if (h >= 10) chunk.plain.box(x0 - 0.25, base + h - 0.6, z0 - 0.25, x1 + 0.25, base + h, z1 + 0.25, roof.clone().multiplyScalar(1.15));
+        if (district === 'downtown' && h > 24) {
+          const stone = new THREE.Color(rng.pick(['#b9ae98', '#a7a090', '#c4b9a3']));
+          chunk.facade.walls(x0 - 0.4, base, z0 - 0.4, x1 + 0.4, base + FLOOR * 2, z1 + 0.4, stone, FACADE_TILE_U, FACADE_TILE_V, uOff);
+          chunk.plain.flat(x0 - 0.4, z0 - 0.4, x1 + 0.4, z1 + 0.4, base + FLOOR * 2, stone.clone().multiplyScalar(0.8));
+        }
 
         // Ступенчатая башня на высоких зданиях.
+        const podium = district === 'downtown' && h > 24;
+        let topY = base + h, tx0 = x0, tx1 = x1, tz0 = z0, tz1 = z1;
         if (h > 30 && rng.chance(0.55)) {
           const inset = rng.range(0.15, 0.3) * Math.min(w, d);
           const h2 = snap(rng.range(0.2, 0.45) * h);
@@ -462,22 +520,53 @@ export class World {
             color, FACADE_TILE_U, FACADE_TILE_V, uOff);
           chunk.plain.flat(x0 + inset, z0 + inset, x1 - inset, z1 - inset, y0 + h2, roof);
           total += h2;
+          topY = y0 + h2; tx0 = x0 + inset; tx1 = x1 - inset; tz0 = z0 + inset; tz1 = z1 - inset;
         }
 
-        // Вентиляция/будки на крыше.
-        const top = base + h;
-        const details = rng.int(0, 3);
-        const detailColor = new THREE.Color('#8d8d8a');
-        for (let k = 0; k < details; k++) {
-          const s = rng.range(1.2, 3);
-          const px = rng.range(x0 + 1 + s, x1 - 1 - s), pz = rng.range(z0 + 1 + s, z1 - 1 - s);
-          if (!(px > x0 && px < x1 && pz > z0 && pz < z1)) continue;
-          chunk.plain.box(px - s / 2, top, pz - s / 2, px + s / 2, top + rng.range(0.8, 2.2), pz + s / 2, detailColor);
+        // Шпили, антенны и огни на высотках.
+        if (total > 45 && rng.chance(0.75)) {
+          const t = towerTop(ctx, chunk, tx0, tx1, tz0, tz1, topY, color, roof);
+          total += t.extra;
+          if (t.beacon) this.beacons.push({ x: t.beacon[0], y: t.beacon[1], z: t.beacon[2] });
+        } else {
+          // Вентиляция/будки на крыше.
+          const details = rng.int(0, 3);
+          const detailColor = new THREE.Color('#8d8d8a');
+          for (let k = 0; k < details; k++) {
+            const s = rng.range(1.2, 3);
+            const px = rng.range(tx0 + 1 + s, tx1 - 1 - s), pz = rng.range(tz0 + 1 + s, tz1 - 1 - s);
+            if (!(px > tx0 && px < tx1 && pz > tz0 && pz < tz1)) continue;
+            chunk.plain.box(px - s / 2, topY, pz - s / 2, px + s / 2, topY + rng.range(0.8, 2.2), pz + s / 2, detailColor);
+          }
+          // Рекламный щит на крыше невысоких зданий центра.
+          if (h >= 12 && h < 70 && w > 14 && d > 8 && rng.chance(0.22)) {
+            const alongX = w >= d;
+            dressing.billboard((x0 + x1) / 2, base + h + 0.5, (z0 + z1) / 2, alongX, Math.min(13, (alongX ? w : d) * 0.8));
+          }
         }
 
-        const building = { minX: x0, maxX: x1, minZ: z0, maxZ: z1, height: base + total, type: 'building' };
-        this.buildings.push(building);
-        this.colliders.add(building);
+        // Витрины, навесы и вывески на фасадах, выходящих на улицу.
+        if (h >= 6) {
+          const near = 3.4;
+          const faces = [
+            { ok: lot.maxZ - z1 < near, O: [x0, z1], n: [0, 1], len: w },
+            { ok: z0 - lot.minZ < near, O: [x1, z0], n: [0, -1], len: w },
+            { ok: lot.maxX - x1 < near, O: [x1, z1], n: [1, 0], len: d },
+            { ok: x0 - lot.minX < near, O: [x0, z0], n: [-1, 0], len: d },
+          ];
+          for (const f of faces) {
+            if (!f.ok || !rng.chance(0.9)) continue;
+            f.pad = podium ? 0.46 : 0;
+            dressing.storefront(f, base);
+            if (rng.chance(0.3) && f.len > 9) {
+              const u = rng.range(1, 2.5);
+              const rx = f.n[1], rz = -f.n[0];
+              dressing.blade(f.O[0] + rx * u + f.n[0] * f.pad, base + 4.6, f.O[1] + rz * u + f.n[1] * f.pad, f.n);
+            }
+          }
+        }
+
+        add({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, height: base + total, type: 'building' });
       }
     }
 
@@ -485,6 +574,12 @@ export class World {
       this._addMesh(chunk.facade.build(), this.mats.facade, { cast: true, name: 'buildings' });
       this._addMesh(chunk.plain.build(), this.mats.plain, { cast: true, name: 'roofs' });
     }
+    if (industrial.length) this._addMesh(mergeColored(industrial), this.mats.plain, { cast: true, name: 'industrial' });
+    for (const c of industrial.colliders ?? []) add(c);
+  }
+
+  _finishDressing() {
+    this.dressing.finish(this.group, this.mats);
   }
 
   // --- Банки и магазины --------------------------------------------------------
@@ -501,6 +596,11 @@ export class World {
     this.banks = [];
     this.stores = [];
     for (const b of this.blocks) b.reserved = [];
+    // Портовые краны: площадка под ними свободна от складов.
+    for (const [x, z] of CONFIG.world.cranes) {
+      const blk = this.blockAt(x, z);
+      blk?.reserved.push({ minX: x - 15, maxX: x + 15, minZ: z - 11, maxZ: z + 11 });
+    }
     const defs = [
       ...CONFIG.banks.list.map((def) => ({ def, kind: 'bank' })),
       ...CONFIG.stores.list.map((def) => ({ def, kind: 'store' })),
@@ -662,6 +762,7 @@ export class World {
     const head = new THREE.BoxGeometry(0.32, 0.12, 0.6).translate(0, 5.44, 1.4);
     const metal = new THREE.MeshStandardMaterial({ color: 0x4a4f55, roughness: 0.5, metalness: 0.6 });
     const light = new THREE.MeshStandardMaterial({ color: 0xfff4d6, emissive: 0xfff0c8, emissiveIntensity: 0.4 });
+    this.lampLightMat = light;
     const meshes = [
       new THREE.InstancedMesh(pole, metal, lamps.length),
       new THREE.InstancedMesh(arm, metal, lamps.length),
@@ -710,6 +811,7 @@ export class World {
         const z = rng.range(l.minZ + 2.5, l.maxZ - 2.5);
         if (Math.abs(x - b.cx) < 4 || Math.abs(z - b.cz) < 4) continue;
         if (placed.some((p) => (p.x - x) ** 2 + (p.z - z) ** 2 < 36)) continue;
+        if (this.treeExclusions?.some((e) => Math.hypot(e.x - x, e.z - z) < e.r)) continue;   // площадь, пруд
         placed.push({ x, z, y: h });
       }
       trees.push(...placed);

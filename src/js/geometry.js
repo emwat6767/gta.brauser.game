@@ -30,6 +30,19 @@ export class GeometryBuilder {
     this.count += 4;
   }
 
+  // Треугольник (фронтоны крыш). a, b, c — против часовой стрелки со стороны нормали.
+  tri(a, b, c, n, uv, color) {
+    const i = this.count;
+    for (const p of [a, b, c]) {
+      this.pos.push(p[0], p[1], p[2]);
+      this.nor.push(n[0], n[1], n[2]);
+      this.col.push(color.r, color.g, color.b);
+    }
+    this.uv.push(...uv);
+    this.idx.push(i, i + 1, i + 2);
+    this.count += 3;
+  }
+
   // Горизонтальный прямоугольник (нормаль вверх), UV в метрах / tile.
   flat(x0, z0, x1, z1, y, color, tile = 1) {
     this.quad(

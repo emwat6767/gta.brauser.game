@@ -446,6 +446,7 @@ export class Player {
     vehicle.driver = this;
     vehicle.ai = null;
     vehicle.sirenOn = false;
+    if (!vehicle.police) this.game.hud?.toast(vehicle.spec.name, 1.4);
     vehicle.seatAnchor.add(this.model.root);
     this.model.root.position.set(0, 0, 0);
     this.model.root.rotation.set(0, 0, 0);
