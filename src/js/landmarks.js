@@ -455,7 +455,7 @@ function buildStreetDecor(world, { group, plain, addMesh, collide }) {
   for (const b of world.blocks) {
     if (b.type === 'park' || b.district === 'port') continue;
     const len = b.maxX - b.minX;
-    const treeChance = b.district === 'downtown' ? 0.4 : b.district === 'suburb' ? 0.9 : 0.65;
+    const treeChance = (b.district === 'downtown' ? 0.4 : b.district === 'suburb' ? 0.9 : 0.65) * CONFIG.world.streetTreeScale;
     const inset = 2.6;
     const sides = [
       { x0: b.minX, z0: b.maxZ - inset, dx: 1, dz: 0, heading: Math.PI },

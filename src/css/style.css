@@ -372,16 +372,16 @@ body.touch #touch {
 
 #touch .tbtn-time,
 #touch .tbtn-outfit {
-  right: calc(66px + env(safe-area-inset-right, 0px));
-  width: 46px;
-  height: 46px;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  width: 42px;
+  height: 42px;
   font-size: 8px;
   background: rgba(30, 110, 170, 0.55);
   border-color: rgba(150, 215, 255, 0.75);
 }
 
-#touch .tbtn-time { top: calc(60px + env(safe-area-inset-top, 0px)); }
-#touch .tbtn-outfit { top: calc(112px + env(safe-area-inset-top, 0px)); }
+#touch .tbtn-time { right: calc(160px + env(safe-area-inset-right, 0px)); }
+#touch .tbtn-outfit { right: calc(210px + env(safe-area-inset-right, 0px)); }
 
 #touch .tbtn-descend {
   right: calc(116px + env(safe-area-inset-right, 0px));

@@ -51,6 +51,7 @@ if (IS_TOUCH) {
   CONFIG.traffic.parkedCount = CONFIG.traffic.mobileParkedCount;
   CONFIG.npc.count = CONFIG.npc.mobileCount;
   CONFIG.npc.fighters = CONFIG.npc.mobileFighters;
+  CONFIG.world.streetTreeScale = 0.45;
   CONFIG.npc.lodDistance = CONFIG.npc.mobileLodDistance;
 }
 const _frustum = new THREE.Frustum(), _pv = new THREE.Matrix4(), _sphere = new THREE.Sphere();

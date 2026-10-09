@@ -59,7 +59,6 @@ export class Vehicle {
   // opts: { x, z, heading, color, police, type, livery } — type: ключ VEHICLE_TYPES (по умолчанию седан);
   // livery: { stripe, roof, neon } — цвета полосы, крыши и подсветки днища (поверх раскраски типа по умолчанию)
   constructor(game, { x, z, heading = 0, color = 0xc0392b, police = false, type = 'sedan', livery = null }) {
-    const V = CONFIG.vehicle;
     this.game = game;
     this.position = new THREE.Vector3(x, game.world.getGroundHeight(x, z), z);
     this.velocity = new THREE.Vector3();
