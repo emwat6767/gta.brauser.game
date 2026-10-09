@@ -214,6 +214,8 @@ export class Minimap {
       if ((x - R) ** 2 + (y - R) ** 2 > R * R) continue;
       let color = '#f3e6b0', r = 2.6, ring = '#111';
       if (npc.isDead) color = '#7a7a7a';
+      else if (npc.boss) continue;                                                         // рисуется отдельно (ниже)
+      else if (npc.minion) { color = '#8e44c9'; r = 3.4; ring = '#ff2e2e'; }              // подручный злодея
       else if (npc.follower) { color = gangColor(npc.gang); r = 3.6; ring = '#ffffff'; } // боец отряда
       else if (npc.marked) { color = '#ff2e2e'; r = 3.6; ring = '#ffffff'; }            // цель задания/войны
       else if (npc.role === 'gang') { color = gangColor(npc.gang); r = 3.2; }
@@ -226,6 +228,26 @@ export class Minimap {
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(x, y, r * d, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Злодей и герой города: крупные метки, видны и за краем карты (прижаты к краю).
+    for (const b of this.game.bosses?.list ?? []) {
+      if (!b.alive) continue;
+      let [x, y] = this.toScreen(b.npc.position.x, b.npc.position.z);
+      const dx = x - R, dy = y - R, dist = Math.hypot(dx, dy), edge = R - 12 * d;
+      if (dist > edge) {
+        x = R + (dx / dist) * edge;
+        y = R + (dy / dist) * edge;
+      }
+      const s = 7.5 * d;
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.moveTo(x, y - s - d); ctx.lineTo(x + s + d, y); ctx.lineTo(x, y + s + d); ctx.lineTo(x - s - d, y);
+      ctx.fill();
+      ctx.fillStyle = b.engaged && !flash ? '#ffffff' : b.color;
+      ctx.beginPath();
+      ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y);
       ctx.fill();
     }
 

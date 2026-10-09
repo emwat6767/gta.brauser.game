@@ -180,6 +180,12 @@ export class Dressing {
     const y0 = base + 0.25, y1 = base + 3.1;
     const winCell = rng.int(atlas.WINDOWS[0], atlas.WINDOWS[1] - 1);
     wallQuad(this.windows, face.O, face.n, u0, u1, y0, y1, 0.04 + pad, this.white, atlas.uv(winCell));
+    // Дверь посередине витрины (точка на тротуаре у стены): сюда приходят на работу и отсюда выходят (worklife.js).
+    const um = (u0 + u1) / 2, drx = face.n[1], drz = -face.n[0];
+    this.world.doors?.push({
+      x: face.O[0] + drx * um + face.n[0] * (pad + 1.1), z: face.O[1] + drz * um + face.n[1] * (pad + 1.1),
+      nx: face.n[0], nz: face.n[1], inside: 0,
+    });
     // Вывеска над витриной.
     const sw = Math.min(width, 7.5), sh = sw / 3.4;
     const su0 = (u0 + u1) / 2 - sw / 2;

@@ -31,6 +31,8 @@ import { GangMenu } from './ui/gang-menu.js';
 import { IncidentDirector } from './incidents.js';
 import { PowerSystem } from './powers.js';
 import { EliteVFX } from './vfx.js';
+import { BossSystem } from './bosses.js';
+import { WorkLife } from './worklife.js';
 import { ChaosSystem } from './chaos.js';
 import { DayNight, createSky } from './daynight.js';
 import { Places } from './places.js';
@@ -93,8 +95,10 @@ class Game {
     this.turf = new TurfSystem(this);
     this.missions = new MissionSystem(this);
     this.incidents = new IncidentDirector(this);
+    this.worklife = new WorkLife(this);   // работа по часам дня и зрители боёв
     this.powers = new PowerSystem(this);
     this.chaos = new ChaosSystem(this);
+    this.bosses = new BossSystem(this);   // злодей и герой города
     this.pickups = new PickupSystem(this);
     this.wallet = new Wallet(this);
     this.save = new SaveSystem(this);
@@ -247,6 +251,7 @@ class Game {
     this.player.update(dt);
     for (const v of this.vehicles) v.update(dt);
     this.npcs.update(dt);
+    this.bosses.update(dt);
     this.gangs.update(dt);
     this.squad.update(dt);
     this.wanted.update(dt);
@@ -279,6 +284,7 @@ class Game {
       this.incidents.update(frameTime);
       this.daynight.update(frameTime);
       this.places.update(frameTime);
+      this.worklife.update(frameTime);
       this.missions.update(frameTime);
       this.effects.update(frameTime);
       this.vfx.update(frameTime);

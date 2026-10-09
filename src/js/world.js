@@ -100,6 +100,7 @@ export class World {
     this.waypoints = [];
     this._pendingTrees = []; // пустыри, найденные при генерации зданий
     this.beacons = [];       // красные огни на шпилях и антеннах (мигают, см. landmarks.js)
+    this.doors = [];         // двери магазинов и офисов: { x, z, nx, nz, inside } — сюда ходят на работу (worklife.js)
     this.landmarks = {};     // достопримечательности: арена, автосалон, площадь... (см. landmarks.js)
 
     this.group = new THREE.Group();

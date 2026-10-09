@@ -650,7 +650,7 @@ export class NPC {
     const dx = tp.x - this.position.x, dz = tp.z - this.position.z;
     const d = Math.hypot(dx, dz);
     // Бандиты не гоняются за машинами и далеко от района; полиция преследует всегда.
-    if (d > 55 || (t.vehicle && this.role !== 'police' && d > 10)) {
+    if (d > 55 || (t.vehicle && this.role !== 'police' && this.role !== 'boss' && d > 10)) {
       this.dropTarget();
       return 0;
     }
@@ -1047,6 +1047,7 @@ export class NPCManager {
       if (n.role !== 'civilian' || n.vehicle || n.isDown || n === shooter) continue;
       if (n.position.distanceToSquared(position) > r2) continue;
       if (n.fighter && (n.fighter.monster || n.bravery > 0.35)) continue; // бойцы не разбегаются
+      if (n.watching && n.position.distanceToSquared(position) > 49) continue; // зрители смотрят, пока не рвётся рядом
       if (n.panic <= 0 && rng.chance(0.3)) n.say(rng.pick(lines));
       n.panic = 8;
       if (n.state === NPC_STATE.IDLE || n.state === NPC_STATE.TALK || n.state === NPC_STATE.GOTO_CAR) n._enter(NPC_STATE.WALK);
@@ -1228,7 +1229,14 @@ export class NPCManager {
       if (d > N.recycleDistance || (npc.isDead && d > 60)) this.remove(npc);
       else if (!npc.isDead) civilians++;
     }
-    for (let k = 0; k < 3 && civilians < N.count; k++) if (this._spawnSpread(p, 30, 130)) civilians++;
+    // Людей больше в час пик и меньше ночью (worklife.js); лишних вдали от глаз убираем по одному.
+    const target = Math.round(N.count * (this.game.worklife?.populationScale ?? 1));
+    for (let k = 0; k < 3 && civilians < target; k++) if (this._spawnSpread(p, 30, 130)) civilians++;
+    if (civilians > target * 1.05) {
+      const extra = this.list.find((n) => n.role === 'civilian' && !n.vehicle && !n.isDead && !n.watching && !n.workTrip &&
+        n.position.distanceToSquared(p) > 70 * 70 && !this.game.inView(n.position.x, 1, n.position.z, 1.5));
+      if (extra) this.remove(extra);
+    }
     this._pairTalks(this.time);
     this._useParkedCars();
   }
