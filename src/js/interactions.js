@@ -77,7 +77,7 @@ function vehicleVsVehicle(a, b) {
 }
 
 function vehicleVsPlayer(v, player) {
-  const hulk = player.game.powers?.mode === 'hulk';
+  const hulk = !!player.game.powers?.mods.noKnock;   // СИЛА и ТИТАН: машины отскакивают, как от стены
   for (const c of v.circles) {
     if (v.carried) return;
     // Халк не сдвигается: машина отскакивает от него, как от стены.

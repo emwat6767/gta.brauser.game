@@ -204,7 +204,8 @@ export class ChaosSystem {
 
   // --- Удар по области ------------------------------------------------------------
 
-  blast(point, radius, damage, force, attacker = null, { ignore = null, dirX, dirZ, kind = 'blast' } = {}) {
+  // only(c) — необязательный фильтр: кого из людей (и игрока) задевает взрыв (иначе — всех, кроме ignore).
+  blast(point, radius, damage, force, attacker = null, { ignore = null, dirX, dirZ, kind = 'blast', only = null } = {}) {
     const { game } = this;
     const dirOf = (x, z) => {
       if (dirX !== undefined) return [dirX, dirZ];
@@ -215,7 +216,7 @@ export class ChaosSystem {
     const r2 = radius * radius;
     // Люди.
     for (const n of [...game.npcs.list]) {
-      if (n === ignore || n.vehicle || n.removed) continue;
+      if (n === ignore || n.vehicle || n.removed || (only && !only(n))) continue;
       const d2 = (n.position.x - point.x) ** 2 + (n.position.z - point.z) ** 2;
       if (d2 > r2 || Math.abs(n.position.y - point.y) > radius) continue;
       const k = 1 - Math.sqrt(d2) / radius * 0.6;
@@ -224,7 +225,7 @@ export class ChaosSystem {
       n.knockDown(dx * force * k, dz * force * k, force * 0.35 * k + 1, attacker, 'blast', true);
     }
     const p = game.player;
-    if (p !== ignore && !p.vehicle && !p.isDead) {
+    if (p !== ignore && !p.vehicle && !p.isDead && (!only || only(p))) {
       const d2 = (p.position.x - point.x) ** 2 + (p.position.z - point.z) ** 2;
       if (d2 < r2) {
         const k = 1 - Math.sqrt(d2) / radius * 0.6;

@@ -49,12 +49,24 @@ export class Squad {
     game.events.on('player:down', () => this.dismiss(true));
     // Новый уровень репутации — бойцы в отряде сразу получают бонусы.
     game.events.on('rep:level', () => {
-      for (const m of this.members) if (!m.isDead) this._equip(m);
+      for (const m of this.members) if (!m.isDead && !m.elite) this._equip(m);
     });
   }
 
   get size() {
     return this.members.length;
+  }
+
+  // Элитный боец босса (powers.js): в отряд вне лимита репутации, со своим оружием и здоровьем.
+  addElite(m) {
+    m.follower = true;
+    m.leader = this.game.player;
+    m.allowedNodes = null;
+    m.slot = this._freeSlot();
+    m.target = null;
+    m.panic = 0;
+    m._enter(NPC_STATE.FOLLOW);
+    this.members.push(m);
   }
 
   // Бонусы от репутации (progress.js): размер отряда, здоровье, оружие, точность.
@@ -77,7 +89,7 @@ export class Squad {
     const S = CONFIG.squad;
     const p = game.player;
     if (!this.home || p.isDead) return 0;
-    const free = this.max - this.members.length;
+    const free = this.max - this.members.filter((m) => !m.elite).length;
     if (free <= 0) return 0;
     const near = this.home.members
       .filter((m) => !m.isDead && !m.removed && !m.vehicle && !m.follower &&
@@ -100,7 +112,12 @@ export class Squad {
   // Отпустить: бойцы возвращаются в свою банду (на территорию).
   dismiss(silent = false) {
     const home = this.home;
-    for (const m of this.members) {
+    for (const m of [...this.members]) {
+      if (m.elite) {
+        if (m.vehicle) m.exitPassenger();
+        this.game.powers.retire(m, silent);
+        continue;
+      }
       if (m.vehicle) m.exitPassenger();
       m.follower = false;
       m.leader = null;
@@ -135,6 +152,7 @@ export class Squad {
 
   // Здоровье и оружие бойца по текущему уровню репутации.
   _equip(m) {
+    if (m.elite) return;
     const S = this.stats;
     if (m.maxHealth < S.health) {
       m.health += S.health - m.maxHealth;
@@ -147,7 +165,7 @@ export class Squad {
   }
 
   _freeSlot() {
-    for (let s = 0; s < this.max; s++) if (!this.members.some((m) => m.slot === s)) return s;
+    for (let s = 0; s < this.members.length + 1; s++) if (!this.members.some((m) => m.slot === s)) return s;
     return this.members.length;
   }
 
@@ -266,6 +284,11 @@ export class Squad {
 
   // Отпустить одного бойца в его банду.
   _release(m) {
+    if (m.elite) {
+      if (m.vehicle) m.exitPassenger();
+      this.game.powers.retire(m);
+      return;
+    }
     const i = this.members.indexOf(m);
     if (i >= 0) this.members.splice(i, 1);
     if (m.vehicle) m.exitPassenger();

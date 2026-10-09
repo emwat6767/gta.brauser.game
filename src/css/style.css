@@ -715,7 +715,8 @@ body.touch #big-message {
   background: rgba(0, 0, 0, 0.65);
   font: italic 800 16px/1.2 'Arial Black', Arial, sans-serif;
   color: #9ef0a8;
-  white-space: nowrap;
+  max-width: min(92vw, 760px);
+  text-align: center;
   opacity: 0;
   transition: opacity 0.3s;
 }
@@ -1197,4 +1198,123 @@ body.touch #clock {
   left: calc(10px + env(safe-area-inset-left, 0px));
   bottom: auto;
   font-size: 11px;
+}
+
+.nameplate.small {
+  padding: 2px 8px 3px;
+  font-size: 12px;
+  background: rgba(8, 10, 14, 0.6);
+  border-left-color: #6f7a8c;
+}
+
+/* ---------- Способности режимов силы (Q R G) и полоса босса ---------- */
+
+#gadgets {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.gchip {
+  position: relative;
+  min-width: 96px;
+  padding: 5px 10px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  overflow: hidden;
+  font: 800 12px/1.1 Arial, sans-serif;
+  color: #fff;
+  text-align: center;
+  text-shadow: 1px 1px 0 #000;
+  white-space: nowrap;
+  opacity: 0.62;
+}
+
+.gchip.ready {
+  opacity: 1;
+  border-color: var(--gc, #ffd54a);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--gc, #ffd54a) 55%, transparent);
+}
+
+.gchip b {
+  display: inline-block;
+  min-width: 16px;
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #f2f2f2;
+  color: #111;
+  text-shadow: none;
+}
+
+.gchip i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 4px;
+  background: var(--gc, #ffd54a);
+  transform-origin: left;
+  transform: scaleX(var(--ready, 1));
+}
+
+body.touch #gadgets { bottom: 8px; }
+body.touch .gchip { min-width: 72px; padding: 4px 6px 7px; font-size: 10px; }
+
+#boss-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 112px;
+  transform: translateX(-50%);
+  width: min(460px, 56vw);
+  text-align: center;
+  pointer-events: none;
+}
+
+#boss-name {
+  margin-bottom: 3px;
+  font: italic 900 15px/1.1 'Arial Black', Arial, sans-serif;
+  color: var(--bc, #ff6a6a);
+  text-shadow: 1px 1px 0 #000, 0 0 8px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+
+#boss-name small {
+  margin-left: 8px;
+  font-size: 11px;
+  font-style: normal;
+  color: #fff;
+  opacity: 0.85;
+}
+
+#boss-track {
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+#boss-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--bc, #ff6a6a), rgba(255, 255, 255, 0.35));
+  transition: width 0.15s;
+}
+
+#touch .tbtn-gadgetc {
+  right: calc(262px + env(safe-area-inset-right, 0px));
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  font-size: 9px;
+}
+
+@media (orientation: portrait) {
+  #touch .tbtn-gadgetc { right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(250px + env(safe-area-inset-bottom, 0px)); width: 52px; height: 52px; }
 }

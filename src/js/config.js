@@ -107,6 +107,7 @@ export const CONFIG = {
       civilian: { health: 40, damage: 7, cooldown: 0.6, weapons: {} },
       gang: { health: 60, damage: 8, cooldown: 0.35, weapons: { pistol: 0.55, smg: 0.2, shotgun: 0.1 } },
       police: { health: 70, damage: 9, cooldown: 0.4, weapons: { pistol: 1 } },
+      boss: { health: 1600, damage: 26, cooldown: 0.75, weapons: {} },   // злодей и герой города (bosses.js)
     },
     // Стрельба NPC: разброс умножается, урон по игроку уменьшается (иначе слишком жёстко).
     gunSpreadScale: 4,

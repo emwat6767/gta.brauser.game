@@ -52,6 +52,12 @@ export class HUD {
     this.heistEl = document.getElementById('heist');
     this.heistLabel = document.getElementById('heist-label');
     this.heistFill = document.getElementById('heist-fill');
+    this.gadgetEl = document.getElementById('gadgets');
+    this.bossEl = document.getElementById('boss-bar');
+    this.bossName = document.getElementById('boss-name');
+    this.bossFill = document.getElementById('boss-fill');
+    this._gadgetMode = '';
+    this._bossKey = '';
 
     game.events.on('money:changed', ({ delta, quiet }) => {
       if (quiet || !delta) return;
@@ -142,6 +148,49 @@ export class HUD {
     this.heistFill.style.width = `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
   }
 
+  // Способности режима силы (Q R G): подпись и полоска готовности.
+  _updateGadgets(powers) {
+    const mode = powers?.mode ?? 'normal';
+    if (mode !== this._gadgetMode) {
+      this._gadgetMode = mode;
+      this.gadgetEl.classList.toggle('hidden', mode === 'normal');
+      this.gadgetEl.style.setProperty('--gc', powers?.color ?? '#ffd54a');
+      this.gadgetEl.innerHTML = mode === 'normal' ? '' : powers.gadgetInfo()
+        .map((g) => `<div class="gchip"><b>${g.key}</b><span>${g.name}</span><i></i></div>`).join('');
+      this._chips = [...this.gadgetEl.children];
+    }
+    if (mode === 'normal') return;
+    const info = powers.gadgetInfo();
+    info.forEach((g, i) => {
+      const chip = this._chips[i];
+      if (!chip) return;
+      const label = chip.children[1];
+      if (label.textContent !== g.name) label.textContent = g.name;
+      chip.classList.toggle('ready', g.ready >= 1);
+      chip.lastChild.style.setProperty('--ready', g.ready.toFixed(2));
+    });
+  }
+
+  // Полоса босса города (bosses.js): показывается, пока он рядом и дерётся.
+  _updateBossBar() {
+    const b = this.game.bosses?.barTarget?.() ?? null;
+    if (!b) {
+      if (this._bossKey) {
+        this._bossKey = '';
+        this.bossEl.classList.add('hidden');
+      }
+      return;
+    }
+    const key = `${b.kind}|${b.name}`;
+    if (key !== this._bossKey) {
+      this._bossKey = key;
+      this.bossEl.classList.remove('hidden');
+      this.bossEl.style.setProperty('--bc', b.color);
+      this.bossName.innerHTML = `${b.name}<small>${b.title}</small>`;
+    }
+    this.bossFill.style.width = `${Math.max(0, Math.round(b.hp * 100))}%`;
+  }
+
   toggleHelp() {
     this.helpEl.classList.toggle('hidden');
   }
@@ -201,20 +250,23 @@ export class HUD {
 
     // Оружие: название, патроны (магазин / запас), перезарядка, перекрестье.
     const powers = this.game.powers;
-    const superMode = powers && powers.mode !== 'normal';
+    const superMode = !!powers?.unarmed;
+    const modeTag = powers?.mode ?? 'normal';
     const gun = superMode ? null : player.gun;
-    const wText = superMode ? powers.mode : gun ? `${gun.def.name}|${gun.mag}|${gun.reserve}` : 'fists';
+    const wText = superMode ? modeTag : gun ? `${gun.def.name}|${gun.mag}|${gun.reserve}|${modeTag}` : `fists|${modeTag}`;
     if (wText !== this._weaponText) {
       this._weaponText = wText;
       this.weaponNameEl.textContent = superMode ? powers.name : gun ? gun.def.name : 'Кулаки';
-      this.weaponNameEl.style.color = superMode ? powers.color : '';
-      this.weaponAmmoEl.textContent = superMode ? 'СИЛА' : !gun ? '' : gun.bottomless ? '∞' : `${gun.mag} | ${gun.reserve}`;
+      this.weaponNameEl.style.color = modeTag !== 'normal' ? powers.color : '';
+      this.weaponAmmoEl.textContent = superMode ? 'РЕЖИМ' : !gun ? '' : gun.bottomless ? '∞' : `${gun.mag} | ${gun.reserve}`;
       this.weaponAmmoEl.classList.toggle('empty', !!gun && gun.mag === 0);
     }
+    this._updateGadgets(powers);
+    this._updateBossBar();
     this.reloadBar.classList.toggle('hidden', !gun?.reloading);
     if (gun?.reloading) this.reloadFill.style.width = `${Math.round(gun.reloadProgress * 100)}%`;
-    const ironman = powers?.mode === 'ironman';
-    const showCross = (!!gun || ironman) && !player.vehicle && !player.isDead &&
+    const energy = modeTag === 'ironman' || modeTag === 'titan';
+    const showCross = (!!gun || energy) && !player.vehicle && !player.isDead &&
       (player.aiming || player.shootTimer > 0 || this.game.input.touchActive || this.game.input.pointerLocked);
     this.crosshair.classList.toggle('hidden', !showCross);
     if (showCross) {

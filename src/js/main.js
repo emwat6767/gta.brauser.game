@@ -30,6 +30,7 @@ import { MissionSystem } from './missions.js';
 import { GangMenu } from './ui/gang-menu.js';
 import { IncidentDirector } from './incidents.js';
 import { PowerSystem } from './powers.js';
+import { EliteVFX } from './vfx.js';
 import { ChaosSystem } from './chaos.js';
 import { DayNight, createSky } from './daynight.js';
 import { Places } from './places.js';
@@ -69,6 +70,7 @@ class Game {
     this.effects = new Effects(this.scene);
     this.effects.renderer = this.renderer;
     this.effects.camera = this.camera;
+    this.vfx = new EliteVFX(this);   // молнии, порталы, купола, обломки режимов силы и боссов
     this.audio = new SoundSystem(this);
     this.world = new World(this);
     this.daynight = new DayNight(this);
@@ -230,6 +232,8 @@ class Game {
     } else if (this.powers.mode === 'hulk') {
       // Халк не садится в машины — поднимает и бросает их (у банка — грабит).
       if (!this.powers.grabOrThrow()) this.heists.tryStart();
+    } else if (this.powers.cannotDrive) {
+      this.heists.tryStart();
     } else {
       const v = p.findEnterableVehicle();
       if (v) p.enterVehicle(v);
@@ -277,6 +281,7 @@ class Game {
       this.places.update(frameTime);
       this.missions.update(frameTime);
       this.effects.update(frameTime);
+      this.vfx.update(frameTime);
       this.save.update(frameTime);
       if (this.downState && (this.downState.timer -= frameTime) <= 0) this._respawn();
     }

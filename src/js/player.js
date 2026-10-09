@@ -125,8 +125,8 @@ export class Player {
     const { input, cameraRig, world } = this.game;
     const powers = this.game.powers;
     const M = powers?.mods ?? { walk: 1, run: 1, jump: 1, accel: 1, gravity: 1 };
-    const superMode = powers && powers.mode !== 'normal';
-    const flying = powers?.mode === 'ironman' && !this.grounded;
+    const superMode = !!powers?.unarmed;
+    const flying = !!powers?.canFly && !this.grounded;
     this.melee.update(dt, this.game);
     this.stunTime = Math.max(0, this.stunTime - dt);
 
@@ -145,7 +145,7 @@ export class Player {
 
     // --- Оружие: смена, прицел, перезарядка ---
     if (control && !superMode) {
-      if (input.wasPressed('nextWeapon')) this.arsenal.cycle(1);
+      if (input.wasPressed('nextWeapon') && !powers?.hasGadgets) this.arsenal.cycle(1);
       for (const [action, type] of Object.entries(WEAPON_KEYS)) if (input.wasPressed(action)) this.arsenal.select(type);
       this.model.setWeapon(this.arsenal.current);
     }
@@ -181,7 +181,7 @@ export class Player {
 
     if (control) {
       if (superMode) {
-        const trigger = powers.mode === 'ironman' ? input.isDown('attack') : input.wasPressed('attack');
+        const trigger = powers.autoAttack ? input.isDown('attack') : input.wasPressed('attack');
         if (trigger) powers.attack();
       } else if (gun) this._handleGun(gun, input, moving || !this.grounded);
       else if (this.grounded && input.wasPressed('attack')) {
@@ -214,8 +214,8 @@ export class Player {
         this.velocity.z *= 1.6;
       }
     }
-    if (powers?.mode === 'ironman' && control && (flying || input.isDown('jump'))) {
-      // Железный человек: Space — вверх, Z/ВНИЗ — вниз, иначе висит в воздухе.
+    if (powers?.canFly && control && (flying || input.isDown('jump'))) {
+      // Умный костюм: Space — вверх, Z/ВНИЗ — вниз, иначе висит в воздухе.
       powers.flyVertical(dt, input, this.velocity);
       if (this.grounded && this.velocity.y > 0.5) this.grounded = false;
     } else {
@@ -281,7 +281,7 @@ export class Player {
     }
     // Автоперезарядка, когда магазин пуст.
     if (gun.mag === 0 && gun.reserve > 0 && !gun.reloading && gun.cooldown <= 0) this.reload();
-    if (input.wasPressed('reload')) this.reload();
+    if (input.wasPressed('reload') && !this.game.powers?.hasGadgets) this.reload();
   }
 
   reload() {
@@ -364,7 +364,7 @@ export class Player {
   // info (для пуль): { zone, point, dir, impulse }
   takeDamage(amount, attacker, dirX = 0, dirZ = 0, kind = 'punch', info = null) {
     if (this.isDead) return;
-    amount *= this.game.powers?.mods.damageTaken ?? 1;
+    amount *= this.game.powers?.damageMul ?? 1;
     this.health -= amount;
     this.sinceDamage = 0;
     if (!this.gun) this.combatTimer = 3;
@@ -380,7 +380,7 @@ export class Player {
 
   // Сбит машиной: отлетает и лежит пару секунд.
   knockDown(vx, vz, up, duration = 1.8) {
-    if (this.isDead || this.vehicle || this.game.powers?.mode === 'hulk') return;
+    if (this.isDead || this.vehicle || this.game.powers?.mods.noKnock) return;
     this.velocity.set(vx, up, vz);
     this.grounded = false;
     this.downDuration = duration;
@@ -424,7 +424,7 @@ export class Player {
     this.shootTimer = 0;
     this.sinceDamage = 99;
     this.arsenal.reset(CONFIG.player.startWeapons); // после смерти/ареста — только стартовое оружие
-    this.model.setWeapon(this.game.powers?.mode === 'normal' ? this.arsenal.current : null);
+    this.model.setWeapon(this.game.powers?.unarmed ? null : this.arsenal.current);
     this.position.set(x, this.game.world.getGroundHeight(x, z), z);
     this.visualY = this.position.y;
     this.velocity.set(0, 0, 0);
@@ -437,7 +437,7 @@ export class Player {
 
   // Ближайшая машина, в которую можно сесть: пустая или с NPC за рулём (угон), если стоит.
   findEnterableVehicle() {
-    if (this.isDown || this.game.powers?.mode === 'hulk') return null;
+    if (this.isDown || this.game.powers?.cannotDrive) return null;
     let best = null;
     let bestD = CONFIG.player.enterDistance;
     for (const v of this.game.vehicles) {
@@ -492,7 +492,7 @@ export class Player {
     this.grounded = true;
     this.model.root.position.copy(this.position);
     this.model.root.rotation.set(0, this.heading, 0);
-    this.model.setWeapon(this.game.powers?.mode === 'normal' ? this.arsenal.current : null);
+    this.model.setWeapon(this.game.powers?.unarmed ? null : this.arsenal.current);
     this.game.events.emit('vehicle:exit', { vehicle, who: this });
   }
 }

@@ -33,8 +33,8 @@
         <tr><td>E</td><td>сесть в машину / угнать / выйти / ограбить банк</td></tr>
         <tr><td>T</td><td>позвать банду / отпустить</td></tr>
         <tr><td>J</td><td>меню банды: задания, репутация, районы</td></tr>
-        <tr><td>X</td><td>суперсила: Халк / Железный человек / обычный</td></tr>
-        <tr><td>Z</td><td>Железный человек: вниз (Space — вверх)</td></tr>
+        <tr><td>X</td><td>режим силы: Сила / Умный костюм / Титан / Босс банды / обычный</td></tr>
+        <tr><td>Q R G</td><td>способности режима (внизу экрана); Z — костюм летит вниз</td></tr>
         <tr><td>N</td><td>время суток: к следующей фазе</td></tr>
         <tr><td>O</td><td>сменить одежду</td></tr>
         <tr><td>M</td><td>звук вкл/выкл</td></tr>
@@ -51,6 +51,8 @@
         <div id="reload-bar" class="hidden"><div id="reload-fill"></div></div>
       </div>
     </div>
+    <div id="gadgets" class="hidden"></div>
+    <div id="boss-bar" class="hidden"><div id="boss-name"></div><div id="boss-track"><div id="boss-fill"></div></div></div>
     <div id="crosshair" class="hidden"><i></i><i></i><i></i><i></i></div>
     <div id="hitmarker"><span></span></div>
     <div id="toast"></div>
@@ -75,8 +77,9 @@
     <button type="button" class="tbtn tbtn-jump" data-id="jump" data-action="jump handbrake">ПРЫЖОК</button>
     <button type="button" class="tbtn tbtn-interact" data-id="interact" data-action="interact" hidden>СЕСТЬ</button>
     <button type="button" class="tbtn tbtn-aim" data-id="aim" data-toggle="aim" hidden>ПРИЦЕЛ</button>
-    <button type="button" class="tbtn tbtn-reload" data-id="reload" data-action="reload" hidden>ПЕРЕЗ.</button>
-    <button type="button" class="tbtn tbtn-weapon" data-id="weapon" data-action="nextWeapon">ОРУЖИЕ</button>
+    <button type="button" class="tbtn tbtn-reload" data-id="reload" data-action="reload gadgetB" hidden>ПЕРЕЗ.</button>
+    <button type="button" class="tbtn tbtn-weapon" data-id="weapon" data-action="nextWeapon gadgetA">ОРУЖИЕ</button>
+    <button type="button" class="tbtn tbtn-gadgetc" data-id="gadgetc" data-action="gadgetC" hidden>G</button>
     <button type="button" class="tbtn tbtn-squad" data-id="squad" data-action="squad">БАНДА</button>
     <button type="button" class="tbtn tbtn-jobs" data-id="jobs" data-action="jobs">ЗАДАНИЯ</button>
     <button type="button" class="tbtn tbtn-power" data-id="power" data-action="power">СИЛА</button>

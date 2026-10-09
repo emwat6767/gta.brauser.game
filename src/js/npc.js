@@ -9,6 +9,7 @@ import { damp, dampAngle, lerp, wrapAngle, clamp } from './utils.js';
 import { CrowdRenderer } from './crowd.js';
 import { civilianLook, randomCivilianLook, gangLook, policeLook } from './outfits.js';
 import { FighterPool, fighterLook, fighterStats } from './fighters.js';
+import { nameFor, jobFor } from './names.js';
 
 export { randomCivilianLook, gangLook, policeLook };
 
@@ -101,6 +102,8 @@ export class NPC {
     this.model = new Humanoid(L);
     this.radius = N.radius * (L.scale ?? 1) * (1 + ((L.bulk ?? 1) - 1) * 0.6);
     this.fighter = fighter;   // боец из ростера (fighters.js) или null
+    this.name = opts.name ?? (fighter ? fighter.name : nameFor(role, L, rng));   // американское имя под внешность (names.js)
+    this.job = role === 'civilian' && !fighter ? opts.job ?? jobFor(L, rng) : null;   // профессия: от неё зависит, ходит ли на работу
     this.hitResist = 3;       // сколько ударов подряд сбивают с ног
 
     const R = N.roles[role];
@@ -168,6 +171,11 @@ export class NPC {
     this.leader = null;
     this.slot = 0;        // место в строю / в машине
     this.removed = false;
+    this.boss = null;       // компонент босса (bosses.js): способности, щит, полоса здоровья
+    this.superArmor = false; // не сбивается с ног и не шатается (боссы)
+    this.cast = 0;          // > 0 — занят способностью: стоит на месте (bosses.js рулит им сам)
+    this.elite = false;     // элитный боец банды-босса (powers.js)
+    this.shieldUntil = 0;   // до какого момента powers.time на нём щит
     this.visualY = this.position.y;
     this.prevNode = from ?? null;
     this.node = null;
@@ -490,7 +498,10 @@ export class NPC {
     this.shooting = false;
     let speed = 0;
 
-    switch (this.state) {
+    if (this.cast > 0) this.cast -= dt;
+    switch (this.cast > 0 ? 'cast' : this.state) {
+      case 'cast':
+        break;
       case NPC_STATE.WALK: {
         const dx = this.walkTarget.x - this.position.x;
         const dz = this.walkTarget.z - this.position.z;
@@ -721,10 +732,16 @@ export class NPC {
   // info (для пуль): { zone, point, dir, impulse } — куда попали и с какой силой.
   takeDamage(amount, attacker, dirX = 0, dirZ = 0, kind = 'punch', info = null) {
     if (this.isDead || this.vehicle) return;
+    if (this.boss) amount = this.boss.filterDamage(amount, kind, attacker);
+    if (this.shieldUntil > this.game.powers.time) amount *= 0.2;   // золотой купол босса (powers.js)
     this.health -= amount;
     this.game.events.emit('character:damaged', { target: this, attacker, amount, kind, zone: info?.zone });
     if (this.health <= 0) {
       this._die(attacker, dirX, dirZ, kind, info);
+      return;
+    }
+    if (this.superArmor) {
+      this._onAttacked(attacker);
       return;
     }
     if (kind === 'bullet') {
@@ -787,6 +804,7 @@ export class NPC {
       return;
     }
     if (this.role === 'police') this.aggro(who, this.rng.pick(LINES.police));
+    if (this.role === 'boss') this.boss?.onAttacked(who);
   }
 
   _die(attacker, dirX, dirZ, kind, info) {
@@ -810,7 +828,7 @@ export class NPC {
 
   // Лёгкий толчок: пошатнуться, обернуться на обидчика, отбежать (или дать сдачи).
   stumble(dirX, dirZ, strength, by) {
-    if (this.isDown || this.vehicle || this.cooldown > 0) return false;
+    if (this.isDown || this.vehicle || this.cooldown > 0 || this.superArmor) return false;
     this.knock.x += dirX * strength;
     this.knock.z += dirZ * strength;
     this.heading = Math.atan2(-dirX, -dirZ);
@@ -839,6 +857,7 @@ export class NPC {
       if (this.ragdoll && v > 0.1) this.ragdoll.impulse(this.ragdoll.pelvis, _dir.set(vx / v, 0.3, vz / v), v * 0.5);
       return false;
     }
+    if (this.superArmor) return false;
     if (!force && this.cooldown > 0) return false;
     this.knock.set(vx, up, vz);
     this.airborne = up > 0;
@@ -873,7 +892,14 @@ export class NPC {
       if (d > 45) return 0;
       near = 0;
     } else {
-      const [right, back] = FOLLOW_SLOTS[this.slot % FOLLOW_SLOTS.length];
+      let right, back;
+      if (this.slot < FOLLOW_SLOTS.length) [right, back] = FOLLOW_SLOTS[this.slot];
+      else {
+        // Большая свита (босс банды): полукруг рядами за спиной лидера.
+        const k = this.slot - FOLLOW_SLOTS.length, row = Math.floor(k / 5), col = k % 5;
+        right = (col - 2) * 2.1 + (row % 2 ? 1 : 0);
+        back = 5.2 + row * 2.4;
+      }
       const h = L.heading;
       tx = L.position.x - Math.sin(h) * back - Math.cos(h) * right;
       tz = L.position.z - Math.cos(h) * back + Math.sin(h) * right;
@@ -1182,7 +1208,7 @@ export class NPCManager {
       const d2 = (npc.position.x - p.x) ** 2 + (npc.position.z - p.z) ** 2;
       npc.model.root.visible = d2 < vis2;
       // Дальние люди — упрощённая фигура (crowd.js), водители далёких машин не рисуются.
-      const lod = d2 > lod2 && !npc.ragdoll && !npc.vehicle;
+      const lod = d2 > lod2 && !npc.ragdoll && !npc.vehicle && !npc.boss;
       if (lod !== npc.lod) npc.lod = lod;
       npc.model.body.visible = npc.vehicle ? d2 < N.driverVisible ** 2 : !lod;
       if (d2 > freeze2 && npc.state !== NPC_STATE.FIGHT && !npc.vehicle) continue;

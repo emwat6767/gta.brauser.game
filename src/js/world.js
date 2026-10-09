@@ -846,7 +846,9 @@ export class World {
       crownMesh.setMatrixAt(i, m.matrix);
       c.setHSL(rng.range(0.22, 0.33), rng.range(0.35, 0.55), rng.range(0.22, 0.34));
       crownMesh.setColorAt(i, c);
-      this.colliders.add({ minX: t.x - 0.3, maxX: t.x + 0.3, minZ: t.z - 0.3, maxZ: t.z + 0.3, height: 3, type: 'tree' });
+      t.index = i;
+      t.crown = c.getHex();
+      t.collider = this.colliders.add({ minX: t.x - 0.3, maxX: t.x + 0.3, minZ: t.z - 0.3, maxZ: t.z + 0.3, height: 3, type: 'tree' });
     });
     for (const mesh of [trunkMesh, crownMesh]) {
       mesh.castShadow = true;
@@ -855,6 +857,30 @@ export class World {
       this.group.add(mesh);
     }
     this.trees = trees;
+    this.treeMeshes = [trunkMesh, crownMesh];
+  }
+
+  // Повалить деревья в радиусе r от (x, z): убираем из инстансов и коллизий (вместо них падает отдельное дерево,
+  // vfx.js). (dirX, dirZ) — куда падают; без направления — от центра. Возвращает, сколько деревьев упало.
+  breakTrees(x, z, r, dirX = 0, dirZ = 0) {
+    const vfx = this.game.vfx;
+    if (!this.trees?.length) return 0;
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    let n = 0;
+    for (const t of this.trees) {
+      if (t.broken || (t.x - x) ** 2 + (t.z - z) ** 2 > r * r) continue;
+      t.broken = true;
+      n++;
+      for (const mesh of this.treeMeshes) {
+        mesh.setMatrixAt(t.index, zero);
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+      this.colliders.remove(t.collider);
+      let fx = dirX, fz = dirZ;
+      if (!fx && !fz) { fx = t.x - x; fz = t.z - z; }
+      vfx?.treeFall(t.x, t.y, t.z, fx, fz, t.crown);
+    }
+    return n;
   }
 
   _buildBoundary() {

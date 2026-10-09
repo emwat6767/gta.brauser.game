@@ -226,17 +226,22 @@ export class TouchControls {
     if (this.joyId !== null && ((this._sawTouch && this.touchCount === 0) || this.game.menuOpen)) this._endJoystick();
     const p = this.game.player;
     const inCar = !!p.vehicle;
-    const mode = this.game.powers?.mode ?? 'normal';
-    const gun = inCar || p.isDead || mode !== 'normal' ? null : p.gun;
+    const powers = this.game.powers;
+    const mode = powers?.mode ?? 'normal';
+    const unarmed = !!powers?.unarmed;
+    const gun = inCar || p.isDead || unarmed ? null : p.gun;
+    const gadgets = !inCar && !p.isDead && mode !== 'normal' ? powers.gadgetInfo() : null;
     this._setLabel('jump', inCar ? 'РУЧНИК' : mode === 'ironman' ? 'ВЗЛЁТ' : 'ПРЫЖОК');
     this._setLabel('attack', inCar || p.isDead ? '' : mode === 'ironman' ? 'ЗАЛП' : gun ? 'ОГОНЬ' : 'УДАР');
-    this._setLabel('power', p.isDead ? '' : { normal: 'СИЛА', hulk: 'ХАЛК', ironman: 'ЖЕЛЕЗН.' }[mode]);
-    this._setLabel('descend', mode === 'ironman' && !inCar && this.game.powers.flying ? 'ВНИЗ' : '');
+    this._setLabel('power', p.isDead ? '' : { normal: 'СИЛА', hulk: 'СИЛА+', ironman: 'КОСТЮМ', titan: 'ТИТАН', boss: 'БОСС' }[mode]);
+    this._setLabel('descend', mode === 'ironman' && !inCar && powers.flying ? 'ВНИЗ' : '');
     this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
-    this._setLabel('reload', gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
+    // В режимах силы кнопки ОРУЖИЕ / ПЕРЕЗ. становятся способностями Q и R, плюс третья — G.
+    this._setLabel('reload', gadgets ? gadgets[1].name.slice(0, 9) : gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
+    this._setLabel('gadgetc', gadgets ? gadgets[2].name.slice(0, 9) : '');
     this._setLabel('squad', p.isDead ? '' : this.game.squad.size ? 'ОТПУСТ.' : 'БАНДА');
     this._setLabel('jobs', p.isDead ? '' : this.game.missions.active ? 'ЦЕЛЬ' : 'ЗАДАНИЯ');
-    this._setLabel('weapon', inCar || p.isDead || mode !== 'normal' ? '' : SHORT_NAMES[p.arsenal.current]);
+    this._setLabel('weapon', gadgets ? gadgets[0].name.slice(0, 9) : inCar || p.isDead || unarmed ? '' : SHORT_NAMES[p.arsenal.current]);
     if (!gun && this.input.virtualDown.has('aim')) this.setToggle('aim', false);
     const v = inCar ? null : p.findEnterableVehicle();
     const bank = inCar || v ? null : this.game.heists?.canStart();

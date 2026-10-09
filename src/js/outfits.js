@@ -226,6 +226,22 @@ export function gangLook(rng, color) {
   };
 }
 
+// Элитные бойцы босса (powers.js, режим БОСС БАНДЫ): чёрный костюм, золото или фиолет, очки, цепь.
+export function eliteLook(rng) {
+  const violet = rng.chance(0.35);
+  const accent = violet ? '#b44cff' : GOLD;
+  return {
+    skin: rng.pick(SKIN), hair: rng.pick(['#141414', '#141414', '#3b2a1a', '#555555']),
+    hairStyle: rng.pick(['slick', 'short', 'fade', 'buzz', 'bald', 'slick']),
+    beard: weighted(rng, [['none', 60], ['stubble', 18], ['goatee', 12], ['mustache', 10]]),
+    top: 'suit', shirt: rng.pick(['#101216', '#171a22', '#1d1024']), shirt2: rng.pick(['#f4f4f4', accent]), accent,
+    bottom: 'slim', pants: '#101216', shoes: '#0a0a0c', shoeStyle: 'dress',
+    glasses: rng.chance(0.8) ? 'shades' : null, chain: GOLD, watch: GOLD, earring: rng.chance(0.2) ? GOLD : null,
+    tattoo: rng.chance(0.25) ? rng.int(1, 4) : 0,
+    bulk: rng.range(1.05, 1.2), scale: rng.range(1.0, 1.1), arch: 'elite',
+  };
+}
+
 // Полиция: форменная рубашка с воротником, фуражка-кепка, тактические ботинки.
 export function policeLook(rng) {
   return {

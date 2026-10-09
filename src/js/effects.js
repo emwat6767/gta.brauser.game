@@ -10,7 +10,7 @@ import * as THREE from 'three';
 //   dustRing(point, radius)      — кольцо пыли (удар о землю)
 
 const MAX_TRACERS = 48;
-const MAX_PARTICLES = 500;
+const MAX_PARTICLES = 900;
 const MAX_FLASHES = 8;
 
 const COLORS = {
@@ -21,8 +21,13 @@ const COLORS = {
   fire: [new THREE.Color(0xff5a14), new THREE.Color(0xffc23a)],
   debris: [new THREE.Color(0x3a3a3a), new THREE.Color(0x77716a)],
   water: [new THREE.Color(0x8fc9ff), new THREE.Color(0xe6f4ff)],
+  gold: [new THREE.Color(0xffd45a), new THREE.Color(0xfff6cf)],
+  violet: [new THREE.Color(0xb44cff), new THREE.Color(0xffc8ff)],
+  toxic: [new THREE.Color(0x4cff6a), new THREE.Color(0xeaffb0)],
+  rubble: [new THREE.Color(0x6b6258), new THREE.Color(0xa59a8c)],
+  leaf: [new THREE.Color(0x3f8f3a), new THREE.Color(0x8fcf5a)],
 };
-const SPEED = { spark: 5, blood: 2.2, dust: 1.6, energy: 6, fire: 3.5, debris: 6, water: 4 };
+const SPEED = { spark: 5, blood: 2.2, dust: 1.6, energy: 6, fire: 3.5, debris: 6, water: 4, gold: 5, violet: 5, toxic: 5, rubble: 5, leaf: 3.5 };
 const LIFE = { spark: 0.25, energy: 0.3, fire: 0.45 };
 const MAX_RINGS = 6;
 
@@ -34,6 +39,11 @@ const PUFF = {
   haze: { c0: 0x8f8a84, c1: 0xb9b5b0, life: [1.6, 2.4], s0: 0.5, s1: 2.2, rise: 1.2, alpha: 0.35 },
   dust: { c0: 0x8c7f6d, c1: 0xa89d8c, life: [1, 1.6], s0: 1.2, s1: 4.4, rise: 0.35, alpha: 0.6 },
   spray: { c0: 0xeef7ff, c1: 0xa8cdea, life: [0.8, 1.2], s0: 0.35, s1: 1.4, rise: -4.5, alpha: 0.6 }, // вода: вверх и вниз
+  // Цветная энергия (vfx.js, режимы силы): светится, быстро гаснет.
+  plasma: { c0: 0xe8fbff, c1: 0x2a9dff, life: [0.35, 0.6], s0: 0.5, s1: 1.4, rise: 0.6, alpha: 0.8, add: true },
+  gold: { c0: 0xfff2b0, c1: 0xd18a10, life: [0.5, 0.9], s0: 0.45, s1: 1.2, rise: 1.4, alpha: 0.85, add: true },
+  violet: { c0: 0xffd6ff, c1: 0x7a1fd0, life: [0.45, 0.8], s0: 0.55, s1: 1.5, rise: 1.0, alpha: 0.8, add: true },
+  toxic: { c0: 0xeaffb0, c1: 0x2fbf3a, life: [0.4, 0.7], s0: 0.5, s1: 1.3, rise: 0.8, alpha: 0.75, add: true },
 };
 // Шейдер облаков пишет цвет в кадр как есть, поэтому храним его без перевода в линейное пространство.
 for (const k in PUFF) {
@@ -216,7 +226,7 @@ export class Effects {
     this.flashMat = flashMat;
 
     this.smokeLayer = new PuffLayer(scene, 110, false);
-    this.fireLayer = new PuffLayer(scene, 70, true);
+    this.fireLayer = new PuffLayer(scene, 170, true);
     this.renderer = null; // main.js: для размера облаков в пикселях
     this.camera = null;
 
