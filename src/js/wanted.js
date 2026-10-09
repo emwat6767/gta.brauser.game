@@ -57,7 +57,7 @@ export class WantedSystem {
   }
 
   addHeat(amount, minLevel = 0) {
-    if (this.game.player.isDead) return;
+    if (this.game.player.isDead || this.frozen) return;   // frozen — идёт дуэль (duel.js): полиция не вмешивается
     this.heat = Math.min(5.99, Math.max(this.heat + amount, minLevel));
     this.calm = 0;
     this._setLevel(Math.floor(this.heat));

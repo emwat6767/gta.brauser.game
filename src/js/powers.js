@@ -5,15 +5,16 @@ import { NPC } from './npc.js';
 import { aimPoint, raycastAll } from './ballistics.js';
 import { findTargetInFront } from './combat.js';
 import { eliteLook } from './outfits.js';
+import { MORE_MODES, MORE_GADGETS, MORE_CYCLE, installMore } from './powers-more.js';
 
 // Режимы силы игрока (X / кнопка СИЛА — по кругу). У каждого — свои множители движения (mods),
 // своя атака (F / ЛКМ) и три способности на Q, R, G (кнопки ОРУЖИЕ / ПЕРЕЗ. / третья на телефоне).
 // player.js спрашивает powers.mods и отдаёт сюда атаку, приземление и полёт; на время режима модель
 // игрока подменяется (своя расцветка и рост).
 //
-//   СИЛА (hulk)     — супер-сила, мало эффектов, зато ломает всё: деревья, фонари, машины, скамейки.
+//   КОЛОСС (colossus) — каменный великан: мало эффектов, зато ломает всё (деревья, фонари, машины, скамейки).
 //                     F — удар, Q — топот (землетрясение), R — прыжок-удар, G — рёв. E у машины — поднять.
-//   УМНЫЙ КОСТЮМ (ironman) — полёт и изобретения. F — репульсор, Q — ракеты с самонаведением,
+//   ЭКЗО-КОСТЮМ (exo) — полёт и изобретения. F — репульсор, Q — ракеты с самонаведением,
 //                     R — дроны-охотники, G — ЭМИ-купол со щитом. Space/Z — вверх/вниз.
 //   ТИТАН (titan)   — и сильный, и умный, но «в меру»: быстрее и крепче обычного, планирует (Space в
 //                     воздухе), каждый третий удар шлёт волну. Q — рывок, R — энергошар, G — притяжение.
@@ -25,15 +26,18 @@ import { eliteLook } from './outfits.js';
 
 const MODES = {
   normal: { name: 'Обычный', color: '#ffffff', walk: 1, run: 1, jump: 1, accel: 1, gravity: 1, damageTaken: 1, health: 100, scale: 1, unarmed: false },
-  hulk: {
-    name: 'СИЛА', color: '#6fdc4a', walk: 1.5, run: 1.75, jump: 3.9, accel: 1.4, gravity: 1.05, damageTaken: 0.15, health: 600, scale: 1.65, unarmed: true, noKnock: true,
-    look: { skin: '#5fa83c', hair: '#18140f', shirt: '#5fa83c', pants: '#5b2a86', shoes: '#5fa83c', scale: 1.65 },
-    hint: 'СИЛА: F — удар, Q — топот, R — прыжок-удар, G — рёв. Space — суперпрыжок, E у машины — поднять',
+  colossus: {
+    name: 'КОЛОСС', color: '#b7a98a', walk: 1.5, run: 1.75, jump: 3.9, accel: 1.4, gravity: 1.05, damageTaken: 0.15, health: 600, scale: 1.7, unarmed: true, noKnock: true,
+    look: { skin: '#8f8a7e', hair: '#5a564e', hairStyle: 'bald', shirt: '#7a756a', pants: '#4a463f', shoes: '#3a3733', tattoo: 2, scale: 1.7, bulk: 1.5 },
+    hint: 'КОЛОСС: F — удар, Q — топот, R — прыжок-удар, G — рёв. Space — суперпрыжок, E у машины — поднять',
   },
-  ironman: {
-    name: 'УМНЫЙ КОСТЮМ', color: '#ffcf4a', walk: 1.2, run: 1.4, jump: 1.3, accel: 1.3, gravity: 1, damageTaken: 0.3, health: 300, scale: 1.05, unarmed: true, fly: true,
-    look: { skin: '#9e1b24', hair: '#d4a23a', shirt: '#b8202b', pants: '#b8202b', shoes: '#d4a23a', hat: '#d4a23a', scale: 1.05 },
-    hint: 'КОСТЮМ: Space — взлёт, Z — вниз, F — репульсор, Q — ракеты, R — дроны, G — ЭМИ-щит',
+  exo: {
+    name: 'ЭКЗО-КОСТЮМ', color: '#5bd0ff', walk: 1.2, run: 1.4, jump: 1.3, accel: 1.3, gravity: 1, damageTaken: 0.3, health: 300, scale: 1.08, unarmed: true, fly: true, auto: true,
+    look: {
+      skin: '#cfd8e0', hair: '#e8f1f8', hairStyle: 'bald', shirt: '#e8f1f8', pants: '#dbe7f1', shoes: '#2b88c9', shoeStyle: 'boot',
+      hat: '#e8f1f8', hatStyle: 'helmet', glasses: 'visor', glassColor: '#5bd0ff', gloves: '#2b88c9', accent: '#2b88c9', scale: 1.08,
+    },
+    hint: 'ЭКЗО-КОСТЮМ: Space — взлёт, Z — вниз, F — репульсор, Q — ракеты, R — дроны, G — ЭМИ-щит',
   },
   titan: {
     name: 'ТИТАН', color: '#5bb8ff', walk: 1.25, run: 1.5, jump: 2.2, accel: 1.3, gravity: 0.92, damageTaken: 0.45, health: 350, scale: 1.3, unarmed: true, noKnock: true,
@@ -53,15 +57,16 @@ const MODES = {
     hint: 'БОСС: ты слаб, но с тобой банда. Q — позвать бойцов, R — молнии по цели, G — золотой купол. Пистолет — F',
   },
 };
-export const POWER_ORDER = ['normal', 'hulk', 'ironman', 'titan', 'boss'];
+Object.assign(MODES, MORE_MODES);   // Хронос, Тень, Гравитация, Фрост, дуэль (powers-more.js)
+export const POWER_ORDER = ['normal', 'colossus', 'exo', 'titan', 'boss', ...MORE_CYCLE];
 
 const GADGETS = {
-  hulk: [
+  colossus: [
     { key: 'Q', action: 'gadgetA', name: 'Топот', cd: 5, use: '_stomp' },
     { key: 'R', action: 'gadgetB', name: 'Прыжок-удар', cd: 4.5, use: '_leap' },
     { key: 'G', action: 'gadgetC', name: 'Рёв', cd: 9, use: '_roar' },
   ],
-  ironman: [
+  exo: [
     { key: 'Q', action: 'gadgetA', name: 'Ракеты', cd: 5, use: '_missiles' },
     { key: 'R', action: 'gadgetB', name: 'Дроны', cd: 16, use: '_drones' },
     { key: 'G', action: 'gadgetC', name: 'ЭМИ-щит', cd: 12, use: '_emp' },
@@ -77,9 +82,12 @@ const GADGETS = {
     { key: 'G', action: 'gadgetC', name: 'Купол', cd: 16, use: '_dome' },
   ],
 };
+Object.assign(GADGETS, MORE_GADGETS);
 export const ELITE_CAP = 16;
 
 const UP = new THREE.Vector3(0, 1, 0);
+const MELEE_HITS = { colossus: '_smash', titan: '_titanHit', chronos: '_chronoHit', shadow: '_shadowHit' };
+const PUFF_OF = { plasma: 'plasma', gold: 'gold', violet: 'violet', fire: 'fire', toxic: 'toxic', white: 'plasma', ice: 'plasma' };
 const ROCK = [0x8a8478, 0x6f6a60, 0x555048, 0xa09a8c];
 const _o = new THREE.Vector3(), _f = new THREE.Vector3(), _d = new THREE.Vector3(), _t = new THREE.Vector3(), _p = new THREE.Vector3();
 
@@ -108,6 +116,11 @@ export class PowerSystem {
     this.droneUntil = 0;
     this.elites = [];       // элитные бойцы босса (в squad.members тоже)
     this.auraTimer = 0;
+    this.speedMul = 1;      // временное ускорение игрока (ледяная дорожка и т.п.), читает player.js
+    this.dashTheme = 'plasma';
+    this.dashSpeed = 34;
+    this.dashDamage = 40;
+    this.initMore();
   }
 
   get mods() {
@@ -127,7 +140,7 @@ export class PowerSystem {
   }
 
   get canFly() {
-    return !!MODES[this.mode].fly;
+    return !!MODES[this.mode].fly || this.levitating;
   }
 
   get hasGadgets() {
@@ -135,7 +148,7 @@ export class PowerSystem {
   }
 
   get cannotDrive() {
-    return this.mode === 'hulk' || this.mode === 'titan';
+    return this.mode === 'colossus' || this.mode === 'titan';
   }
 
   // Множитель получаемого урона с учётом щита.
@@ -152,15 +165,22 @@ export class PowerSystem {
     }));
   }
 
+  // Для полосы режимов: список режимов круга X/V.
+  modeList() {
+    return POWER_ORDER.map((m) => ({ mode: m, name: MODES[m].name, color: MODES[m].color }));
+  }
+
   // Строка состояния режима (для панели оружия).
   statusText() {
     if (this.mode === 'boss') return `Свита ${this.elites.length}/${ELITE_CAP}`;
     return 'СИЛА';
   }
 
-  cycle() {
+  // dir: 1 — следующий режим (X), -1 — предыдущий (V). Дуэльные режимы вне круга (клавиша B, duel.js).
+  cycle(dir = 1) {
     const i = POWER_ORDER.indexOf(this.mode);
-    this.set(POWER_ORDER[(i + 1) % POWER_ORDER.length]);
+    if (i < 0) return this.set('normal');
+    this.set(POWER_ORDER[(i + dir + POWER_ORDER.length) % POWER_ORDER.length]);
   }
 
   set(mode) {
@@ -168,8 +188,10 @@ export class PowerSystem {
     const p = game.player;
     if (mode === this.mode || p.isDead) return;
     if (this.carried) this._drop();
-    if ((mode === 'hulk' || mode === 'titan') && p.vehicle) p.exitVehicle();
+    if ((mode === 'colossus' || mode === 'titan') && p.vehicle) p.exitVehicle();
     if (this.mode === 'boss') this.retireAll();
+    const prev = this.mode;
+    this.resetMore();
     this.queue.length = 0;
     this.slamArmed = false;
     this.dashT = 0;
@@ -197,10 +219,12 @@ export class PowerSystem {
     this.mode = mode;
     this.flying = false;
     this.gliding = false;
+    this.enterMore(mode);
+    game.duel?.onMode(prev, mode);
     const hex = new THREE.Color(M.color).getHex();
     game.effects.ring(p.position, 4, hex);
-    game.effects.burst(_o.copy(p.position).setY(p.position.y + 1.2), { x: 0, y: 1, z: 0 }, mode === 'hulk' ? 'dust' : mode === 'boss' ? 'gold' : 'energy', 30);
-    if (mode === 'ironman' || mode === 'titan') game.vfx.dome(_o.copy(p.position).setY(p.position.y + 1), 3.2, mode === 'titan' ? 'plasma' : 'white', 0.5, 0.3);
+    game.effects.burst(_o.copy(p.position).setY(p.position.y + 1.2), { x: 0, y: 1, z: 0 }, mode === 'colossus' ? 'dust' : mode === 'boss' ? 'gold' : 'energy', 30);
+    if (mode === 'exo' || mode === 'titan') game.vfx.dome(_o.copy(p.position).setY(p.position.y + 1), 3.2, mode === 'titan' ? 'plasma' : 'white', 0.5, 0.3);
     if (mode === 'boss') {
       game.vfx.pillar(p.position, 'gold', 30, 0.9, 0.9);
       game.vfx.aura(p, 'gold', 2, 50);
@@ -212,7 +236,7 @@ export class PowerSystem {
 
   _makeModel(mode) {
     const m = new Humanoid(MODES[mode].look);
-    if (mode === 'ironman') {
+    if (mode === 'exo') {
       // Дуговой реактор на груди и свечение ладоней.
       const glow = new THREE.MeshBasicMaterial({ color: 0xbff4ff, toneMapped: false });
       const reactor = new THREE.Mesh(new THREE.CircleGeometry(0.055, 14), glow);
@@ -240,16 +264,16 @@ export class PowerSystem {
   // Атака (F / ЛКМ) в режиме силы. true — обработано.
   attack() {
     switch (this.mode) {
-      case 'hulk': return this._hulkAttack();
-      case 'ironman': return this._repulsor();
+      case 'colossus': return this._colossusAttack();
+      case 'exo': return this._repulsor();
       case 'titan': return this._titanAttack();
-      default: return false;
+      default: return this.moreAttack();
     }
   }
 
   // Режимы, где F зажимают для непрерывной стрельбы.
   get autoAttack() {
-    return this.mode === 'ironman';
+    return !!MODES[this.mode].auto;
   }
 
   // --- Общие помощники --------------------------------------------------------------
@@ -321,7 +345,7 @@ export class PowerSystem {
 
   // --- СИЛА ------------------------------------------------------------------------
 
-  _hulkAttack() {
+  _colossusAttack() {
     const { game } = this;
     const p = game.player;
     if (this.carried) {
@@ -420,7 +444,13 @@ export class PowerSystem {
   onLand(vy) {
     const { game } = this;
     const p = game.player;
-    if (this.mode === 'hulk' && (vy < -12 || (this.slamArmed && vy < -4))) {
+    if (this.moreLand(vy)) {
+      this.slamArmed = false;
+      this.flying = false;
+      this.gliding = false;
+      return;
+    }
+    if (this.mode === 'colossus' && (vy < -12 || (this.slamArmed && vy < -4))) {
       const k = Math.min(1.8, Math.max(0.9, -vy / 16));
       game.chaos.blast(p.position, 8 * k, 80 * k, 18 * k, p, { ignore: p });
       game.world.breakTrees(p.position.x, p.position.z, 6 * k);
@@ -482,7 +512,7 @@ export class PowerSystem {
     for (let i = 0; i < n; i++) {
       const target = foes.length ? foes[i % foes.length] : null;
       this._later(i * 0.12, () => {
-        if (p.isDead || this.mode !== 'ironman') return;
+        if (p.isDead || this.mode !== 'exo') return;
         const from = p.model.muzzleWorld(_o).clone();
         from.y += 0.4;
         const side = (i % 2 ? 1 : -1) * (0.4 + i * 0.12);
@@ -542,7 +572,7 @@ export class PowerSystem {
     const { game } = this;
     const p = game.player;
     if (!this.drones.length || !this.drones[0].mesh.visible) return;
-    if (this.time > this.droneUntil || p.isDead || this.mode !== 'ironman') {
+    if (this.time > this.droneUntil || p.isDead || this.mode !== 'exo') {
       this._hideDrones();
       return;
     }
@@ -651,6 +681,9 @@ export class PowerSystem {
     this.dashDir.set(Math.sin(p.heading), 0, Math.cos(p.heading));
     this.dashT = 0.34;
     this.dashHit = 0;
+    this.dashTheme = 'plasma';
+    this.dashSpeed = 34;
+    this.dashDamage = 40;
     game.vfx.dome(_o.copy(p.position).setY(p.position.y + 1), 2.6, 'plasma', 0.3, 0.3);
     game.audio.zap?.(p.position);
     return true;
@@ -768,7 +801,7 @@ export class PowerSystem {
   }
 
   // Боец исчезает в золотом свечении (отпущен, отстал, режим сменился).
-  retire(npc, silent = false) {
+  retire(npc, silent = false, theme = 'gold') {
     const { game } = this;
     const i = this.elites.indexOf(npc);
     if (i >= 0) this.elites.splice(i, 1);
@@ -779,9 +812,9 @@ export class PowerSystem {
     npc.leader = null;
     if (!silent && !npc.isDead && npc.model.root.visible) {
       _o.set(npc.position.x, npc.position.y + 1, npc.position.z);
-      game.vfx.orb(_o, 'gold', 2.6, 0.4);
-      game.effects.burst(_o, UP, 'gold', 14);
-      game.effects.ring(npc.position, 2.5, 0xffd45a);
+      game.vfx.orb(_o, theme, 2.6, 0.4);
+      game.effects.burst(_o, UP, theme === 'violet' ? 'violet' : 'gold', 14);
+      game.effects.ring(npc.position, 2.5, theme === 'violet' ? 0xc77dff : 0xffd45a);
     }
     game.npcs.remove(npc);
   }
@@ -857,7 +890,7 @@ export class PowerSystem {
   grabOrThrow() {
     const { game } = this;
     const p = game.player;
-    if (this.mode !== 'hulk') return false;
+    if (this.mode !== 'colossus') return false;
     if (this.carried) {
       this._throw();
       return true;
@@ -916,10 +949,7 @@ export class PowerSystem {
     this.cooldown = Math.max(0, this.cooldown - dt);
     for (const k in this.cds) if (this.cds[k] > 0) this.cds[k] -= dt;
     if (this.comboTimer > 0 && (this.comboTimer -= dt) <= 0) this.combo = 0;
-    if (this.smashIn > 0 && (this.smashIn -= dt) <= 0) {
-      if (this.mode === 'titan') this._titanHit();
-      else this._smash();
-    }
+    if (this.smashIn > 0 && (this.smashIn -= dt) <= 0) this[MELEE_HITS[this.mode] ?? '_smash']();
     for (let i = this.queue.length - 1; i >= 0; i--) {
       if (this.time >= this.queue[i].t) {
         const [{ fn }] = this.queue.splice(i, 1);
@@ -931,25 +961,28 @@ export class PowerSystem {
     if (this.mode !== 'normal' && !p.isDead && !p.vehicle && !game.downState) {
       for (const g of GADGETS[this.mode]) {
         if (!game.input.wasPressed(g.action) || (this.cds[g.action] ?? 0) > 0) continue;
-        if (this[g.use]() !== false) this.cds[g.action] = g.cd;
+        if (this[g.use]() !== false) {
+          this.cds[g.action] = g.cd;
+          game.duel?.pulse(0.08);
+        }
       }
     }
 
     if (this.carried) {
       const v = this.carried;
-      if (v.removed || p.isDead || this.mode !== 'hulk') {
+      if (v.removed || p.isDead || this.mode !== 'colossus') {
         this._drop();
       } else {
         // Держит машину над головой поперёк себя.
-        const s = MODES.hulk.scale;
+        const s = MODES.colossus.scale;
         v.position.set(p.position.x, p.visualY + 2.45 * s, p.position.z);
         v.heading = p.heading + Math.PI / 2;
         v.velocity.set(0, 0, 0);
       }
     }
 
-    if (this.mode === 'hulk' && !p.vehicle && !p.isDead) this._hulkRun();
-    if (this.mode === 'ironman') {
+    if (this.mode === 'colossus' && !p.vehicle && !p.isDead) this._colossusRun();
+    if (this.mode === 'exo') {
       this._updateDrones(dt);
       if (!p.vehicle) {
         this.flying = !p.grounded;
@@ -966,10 +999,12 @@ export class PowerSystem {
     }
     if (this.mode === 'titan') this._updateTitan(dt);
     if (this.mode === 'boss') this._updateBoss(dt);
+    if (this.dashT > 0) this._updateDash(dt);
+    this.updateMore(dt);
   }
 
   // На бегу СИЛА валит деревья и фонари, сносит скамейки (chaos.js), вминает машины.
-  _hulkRun() {
+  _colossusRun() {
     const { game } = this;
     const p = game.player;
     if (p.horizontalSpeed < 3.5) return;
@@ -999,25 +1034,28 @@ export class PowerSystem {
         game.effects.burst(_o, { x: 0, y: -0.6, z: 0 }, 'energy', 1);
       }
     }
-    // Рывок.
-    if (this.dashT > 0) {
-      this.dashT -= dt;
-      p.velocity.x = this.dashDir.x * 34;
-      p.velocity.z = this.dashDir.z * 34;
-      p.heading = Math.atan2(this.dashDir.x, this.dashDir.z);
-      this.dashHit -= dt;
-      _o.set(p.position.x, p.position.y + 1, p.position.z);
-      game.effects.puff('plasma', _o, { x: -this.dashDir.x * 2, y: 0.3, z: -this.dashDir.z * 2 }, 0.9);
-      if (this.dashHit <= 0) {
-        this.dashHit = 0.07;
-        _t.set(p.position.x + this.dashDir.x * 1.6, p.position.y + 1, p.position.z + this.dashDir.z * 1.6);
-        game.chaos.blast(_t, 2.2, 40, 11, p, { dirX: this.dashDir.x, dirZ: this.dashDir.z, ignore: p, kind: 'punch' });
-        game.world.breakTrees(_t.x, _t.z, 1.6, this.dashDir.x, this.dashDir.z);
-      }
-      if (this.dashT <= 0) {
-        game.vfx.dome(_o, 2.8, 'plasma', 0.25, 0.25);
-        game.cameraRig.addShake?.(0.25);
-      }
+  }
+
+  // Рывок (Титан, Тень, дуэль): летит вперёд, сбивая всё на пути. Параметры — dashTheme/dashSpeed/dashDamage.
+  _updateDash(dt) {
+    const { game } = this;
+    const p = game.player;
+    this.dashT -= dt;
+    p.velocity.x = this.dashDir.x * this.dashSpeed;
+    p.velocity.z = this.dashDir.z * this.dashSpeed;
+    p.heading = Math.atan2(this.dashDir.x, this.dashDir.z);
+    this.dashHit -= dt;
+    _o.set(p.position.x, p.position.y + 1, p.position.z);
+    game.effects.puff(PUFF_OF[this.dashTheme] ?? 'plasma', _o, { x: -this.dashDir.x * 2, y: 0.3, z: -this.dashDir.z * 2 }, 0.9);
+    if (this.dashHit <= 0) {
+      this.dashHit = 0.07;
+      _t.set(p.position.x + this.dashDir.x * 1.6, p.position.y + 1, p.position.z + this.dashDir.z * 1.6);
+      game.chaos.blast(_t, 2.2, this.dashDamage, 11, p, { dirX: this.dashDir.x, dirZ: this.dashDir.z, ignore: p, kind: 'punch' });
+      game.world.breakTrees(_t.x, _t.z, 1.6, this.dashDir.x, this.dashDir.z);
+    }
+    if (this.dashT <= 0) {
+      game.vfx.dome(_o, 2.8, this.dashTheme, 0.25, 0.25);
+      game.cameraRig.addShake?.(0.25);
     }
   }
 
@@ -1046,3 +1084,5 @@ export class PowerSystem {
     velocity.y += (want - velocity.y) * Math.min(1, dt * 4);
   }
 }
+
+installMore(PowerSystem);

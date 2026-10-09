@@ -171,6 +171,7 @@ export class NPC {
     this.leader = null;
     this.slot = 0;        // место в строю / в машине
     this.removed = false;
+    this.timeScale = 1;     // своё замедление (ХРОНОС, лёд): 0 — стоит как статуя
     this.boss = null;       // компонент босса (bosses.js): способности, щит, полоса здоровья
     this.superArmor = false; // не сбивается с ног и не шатается (боссы)
     this.cast = 0;          // > 0 — занят способностью: стоит на месте (bosses.js рулит им сам)
@@ -1039,7 +1040,7 @@ export class NPCManager {
     game.events.on('chaos:blast', ({ point, radius, attacker }) => this.scare(point, Math.max(CONFIG.npc.panicRadius, radius * 7), attacker, LINES.blast));
   }
 
-  // Прохожие в радиусе от точки разбегаются (стрельба, взрыв, удар Халка).
+  // Прохожие в радиусе от точки разбегаются (стрельба, взрыв, удар Колосса).
   scare(position, radius, shooter = null, lines = LINES.scream) {
     const rng = this.game.rng;
     const r2 = radius * radius;
@@ -1213,6 +1214,10 @@ export class NPCManager {
       if (lod !== npc.lod) npc.lod = lod;
       npc.model.body.visible = npc.vehicle ? d2 < N.driverVisible ** 2 : !lod;
       if (d2 > freeze2 && npc.state !== NPC_STATE.FIGHT && !npc.vehicle) continue;
+      if (npc.timeScale !== 1) {
+        if (npc.timeScale > 0) npc.update(dt * npc.timeScale);
+        continue;
+      }
       npc.update(dt);
       if (npc.isDead && npc.stateTime > N.corpseTime && d2 > 900) this.remove(npc);
     }

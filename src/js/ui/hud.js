@@ -5,6 +5,7 @@ import * as THREE from 'three';
 // крупные сообщения ("ПОТРАЧЕНО"), полоса ограбления, панель управления (H).
 
 const _v = new THREE.Vector3();
+const ENERGY_MODES = new Set(['exo', 'titan', 'gravity', 'frost', 'duel_villain', 'duel_hero']);   // режимы, где F целится прицелом
 export const formatMoney = (n) => `$${Math.floor(n).toLocaleString('ru-RU')}`;
 
 export class HUD {
@@ -56,6 +57,9 @@ export class HUD {
     this.bossEl = document.getElementById('boss-bar');
     this.bossName = document.getElementById('boss-name');
     this.bossFill = document.getElementById('boss-fill');
+    this.modeEl = document.getElementById('modestrip');
+    this.timeEl = document.getElementById('timefx');
+    this._modeTimer = 0;
     this._gadgetMode = '';
     this._bossKey = '';
 
@@ -69,6 +73,7 @@ export class HUD {
       setTimeout(() => el.remove(), 1300);
     });
 
+    game.events.on('power:changed', () => this._showModes());
     game.events.on('wanted:changed', ({ level, up }) => {
       this.stars.forEach((star, i) => star.classList.toggle('on', i < level));
       if (up) {
@@ -146,6 +151,18 @@ export class HUD {
     if (label == null) return;
     this.heistLabel.textContent = label;
     this.heistFill.style.width = `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+  }
+
+  // Полоса режимов на пару секунд после смены (X вперёд, V назад): видно, что дальше.
+  _showModes() {
+    const pw = this.game.powers;
+    const list = pw.modeList();
+    const cur = pw.mode;
+    let html = list.map((m) => `<span class="${m.mode === cur ? 'on' : ''}" style="--mc:${m.color}">${m.name}</span>`).join('');
+    if (!list.some((m) => m.mode === cur)) html += `<span class="on" style="--mc:${pw.color}">${pw.name}</span>`;
+    this.modeEl.innerHTML = html;
+    this.modeEl.classList.remove('hidden');
+    this._modeTimer = 2.8;
   }
 
   // Способности режима силы (Q R G): подпись и полоска готовности.
@@ -262,10 +279,13 @@ export class HUD {
       this.weaponAmmoEl.classList.toggle('empty', !!gun && gun.mag === 0);
     }
     this._updateGadgets(powers);
+    if (this._modeTimer > 0 && (this._modeTimer -= dt) <= 0) this.modeEl.classList.add('hidden');
+    const ts = this.game.timeScale;
+    this.timeEl.style.opacity = ts < 0.99 ? String(Math.min(1, 1 - ts)) : '0';
     this._updateBossBar();
     this.reloadBar.classList.toggle('hidden', !gun?.reloading);
     if (gun?.reloading) this.reloadFill.style.width = `${Math.round(gun.reloadProgress * 100)}%`;
-    const energy = modeTag === 'ironman' || modeTag === 'titan';
+    const energy = ENERGY_MODES.has(modeTag);
     const showCross = (!!gun || energy) && !player.vehicle && !player.isDead &&
       (player.aiming || player.shootTimer > 0 || this.game.input.touchActive || this.game.input.pointerLocked);
     this.crosshair.classList.toggle('hidden', !showCross);
@@ -288,7 +308,7 @@ export class HUD {
     // Подсказка взаимодействия.
     let prompt = '';
     if (player.vehicle) prompt = '<b>E</b> — выйти из машины';
-    else if (powers?.mode === 'hulk') {
+    else if (powers?.mode === 'colossus') {
       prompt = powers.carried ? '<b>F</b> или <b>E</b> — бросить машину' : this.game.heists?.prompt() || '';
       if (!prompt && this.game.vehicles.some((v) => !v.carried && v.distanceToPoint(player.position.x, player.position.z) < 3.2)) prompt = '<b>E</b> — поднять машину';
     } else {

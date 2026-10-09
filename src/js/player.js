@@ -15,7 +15,7 @@ import { clamp, damp, dampAngle } from './utils.js';
 // Здоровье: урон от кулаков, пуль и машин, восстановление вне боя; смерть — рэгдолл
 // и game.onPlayerDown('wasted').
 // Суперсилы (powers.js): множители движения (powers.mods), атака режима вместо оружия,
-// приземление Халка (ударная волна), полёт Железного человека (без гравитации).
+// приземление Колосса (ударная волна), полёт Экзо-костюма (без гравитации).
 
 const _o = new THREE.Vector3(), _f = new THREE.Vector3(), _m = new THREE.Vector3(), _dir = new THREE.Vector3();
 const _eye = new THREE.Vector3(), _aimAt = new THREE.Vector3(), _camF = new THREE.Vector3();
@@ -175,6 +175,7 @@ export class Player {
     const amount = Math.min(1, Math.hypot(f, s));
     let targetSpeed = (input.isDown('run') && !this.aiming ? P.runSpeed * M.run : P.walkSpeed * M.walk) * amount;
     if (flying) targetSpeed = (input.isDown('run') ? 42 : 17) * amount; // полёт: Shift — ускорение
+    targetSpeed *= powers?.speedMul ?? 1;
     if (this.melee.active) targetSpeed *= 0.3;
     if (this.aiming) targetSpeed *= 0.5;
     const moving = amount > 0.1;
@@ -193,7 +194,7 @@ export class Player {
     }
 
     // Разгон к желаемой скорости.
-    const accel = (this.grounded ? P.accel : flying ? 30 : P.airAccel) * M.accel;
+    const accel = (this.grounded ? P.accel : flying ? 30 : P.airAccel) * M.accel * (powers?.speedMul ?? 1);
     let dvx = mx * targetSpeed - this.velocity.x;
     let dvz = mz * targetSpeed - this.velocity.z;
     const dl = Math.hypot(dvx, dvz);
@@ -208,8 +209,8 @@ export class Player {
     if (control && this.grounded && !this.aiming && input.wasPressed('jump')) {
       this.velocity.y = P.jumpSpeed * M.jump;
       this.grounded = false;
-      // Халк прыгает ещё и вперёд, если бежал.
-      if (powers?.mode === 'hulk' && this.horizontalSpeed > 3) {
+      // Колосс прыгает ещё и вперёд, если бежал.
+      if (powers?.mode === 'colossus' && this.horizontalSpeed > 3) {
         this.velocity.x *= 1.6;
         this.velocity.z *= 1.6;
       }

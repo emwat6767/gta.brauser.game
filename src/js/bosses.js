@@ -22,6 +22,8 @@ import { lineOfSight } from './ballistics.js';
 
 const AGGRO_VILLAIN = 42;
 const RESPAWN = { villain: 330, hero: 270 };
+export const DUEL_HP = 1100;           // здоровье соперника в дуэли
+const DUEL_DAMAGE = 0.65;              // его урон по игроку в дуэли
 const ACTIVE_DISTANCE = 230;     // дальше босс не думает (NPC и так «заморожен»)
 const BAR_DISTANCE = 75;
 const MAX_MINIONS = 8;
@@ -29,7 +31,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const ROCK = [0x8a8478, 0x6f6a60, 0x555048, 0xa09a8c];
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 
-const DEFS = {
+export const DEFS = {
   villain: {
     name: 'Damon Crowe', title: 'Злодей города', color: '#b44cff', theme: 'violet', health: 1500, home: 'tower',
     look: {
@@ -71,7 +73,7 @@ const ABILITIES = {
       game.vfx.bolt(from, to, T, { life: 0.28, width: 0.4, jag: 1.1, segs: 11 });
       game.vfx.orb(from, T, 1.8, 0.2);
       b.hurt(t, this.dmg, 2.2, 6);
-      game.vfx.explosion(to, { theme: T, aoe: 2.6, damage: 14, force: 7, owner: b.npc, only: b.only, sound: false });
+      game.vfx.explosion(to, { theme: T, aoe: 2.6, damage: b.d(14), force: 7, owner: b.npc, only: b.only, sound: false });
     },
   },
   slam: {
@@ -102,13 +104,13 @@ const ABILITIES = {
           const sky = new THREE.Vector3(hit.x + (Math.random() - 0.5) * 8, hit.y + 40, hit.z + (Math.random() - 0.5) * 8);
           const th = i % 2 ? alt : T;
           game.vfx.bolt(sky, hit, th, { life: 0.34, width: 0.5, jag: 1.6, segs: 12 });
-          game.vfx.explosion(hit, { theme: th, aoe: 3.4, damage: 40, force: 11, owner: b.npc, only: b.only });
+          game.vfx.explosion(hit, { theme: th, aoe: 3.4, damage: b.d(40), force: 11, owner: b.npc, only: b.only });
         });
       }
     },
   },
   summon: {
-    cd: 26, range: [0, 60], wind: 1.0, cond: (b) => b.kind === 'villain' && b.hp < 0.82 && b.system.minions.length < MAX_MINIONS - 2,
+    cd: 26, range: [0, 60], wind: 1.0, cond: (b) => b.kind === 'villain' && !b.duel && b.hp < 0.82 && b.system.minions.length < MAX_MINIONS - 2,
     fire(b, t) {
       b.summon(t);
     },
@@ -158,6 +160,8 @@ class Boss {
     this.auraTimer = 0;
     this.idleFor = 0;
     this.march = null;       // идёт на столкновение: узел графа
+    this.suspended = false;  // игрок играет за него (дуэль): NPC убран из мира
+    this.duel = false;       // дерётся с игроком в дуэли (duel.js)
     this.homeNodes = null;
     this.home = null;
     this.casts = 0;
@@ -231,8 +235,14 @@ class Boss {
   }
 
   // Дамаж цели способностью. Игрок в машине: бьём машину.
+  // Урон способностей: в дуэли слабее (игрок один против босса).
+  d(x) {
+    return this.duel ? x * DUEL_DAMAGE : x;
+  }
+
   hurt(t, dmg, impulse = 0, knock = 0) {
     const { game } = this.system;
+    dmg = this.d(dmg);
     const dx = t.position.x - this.npc.position.x, dz = t.position.z - this.npc.position.z;
     const l = Math.hypot(dx, dz) || 1;
     if (t.vehicle) {
@@ -268,7 +278,7 @@ class Boss {
     const T = this.def.theme;
     this.slam = null;
     n.cast = 0.35;
-    game.vfx.explosion(_a.copy(n.position), { theme: T, aoe: 7.5, damage: 42, force: 17, owner: n, only: this.only });
+    game.vfx.explosion(_a.copy(n.position), { theme: T, aoe: 7.5, damage: this.d(42), force: 17, owner: n, only: this.only });
     game.vfx.dome(_a.set(n.position.x, n.position.y + 0.3, n.position.z), 8, T, 0.5, 0.35);
     const g = game.world.getGroundHeight(n.position.x, n.position.z);
     if (g < 0.3) game.vfx.crater(_b.set(n.position.x, g, n.position.z), UP, 6.5);
@@ -314,6 +324,8 @@ class Boss {
 
   // Выбор цели: игрок, другой босс или подручные врага.
   chooseTarget() {
+    const duel = this.system.game.duel;
+    if (duel?.active) return duel.targetFor(this);
     const { game } = this.system;
     const n = this.npc;
     const p = game.player;
@@ -386,7 +398,7 @@ class Boss {
     const A = ABILITIES[id];
     const n = this.npc;
     const { game } = this.system;
-    this.cds[id] = A.cd * (0.85 + Math.random() * 0.3);
+    this.cds[id] = A.cd * (0.85 + Math.random() * 0.3) * (this.duel ? 0.8 : 1);
     this.wind = { t: A.wind, id, target: t };
     n.cast = A.wind + 0.05;
     n.melee.cancel();
@@ -416,6 +428,60 @@ class Boss {
       this.engage(who);
     }
     if (this.system.game.rng.chance(0.08)) this.say('hurt');
+  }
+
+  // Игрок играет за этого босса (дуэль): NPC уходит далеко и «замораживается».
+  suspend() {
+    this.suspended = true;
+    const n = this.npc;
+    if (!n || n.removed) return;
+    n.target = null;
+    this.wind = null;
+    this.slam = null;
+    this.charge = null;
+    if (n.state === NPC_STATE.FIGHT || n.isDown) n._enter(NPC_STATE.WALK);
+    n.cast = 0;
+    n.position.set(5000, 0, 5000);
+  }
+
+  unsuspend() {
+    this.suspended = false;
+    this.duel = false;
+    const n = this.npc;
+    if (!n || n.removed || n.isDead) return;
+    const { game } = this.system;
+    n.position.set(this.home.x, game.world.getGroundHeight(this.home.x, this.home.z), this.home.z);
+    n.visualY = n.position.y;
+    n.allowedNodes = this.homeNodes;
+    n.target = null;
+    n.prevNode = null;
+    n._setTarget(n._nearestAllowedNode());
+    if (n.state === NPC_STATE.FIGHT) n._enter(NPC_STATE.WALK);
+  }
+
+  // Прилёт в дуэли: падает с неба рядом с игроком и бьёт ударной волной (land()).
+  arrive(x, z) {
+    const { game } = this.system;
+    const n = this.npc;
+    const g = game.world.getGroundHeight(x, z);
+    n.target = null;
+    n.panic = 0;
+    n.dest = null;
+    n.allowedNodes = null;
+    if (n.isDown) n._enter(NPC_STATE.WALK);
+    n.position.set(x, g + 60, z);
+    n.visualY = n.position.y;
+    n.knock.set(0, -42, 0);
+    n.airborne = true;
+    n.cast = 4;
+    this.wind = null;
+    this.charge = null;
+    this.slam = { t: 0 };
+    this.suspended = false;
+    this.duel = true;
+    this.cds = {};
+    n.maxHealth = DUEL_HP;
+    n.health = DUEL_HP;
   }
 
   update(dt) {
@@ -454,7 +520,7 @@ class Boss {
       if (near || c.t <= 0) {
         this.charge = null;
         n.cast = 0.35;
-        game.vfx.explosion(_a.set(n.position.x + c.dx * 1.5, n.position.y + 0.8, n.position.z + c.dz * 1.5), { theme: this.def.theme, aoe: 4, damage: 36, force: 15, owner: n, only: this.only });
+        game.vfx.explosion(_a.set(n.position.x + c.dx * 1.5, n.position.y + 0.8, n.position.z + c.dz * 1.5), { theme: this.def.theme, aoe: 4, damage: this.d(36), force: 15, owner: n, only: this.only });
         if (near) this.hurt(t, 22, 3, 12);
       }
     }
@@ -564,6 +630,7 @@ export class BossSystem {
 
   // Игрок видит полосу ближайшего босса, пока он рядом и в бою (или совсем близко).
   barTarget() {
+    if (this.game.duel?.active) return null;   // в дуэли — своя панель (duel.js)
     const p = this.game.player.position;
     let best = null, bestD = BAR_DISTANCE;
     for (const b of this.list) {
@@ -626,6 +693,7 @@ export class BossSystem {
   _startClash() {
     const { game } = this;
     const v = this.villain, h = this.hero;
+    if (this.game.duel?.active || v.suspended || h.suspended) return false;
     if (!v.alive || !h.alive || v.engaged || h.engaged) return false;
     const mid = { x: (v.home.x + h.home.x) / 2, z: (v.home.z + h.home.z) / 2 };
     const node = game.world.nearestWaypoint(mid.x, mid.z);
@@ -691,6 +759,7 @@ export class BossSystem {
     }
 
     for (const b of this.list) {
+      if (b.suspended) continue;
       if (!b.npc || b.npc.removed) {
         // Тело убрано: ждём возрождения.
         b.npc = null;
@@ -708,6 +777,7 @@ export class BossSystem {
     }
 
     // Столкновение.
+    if (this.clash && this.game.duel?.active) this._endClash('duel');
     if (this.clash) this._updateClash(dt);
     else if ((this.clashTimer -= dt) <= 0) {
       this.clashTimer = rngRange(game, 180, 300);

@@ -23,6 +23,7 @@ export const THEMES = {
   fire: { hex: 0xff6a1a, core: 0xfff0b0, puff: 'fire', burst: 'fire', ring: 0xffa04a },
   toxic: { hex: 0x4cff6a, core: 0xeaffb0, puff: 'toxic', burst: 'toxic', ring: 0x7dff9a },
   white: { hex: 0xdfe8ff, core: 0xffffff, puff: 'plasma', burst: 'spark', ring: 0xffffff },
+  ice: { hex: 0x9fe6ff, core: 0xffffff, puff: 'plasma', burst: 'energy', ring: 0xcfeeff },
 };
 
 const MAX_BOLTS = 24, BOLT_SEGS = 14;

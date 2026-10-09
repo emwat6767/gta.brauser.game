@@ -33,8 +33,9 @@
         <tr><td>E</td><td>сесть в машину / угнать / выйти / ограбить банк</td></tr>
         <tr><td>T</td><td>позвать банду / отпустить</td></tr>
         <tr><td>J</td><td>меню банды: задания, репутация, районы</td></tr>
-        <tr><td>X</td><td>режим силы: Сила / Умный костюм / Титан / Босс банды / обычный</td></tr>
-        <tr><td>Q R G</td><td>способности режима (внизу экрана); Z — костюм летит вниз</td></tr>
+        <tr><td>X / V</td><td>режим силы вперёд / назад: Колосс, Экзо-костюм, Титан, Босс банды, Хронос, Тень, Гравитация, Фрост</td></tr>
+        <tr><td>Q R G</td><td>способности режима (внизу экрана); Z — вниз в полёте</td></tr>
+        <tr><td>B</td><td>дуэль героя и злодея: за злодея → за героя → выкл. Убей прохожего — прилетит соперник, начнётся стрим</td></tr>
         <tr><td>N</td><td>время суток: к следующей фазе</td></tr>
         <tr><td>O</td><td>сменить одежду</td></tr>
         <tr><td>M</td><td>звук вкл/выкл</td></tr>
@@ -52,6 +53,22 @@
       </div>
     </div>
     <div id="gadgets" class="hidden"></div>
+    <div id="modestrip" class="hidden"></div>
+    <div id="timefx"></div>
+    <div id="stream" class="hidden">
+      <div id="stream-head"><span id="stream-live">LIVE</span><span id="stream-title">СУПЕРБОЙ</span><b id="stream-viewers">0</b></div>
+      <div id="stream-pip"></div>
+      <div id="stream-meta"><span>пик <b id="stream-peak">0</b></span><span>в зале <b id="stream-crowd">0</b></span><span>донаты <b id="stream-don">$0</b></span></div>
+      <div id="stream-hype"><i></i></div>
+      <div id="stream-chat"></div>
+    </div>
+    <div id="duel-bar" class="hidden">
+      <div class="duel-side"><span id="duel-lname"></span><div class="duel-track"><i id="duel-lfill"></i></div></div>
+      <div id="duel-vs">VS</div>
+      <div class="duel-side right"><span id="duel-rname"></span><div class="duel-track"><i id="duel-rfill"></i></div></div>
+    </div>
+    <div id="duel-splash" class="hidden"><div id="duel-splash-l"></div><b>VS</b><div id="duel-splash-r"></div></div>
+    <div id="duel-summary" class="hidden"></div>
     <div id="boss-bar" class="hidden"><div id="boss-name"></div><div id="boss-track"><div id="boss-fill"></div></div></div>
     <div id="crosshair" class="hidden"><i></i><i></i><i></i><i></i></div>
     <div id="hitmarker"><span></span></div>
@@ -83,6 +100,7 @@
     <button type="button" class="tbtn tbtn-squad" data-id="squad" data-action="squad">БАНДА</button>
     <button type="button" class="tbtn tbtn-jobs" data-id="jobs" data-action="jobs">ЗАДАНИЯ</button>
     <button type="button" class="tbtn tbtn-power" data-id="power" data-action="power">СИЛА</button>
+    <button type="button" class="tbtn tbtn-duel" data-id="duel" data-action="duel">ДУЭЛЬ</button>
     <button type="button" class="tbtn tbtn-time" data-id="time" data-action="timeOfDay">ВРЕМЯ</button>
     <button type="button" class="tbtn tbtn-outfit" data-id="outfit" data-action="outfit">ОБРАЗ</button>
     <button type="button" class="tbtn tbtn-descend" data-id="descend" data-action="descend" hidden>ВНИЗ</button>
@@ -100,7 +118,7 @@
   <div id="overlay">
     <div class="panel">
       <h1>OPEN CITY</h1>
-      <p class="subtitle">живой город: банды делят районы, полиция, погони, ограбления — и режимы Халка и Железного человека</p>
+      <p class="subtitle">живой город: банды делят районы, полиция, погони, ограбления, злодей и герой, режимы силы и дуэль со стримом</p>
       <table class="controls controls-desktop">
         <tr><td>W A S D</td><td>движение, в машине — газ / тормоз / руль</td></tr>
         <tr><td>Мышь</td><td>обзор, колесо — приблизить / отдалить</td></tr>
@@ -112,7 +130,8 @@
         <tr><td>E</td><td>сесть в машину, угнать с водителем, выйти; у двери банка ($) — ограбить</td></tr>
         <tr><td>T</td><td>позвать банду: бойцы идут за вами, садятся в машину, бьют полицию, прохожих и чужие банды</td></tr>
         <tr><td>J</td><td>меню банды: задания (угон, зачистка, магазин, доставка), репутация, войны за районы</td></tr>
-        <tr><td>X</td><td>суперсила: Халк (удар, суперпрыжок, E — поднять машину) → Железный человек (полёт: Space/Z, Shift, F — залп) → обычный</td></tr>
+        <tr><td>X / V</td><td>режимы силы: Колосс, Экзо-костюм, Титан, Босс банды, Хронос (время), Тень, Гравитация, Фрост; способности на Q, R, G</td></tr>
+        <tr><td>B</td><td>дуэль героя и злодея: играй за любого, убей прохожего — прилетит соперник, а весь город смотрит стрим</td></tr>
         <tr><td>N</td><td>время суток: утро, день, вечер, ночь</td></tr>
         <tr><td>O</td><td>сменить одежду (образы горожан)</td></tr>
         <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
@@ -121,7 +140,7 @@
         <tr><td>Джойстик слева</td><td>ходьба, до упора — бег; в машине — газ, тормоз, руль</td></tr>
         <tr><td>Свайп справа</td><td>поворот камеры</td></tr>
         <tr><td>Кнопки</td><td>удар / огонь (с автонаведением), прицел, оружие, прыжок / ручник, сесть / выйти / грабить</td></tr>
-        <tr><td>БАНДА · ЗАДАНИЯ · СИЛА</td><td>справа вверху: отряд, меню банды, суперсила</td></tr>
+        <tr><td>БАНДА · ЗАДАНИЯ · СИЛА · ДУЭЛЬ</td><td>справа вверху: отряд, меню банды, режим силы, дуэль героя и злодея</td></tr>
         <tr><td>ВРЕМЯ · ОБРАЗ</td><td>время суток (утро, день, вечер, ночь) и смена одежды</td></tr>
       </table>
       <p class="rotate-hint">Лучше играть, повернув телефон горизонтально</p>

@@ -230,7 +230,7 @@ export class SoundSystem {
     (sir.pan ? sir.gain.connect(sir.pan) : sir.gain).connect(this.master);
     sir.osc.start();
     sir.lfo.start();
-    // Реактивные ботинки Железного человека: шум с полосовым фильтром.
+    // Реактивные ботинки Экзо-костюма: шум с полосовым фильтром.
     const jet = { src: ctx.createBufferSource(), filter: ctx.createBiquadFilter(), gain: ctx.createGain() };
     jet.src.buffer = this.noise;
     jet.src.loop = true;
@@ -284,7 +284,7 @@ export class SoundSystem {
     }
     sir.gain.gain.setTargetAtTime(sirenGain, t, 0.2);
     // Полёт
-    const flying = !quiet && game.powers?.mode === 'ironman' && game.powers.flying;
+    const flying = !quiet && !!game.powers?.flying;
     const pv = game.player.velocity;
     const sp = Math.hypot(pv.x, pv.y, pv.z);
     jet.filter.frequency.setTargetAtTime(600 + Math.min(sp, 45) * 35, t, 0.1);
@@ -295,7 +295,7 @@ export class SoundSystem {
   powerUp(mode) {
     if (!this.ctx || this.muted) return;
     const when = this.ctx.currentTime;
-    if (mode === 'hulk') this._tone({ when, duration: 0.6, freq: 110, freqEnd: 55, type: 'sawtooth', gain: 0.5 });
+    if (mode === 'colossus') this._tone({ when, duration: 0.6, freq: 110, freqEnd: 55, type: 'sawtooth', gain: 0.5 });
     else this._tone({ when, duration: 0.4, freq: 300, freqEnd: 1200, type: 'triangle', gain: 0.3 });
   }
 

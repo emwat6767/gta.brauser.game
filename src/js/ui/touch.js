@@ -231,10 +231,10 @@ export class TouchControls {
     const unarmed = !!powers?.unarmed;
     const gun = inCar || p.isDead || unarmed ? null : p.gun;
     const gadgets = !inCar && !p.isDead && mode !== 'normal' ? powers.gadgetInfo() : null;
-    this._setLabel('jump', inCar ? 'РУЧНИК' : mode === 'ironman' ? 'ВЗЛЁТ' : 'ПРЫЖОК');
-    this._setLabel('attack', inCar || p.isDead ? '' : mode === 'ironman' ? 'ЗАЛП' : gun ? 'ОГОНЬ' : 'УДАР');
-    this._setLabel('power', p.isDead ? '' : { normal: 'СИЛА', hulk: 'СИЛА+', ironman: 'КОСТЮМ', titan: 'ТИТАН', boss: 'БОСС' }[mode]);
-    this._setLabel('descend', mode === 'ironman' && !inCar && powers.flying ? 'ВНИЗ' : '');
+    this._setLabel('jump', inCar ? 'РУЧНИК' : powers?.canFly ? 'ВЗЛЁТ' : 'ПРЫЖОК');
+    this._setLabel('attack', inCar || p.isDead ? '' : mode === 'exo' ? 'ЗАЛП' : gun ? 'ОГОНЬ' : 'УДАР');
+    this._setLabel('power', p.isDead ? '' : { normal: 'СИЛА', colossus: 'КОЛОСС', exo: 'ЭКЗО', titan: 'ТИТАН', boss: 'БОСС', chronos: 'ХРОНОС', shadow: 'ТЕНЬ', gravity: 'ГРАВИТ.', frost: 'ФРОСТ', duel_villain: 'ЗЛОДЕЙ', duel_hero: 'ГЕРОЙ' }[mode]);
+    this._setLabel('descend', powers?.canFly && !inCar && powers.flying ? 'ВНИЗ' : '');
     this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
     // В режимах силы кнопки ОРУЖИЕ / ПЕРЕЗ. становятся способностями Q и R, плюс третья — G.
     this._setLabel('reload', gadgets ? gadgets[1].name.slice(0, 10) : gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
@@ -246,7 +246,7 @@ export class TouchControls {
     const v = inCar ? null : p.findEnterableVehicle();
     const bank = inCar || v ? null : this.game.heists?.canStart();
     let interact = inCar ? 'ВЫЙТИ' : v ? (v.driver ? 'УГНАТЬ' : 'СЕСТЬ') : bank ? 'ГРАБИТЬ' : '';
-    if (mode === 'hulk' && !inCar) {
+    if (mode === 'colossus' && !inCar) {
       const car = this.game.powers.carried ? 'БРОСИТЬ'
         : this.game.vehicles.some((c) => !c.carried && c.distanceToPoint(p.position.x, p.position.z) < 3.2) ? 'ПОДНЯТЬ' : '';
       interact = car || (bank ? 'ГРАБИТЬ' : '');

@@ -26,7 +26,7 @@ export class CameraRig {
     this.aiming = false;
     this.aimBlend = 0;
     this.recoil = 0;      // временный подброс (возвращается)
-    this.shake = 0;       // тряска (удары Халка, взрывы)
+    this.shake = 0;       // тряска (удары Колосса, взрывы)
   }
 
   addShake(amount) {
@@ -71,7 +71,7 @@ export class CameraRig {
         this.yaw = dampAngle(this.yaw, vehicle.heading, C.autoAlignRate, dt);
       }
     } else {
-      // Халк выше — камера выше и дальше.
+      // Колосс выше — камера выше и дальше.
       const s = this.game.powers?.mods.scale ?? 1;
       this._target.set(player.position.x, player.visualY + C.targetHeightOnFoot * s, player.position.z);
     }

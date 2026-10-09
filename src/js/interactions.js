@@ -80,7 +80,7 @@ function vehicleVsPlayer(v, player) {
   const hulk = !!player.game.powers?.mods.noKnock;   // СИЛА и ТИТАН: машины отскакивают, как от стены
   for (const c of v.circles) {
     if (v.carried) return;
-    // Халк не сдвигается: машина отскакивает от него, как от стены.
+    // Колосс не сдвигается: машина отскакивает от него, как от стены.
     const hit = hulk ? separateCircles({ x: c.x, z: c.z }, v.radius, player.position, player.radius, 1, 0)
       : separateCircles({ x: c.x, z: c.z }, v.radius, player.position, player.radius, 0, 1);
     if (!hit) continue;

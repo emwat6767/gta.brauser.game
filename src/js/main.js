@@ -33,6 +33,7 @@ import { PowerSystem } from './powers.js';
 import { EliteVFX } from './vfx.js';
 import { BossSystem } from './bosses.js';
 import { WorkLife } from './worklife.js';
+import { DuelSystem } from './duel.js';
 import { ChaosSystem } from './chaos.js';
 import { DayNight, createSky } from './daynight.js';
 import { Places } from './places.js';
@@ -96,6 +97,7 @@ class Game {
     this.missions = new MissionSystem(this);
     this.incidents = new IncidentDirector(this);
     this.worklife = new WorkLife(this);   // работа по часам дня и зрители боёв
+    this.duel = new DuelSystem(this);     // дуэль героя и злодея со стримом (клавиша B)
     this.powers = new PowerSystem(this);
     this.chaos = new ChaosSystem(this);
     this.bosses = new BossSystem(this);   // злодей и герой города
@@ -104,6 +106,7 @@ class Game {
     this.save = new SaveSystem(this);
     this.save.load();
     this.downState = null; // { kind: 'wasted' | 'busted', timer }
+    this.timeScale = 1;    // скорость мира без игрока: < 1 — замедление, 0 — остановка времени (режим ХРОНОС, дуэль)
     this.cameraRig = new CameraRig(this);
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
@@ -123,6 +126,7 @@ class Game {
     const r = new THREE.WebGLRenderer({ antialias: G.antialias, powerPreference: 'high-performance' });
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, G.maxPixelRatio));
     r.setSize(window.innerWidth, window.innerHeight);
+    r.info.autoReset = false;
     r.shadowMap.enabled = true;
     r.shadowMap.type = G.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     r.toneMapping = THREE.ACESFilmicToneMapping;
@@ -233,8 +237,8 @@ class Game {
     if (p.isDown || this.downState) return;
     if (p.vehicle) {
       p.exitVehicle();
-    } else if (this.powers.mode === 'hulk') {
-      // Халк не садится в машины — поднимает и бросает их (у банка — грабит).
+    } else if (this.powers.mode === 'colossus') {
+      // Колосс не садится в машины — поднимает и бросает их (у банка — грабит).
       if (!this.powers.grabOrThrow()) this.heists.tryStart();
     } else if (this.powers.cannotDrive) {
       this.heists.tryStart();
@@ -249,14 +253,18 @@ class Game {
   _simulate(dt) {
     this.powers.update(dt);
     this.player.update(dt);
-    for (const v of this.vehicles) v.update(dt);
-    this.npcs.update(dt);
-    this.bosses.update(dt);
-    this.gangs.update(dt);
-    this.squad.update(dt);
-    this.wanted.update(dt);
-    this.traffic.update(dt);
-    this.chaos.update(dt);
+    // Мир живёт со своей скоростью (timeScale): игрок и его машина — всегда в обычном времени.
+    const wdt = dt * this.timeScale;
+    for (const v of this.vehicles) v.update(v === this.player.vehicle ? dt : wdt);
+    if (wdt > 0) {
+      this.npcs.update(wdt);
+      this.bosses.update(wdt);
+      this.gangs.update(wdt);
+      this.squad.update(wdt);
+      this.wanted.update(wdt);
+      this.traffic.update(wdt);
+      this.chaos.update(wdt);
+    }
     resolveInteractions(this);
   }
 
@@ -272,6 +280,8 @@ class Game {
       if (input.wasPressed('interact')) this._toggleVehicle();
       if (input.wasPressed('squad')) this.squad.toggle();
       if (input.wasPressed('power')) this.powers.cycle();
+      if (input.wasPressed('powerPrev')) this.powers.cycle(-1);
+      if (input.wasPressed('duel') && !this.player.isDead && !this.downState) this.duel.toggle();
       if (input.wasPressed('timeOfDay')) this.daynight.nextPhase();
       if (input.wasPressed('outfit') && !this.player.isDead && !this.downState) this.player.changeOutfit();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
@@ -285,6 +295,7 @@ class Game {
       this.daynight.update(frameTime);
       this.places.update(frameTime);
       this.worklife.update(frameTime);
+      this.duel.update(frameTime);
       this.missions.update(frameTime);
       this.effects.update(frameTime);
       this.vfx.update(frameTime);
@@ -299,7 +310,9 @@ class Game {
     this.daynight.frame(frameTime);
     this._updateSun();
     this.sky.position.copy(this.camera.position);
+    this.renderer.info.reset();   // счётчики за кадр целиком: основной вид + трансляция (duel.js)
     this.renderer.render(this.scene, this.camera);
+    this.duel?.renderStream(this.renderer, this.scene);
     this.hud.update(frameTime);
     this.nameplates.update(frameTime);
     this.minimap.update(frameTime);

@@ -71,18 +71,55 @@ export class WorkLife {
   // ------------------------------------------------------------------ зрители
 
   // Обратить внимание людей на точку (взрыв, бой, драка): они подойдут посмотреть.
-  watch(point, radius = 30, seconds = 12) {
+  // opts: { max — сколько зрителей всего, ring — [от, до] метров от места, audience — подвозить зрителей со всего
+  // района (суперсражения: duel.js), big — крупное событие }. Возвращает событие (его можно двигать: e.x, e.z).
+  watch(point, radius = 30, seconds = 12, opts = {}) {
     for (const e of this.events) {
-      if (Math.hypot(e.x - point.x, e.z - point.z) < 14) {
+      if (Math.hypot(e.x - point.x, e.z - point.z) < (opts.big ? 40 : 14)) {
         e.until = Math.max(e.until, this.time + seconds);
         e.radius = Math.max(e.radius, radius);
-        e.x += (point.x - e.x) * 0.3;
-        e.z += (point.z - e.z) * 0.3;
-        return;
+        if (opts.big && !e.big) Object.assign(e, { big: true, max: opts.max ?? e.max, ring: opts.ring ?? e.ring, audience: opts.audience ?? 0 });
+        if (!e.big) { e.x += (point.x - e.x) * 0.3; e.z += (point.z - e.z) * 0.3; }
+        return e;
       }
     }
-    if (this.events.length >= MAX_WATCH_EVENTS) return;
-    this.events.push({ x: point.x, z: point.z, radius, until: this.time + seconds, watchers: [] });
+    if (this.events.length >= MAX_WATCH_EVENTS && !opts.big) return null;
+    const e = {
+      x: point.x, z: point.z, radius, until: this.time + seconds, watchers: [],
+      big: !!opts.big, max: opts.max ?? MAX_WATCHERS, ring: opts.ring ?? [9, 16], audience: opts.audience ?? 0,
+    };
+    this.events.push(e);
+    return e;
+  }
+
+  // Завершить зрелище: зрители расходятся.
+  stopWatch(e) {
+    if (e) e.until = 0;
+  }
+
+  // Подвозит зрителей для крупных зрелищ: новые люди появляются вне поля зрения и идут к кольцу вокруг места.
+  _spawnAudience(e) {
+    const { game } = this;
+    const rng = game.rng;
+    let spawned = 0;
+    for (let k = 0; k < 14 && spawned < 6 && e.watchers.length < e.max; k++) {
+      const spot = game.npcs.randomSidewalkSpot(e.x, e.z, e.ring[1] + 10, Math.max(e.radius, e.ring[1] + 30), true);
+      if (!spot) continue;
+      const dx = spot.x - e.x, dz = spot.z - e.z, d = Math.hypot(dx, dz);
+      if (d < e.ring[1] + 4) continue;
+      _a.set(spot.x, 1.5, spot.z);
+      if (!lineOfSight(game, _a, _b.set(e.x, 1.5, e.z))) continue;
+      const r = rng.range(e.ring[0], e.ring[1]);
+      const ring = { x: e.x + (dx / d) * r + rng.range(-1, 1), z: e.z + (dz / d) * r + rng.range(-1, 1) };
+      if (!game.world.isCircleFree(ring.x, ring.z, 0.5)) continue;
+      const npc = new NPC(game, rng, { x: spot.x, z: spot.z, role: 'civilian', district: game.world.districtAt(spot.x, spot.z) });
+      game.npcs.add(npc);
+      npc.watching = e;
+      npc.audience = true;
+      npc.goTo(ring.x, ring.z, Math.max(4, e.until - this.time) + rng.range(0, 4), { x: e.x, z: e.z });
+      e.watchers.push(npc);
+      spawned++;
+    }
   }
 
   _updateWatch() {
@@ -103,17 +140,17 @@ export class WorkLife {
       // Эмоции зрителей.
       for (const n of e.watchers) {
         if (n.state === NPC_STATE.GOTO || n.state === NPC_STATE.IDLE) {
-          if (n.state === NPC_STATE.IDLE && !n.activity && rng.chance(0.5)) n.activity = 'phone';   // снимает на телефон
+          if (n.state === NPC_STATE.IDLE && !n.activity && rng.chance(0.5)) n.activity = e.big ? rng.pick(['phone', 'hands', 'hands']) : 'phone';   // снимает на телефон или машет руками
           if (rng.chance(0.12)) n.say(rng.pick(LINES.cheer));
         } else {
           n.watching = null;   // испугался или ввязался в драку
         }
       }
-      if (e.watchers.length >= MAX_WATCHERS) continue;
+      if (e.watchers.length >= e.max) continue;
       // Набираем новых зрителей.
       let added = 0;
       for (const n of game.npcs.list) {
-        if (added >= 3 || e.watchers.length >= MAX_WATCHERS) break;
+        if (added >= (e.big ? 8 : 3) || e.watchers.length >= e.max) break;
         if (n.role !== 'civilian' || n.fighter || n.vehicle || n.watching || n.workTrip || n.jogger || n.panic > 0) continue;
         if (n.state !== NPC_STATE.WALK && n.state !== NPC_STATE.IDLE) continue;
         if (!n.model.root.visible) continue;
@@ -121,7 +158,7 @@ export class WorkLife {
         const d = Math.hypot(dx, dz);
         if (d > e.radius * 1.6 || d < 4) continue;
         // Место на кольце 9–16 м от события, со стороны, откуда пришёл человек.
-        const r = Math.min(d - 1, rng.range(9, 16));
+        const r = Math.min(d - 1, rng.range(e.ring[0], e.ring[1]));
         const spot = { x: e.x + (dx / d) * r + rng.range(-0.8, 0.8), z: e.z + (dz / d) * r + rng.range(-0.8, 0.8) };
         if (!game.world.isCircleFree(spot.x, spot.z, 0.5)) continue;
         // Место на прямой между человеком и событием: если между ними ничего нет — он и видит событие, и дойдёт по прямой.
@@ -133,6 +170,7 @@ export class WorkLife {
         e.watchers.push(n);
         added++;
       }
+      if (e.big && e.watchers.length < e.max && e.watchers.length < e.audience) this._spawnAudience(e);
     }
   }
 
