@@ -1116,3 +1116,50 @@ body.touch #news {
 body.touch .news-item {
   font-size: 10px;
 }
+
+/* Именные таблички бойцов (ui/nameplates.js) */
+#nameplates {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.nameplate {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  padding: 3px 10px 4px;
+  border-radius: 6px;
+  border-left: 3px solid #8a93a3;
+  background: rgba(8, 10, 14, 0.74);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000;
+}
+
+.nameplate b {
+  display: block;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.nameplate small {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #c4cad4;
+}
+
+.nameplate.gold {
+  border-left-color: #ffd45a;
+  background: linear-gradient(90deg, rgba(60, 44, 8, 0.82), rgba(8, 10, 14, 0.78));
+}
+
+.nameplate.gold b {
+  color: #ffe08a;
+}

@@ -39,7 +39,8 @@ export class PickupSystem {
     game.events.on('character:killed', ({ target }) => {
       const range = CONFIG.economy.drops[target.role];
       if (!range || target === game.player) return;
-      this.dropCash(target.position.x, target.position.z, game.rng.int(range[0], range[1]));
+      const k = target.fighter ? CONFIG.economy.fighterDropScale : 1;
+      this.dropCash(target.position.x, target.position.z, game.rng.int(range[0], range[1]) * k);
     });
   }
 

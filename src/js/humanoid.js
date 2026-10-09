@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
-import { mergeColored } from './geometry.js';
 import { createWeaponModel } from './weapons.js';
 import { JOINT_NAMES } from './ragdoll.js';
 import { clamp, damp } from './utils.js';
+import { buildHumanGeometries, lookKey, bodyDims, DEFAULT_LOOK, HIP_Y, SPINE_Y, SHOULDER_Y } from './wardrobe.js';
 
 // Mid-poly человек из примитивов (капсула-торс, сфера-голова, цилиндры-конечности)
 // с процедурной анимацией без скелета: суставы — это вложенные THREE.Group.
-// Используется игроком и всеми NPC (прохожие, бандиты, полиция). Модель смотрит в +Z,
-// левая рука — в +X.
+// Используется игроком и всеми NPC (прохожие, бойцы, бандиты, полиция). Модель смотрит в +Z,
+// левая рука — в +X. Одежда, причёски, аксессуары и телосложение описываются look
+// (см. wardrobe.js), там же строится вся геометрия.
 //
 // Иерархия (в скобках — меш, приклеенный к суставу):
 //   root (позиция, поворот heading)
@@ -19,104 +20,41 @@ import { clamp, damp } from './utils.js';
 //        └ shoulderL/shoulderR (плечо + рукав) └ elbowL/elbowR (локоть + предплечье + кисть)
 //
 // Все детали одного сустава склеены в один меш с vertex colors: 12 мешей на человека,
-// один общий материал. Геометрии кэшируются по набору цветов (одинаково одетые NPC
-// делят геометрию).
+// один общий материал. Геометрии кэшируются по внешности (одинаково одетые NPC делят
+// геометрию); когда последний владелец уходит, набор остаётся в кэше "на всякий случай"
+// (UNUSED_KEEP штук), остальные освобождаются — иначе при смене прохожих память растёт.
 
-export const HIP_Y = 0.92;
-const SPINE_Y = 0.94;
-const SHOULDER_X = 0.225;
-const SHOULDER_Y = 0.52; // относительно spine
-
-export const DEFAULT_LOOK = {
-  skin: '#c89373',
-  hair: '#1d1a17',
-  shirt: '#f2f2f0',
-  pants: '#34507e',
-  shoes: '#1c1c1c',
-  hat: null,        // цвет кепки (полиция) или null
-  bandana: null,    // цвет банданы (банды) или null
-  scale: 1,
-};
+export { HIP_Y, DEFAULT_LOOK };
 
 const MATERIAL = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
-const GEOMETRY_CACHE = new Map();
+const GEOMETRY_CACHE = new Map();   // key -> { set, refs }
+const UNUSED_KEEP = 48;
 
-function buildGeometries(L) {
-  const key = [L.skin, L.hair, L.shirt, L.pants, L.shoes, L.hat, L.bandana].join('|');
-  if (GEOMETRY_CACHE.has(key)) return GEOMETRY_CACHE.get(key);
-
-  const cyl = (rt, rb, h, seg = 12) => new THREE.CylinderGeometry(rt, rb, h, seg);
-  const sphere = (r, w = 12, h = 10) => new THREE.SphereGeometry(r, w, h);
-  const eye = '#1a1512';
-
-  // Таз (в body).
-  const pelvis = mergeColored([
-    { geometry: cyl(0.165, 0.15, 0.2, 14).translate(0, HIP_Y + 0.04, 0), color: L.pants },
-    { geometry: cyl(0.168, 0.168, 0.05, 14).translate(0, HIP_Y + 0.14, 0), color: '#2a2622' }, // ремень
-  ]);
-
-  // Корпус и голова (в spine; y отсчитывается от SPINE_Y).
-  const spineParts = [
-    { geometry: new THREE.CapsuleGeometry(0.18, 0.28, 6, 14).scale(1.05, 1, 0.72).translate(0, 0.28, 0), color: L.shirt },
-    // Плечевой пояс: горизонтальная капсула соединяет торс с плечевыми суставами.
-    { geometry: new THREE.CapsuleGeometry(0.085, 0.3, 4, 10).rotateZ(Math.PI / 2).scale(1, 1, 0.85).translate(0, SHOULDER_Y - 0.01, 0), color: L.shirt },
-    { geometry: cyl(0.055, 0.06, 0.14, 10).translate(0, 0.62, 0), color: L.skin },
-    { geometry: sphere(0.12, 18, 14).scale(1, 1.1, 1.02).translate(0, 0.75, 0.01), color: L.skin },
-    // Лицо: глаза и нос — чтобы было видно, куда смотрит человек.
-    { geometry: sphere(0.018, 8, 6).translate(0.042, 0.77, 0.118), color: eye },
-    { geometry: sphere(0.018, 8, 6).translate(-0.042, 0.77, 0.118), color: eye },
-    { geometry: new THREE.BoxGeometry(0.028, 0.045, 0.03).translate(0, 0.738, 0.13), color: L.skin },
-    // Уши.
-    { geometry: sphere(0.028, 8, 6).scale(0.5, 1, 0.8).translate(0.12, 0.75, 0), color: L.skin },
-    { geometry: sphere(0.028, 8, 6).scale(0.5, 1, 0.8).translate(-0.12, 0.75, 0), color: L.skin },
-  ];
-  if (L.hat) {
-    // Кепка: купол + козырёк.
-    spineParts.push(
-      { geometry: new THREE.SphereGeometry(0.132, 18, 8, 0, Math.PI * 2, 0, Math.PI * 0.5).scale(1, 0.85, 1.04).translate(0, 0.79, 0.005), color: L.hat },
-      { geometry: new THREE.BoxGeometry(0.2, 0.02, 0.11).translate(0, 0.795, 0.155), color: L.hat },
-    );
+function acquireGeometries(L) {
+  const key = lookKey(L);
+  let e = GEOMETRY_CACHE.get(key);
+  if (!e) {
+    e = { key, set: buildHumanGeometries(L), refs: 0 };
+    GEOMETRY_CACHE.set(key, e);
   } else {
-    // Волосы: сферическая шапка, наклонённая назад (лоб открыт, затылок закрыт).
-    spineParts.push({
-      geometry: new THREE.SphereGeometry(0.128, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.5).rotateX(-0.45).scale(1, 1.08, 1.04).translate(0, 0.765, 0.005),
-      color: L.hair,
-    });
+    GEOMETRY_CACHE.delete(key);   // освежить порядок (LRU)
+    GEOMETRY_CACHE.set(key, e);
   }
-  if (L.bandana) {
-    spineParts.push({ geometry: new THREE.TorusGeometry(0.122, 0.018, 6, 20).rotateX(Math.PI / 2).rotateX(-0.25).translate(0, 0.8, 0.005), color: L.bandana });
+  e.refs++;
+  return e;
+}
+
+function releaseGeometries(e) {
+  if (--e.refs > 0) return;
+  let unused = 0;
+  for (const x of GEOMETRY_CACHE.values()) if (x.refs <= 0) unused++;
+  for (const x of GEOMETRY_CACHE.values()) {
+    if (unused <= UNUSED_KEEP) break;
+    if (x.refs > 0) continue;
+    for (const g of Object.values(x.set)) g.dispose();
+    GEOMETRY_CACHE.delete(x.key);
+    unused--;
   }
-  const spine = mergeColored(spineParts);
-
-  // Плечо: шар сустава + рукав футболки + голая часть руки.
-  const upperArm = mergeColored([
-    { geometry: sphere(0.072, 12, 10), color: L.shirt },
-    { geometry: cyl(0.068, 0.062, 0.16).translate(0, -0.08, 0), color: L.shirt },
-    { geometry: cyl(0.056, 0.05, 0.3).translate(0, -0.15, 0), color: L.skin },
-  ]);
-  // Предплечье: локоть + предплечье + кисть (приплюснутая сфера) + большой палец.
-  const foreArm = mergeColored([
-    { geometry: sphere(0.052, 10, 8), color: L.skin },
-    { geometry: cyl(0.05, 0.04, 0.27, 10).translate(0, -0.135, 0), color: L.skin },
-    { geometry: sphere(0.052, 10, 8).scale(0.85, 1.15, 0.7).translate(0, -0.3, 0.005), color: L.skin },
-    { geometry: sphere(0.02, 6, 5).scale(1, 1.6, 1).translate(0, -0.285, 0.04), color: L.skin },
-  ]);
-  const thigh = mergeColored([
-    { geometry: sphere(0.092, 12, 10), color: L.pants },
-    { geometry: cyl(0.09, 0.07, 0.44).translate(0, -0.22, 0), color: L.pants },
-  ]);
-  const shin = mergeColored([
-    { geometry: sphere(0.072, 12, 8), color: L.pants },
-    { geometry: cyl(0.066, 0.052, 0.42).translate(0, -0.21, 0), color: L.pants },
-  ]);
-  const foot = mergeColored([
-    { geometry: new THREE.BoxGeometry(0.11, 0.07, 0.25).translate(0, -0.025, 0.05), color: L.shoes },
-    { geometry: new THREE.BoxGeometry(0.112, 0.02, 0.252).translate(0, -0.05, 0.05), color: '#e9e6df' }, // подошва
-  ]);
-
-  const set = { pelvis, spine, upperArm, foreArm, thigh, shin, foot };
-  GEOMETRY_CACHE.set(key, set);
-  return set;
 }
 
 // Суставы, которые анимируются (значения — углы в радианах, bodyY — метры).
@@ -145,7 +83,9 @@ export class Humanoid {
   constructor(look = {}) {
     const L = { ...DEFAULT_LOOK, ...look };
     this.look = L;
-    const G = buildGeometries(L);
+    this._geo = acquireGeometries(L);
+    const G = this._geo.set;
+    const D = bodyDims(L);
 
     const mesh = (geo, parent) => {
       const m = new THREE.Mesh(geo, MATERIAL);
@@ -166,8 +106,8 @@ export class Humanoid {
     mesh(G.pelvis, this.body);
 
     // Ноги
-    this.hipL = group(this.body, 0.1, HIP_Y, 0);
-    this.hipR = group(this.body, -0.1, HIP_Y, 0);
+    this.hipL = group(this.body, D.hipX, HIP_Y, 0);
+    this.hipR = group(this.body, -D.hipX, HIP_Y, 0);
     for (const [hip, side] of [[this.hipL, 'L'], [this.hipR, 'R']]) {
       mesh(G.thigh, hip);
       const knee = group(hip, 0, -0.44, 0);
@@ -181,12 +121,12 @@ export class Humanoid {
     // Корпус и руки
     this.spine = group(this.body, 0, SPINE_Y, 0);
     mesh(G.spine, this.spine);
-    this.shoulderL = group(this.spine, SHOULDER_X, SHOULDER_Y, 0);
-    this.shoulderR = group(this.spine, -SHOULDER_X, SHOULDER_Y, 0);
+    this.shoulderL = group(this.spine, D.shoulderX, SHOULDER_Y, 0);
+    this.shoulderR = group(this.spine, -D.shoulderX, SHOULDER_Y, 0);
     for (const [shoulder, side] of [[this.shoulderL, 'L'], [this.shoulderR, 'R']]) {
-      mesh(G.upperArm, shoulder);
+      mesh(G['upperArm' + side], shoulder);
       const elbow = group(shoulder, 0, -0.3, 0);
-      mesh(G.foreArm, elbow);
+      mesh(G['foreArm' + side], elbow);
       this['elbow' + side] = elbow;
     }
 
@@ -199,6 +139,15 @@ export class Humanoid {
     this.weaponMesh = null;
     this.ragdoll = null;
     this._joints = Object.fromEntries(JOINT_NAMES.map((n) => [n, new THREE.Vector3()]));
+  }
+
+  // Освободить геометрию (NPC убран из мира). Модель после этого использовать нельзя.
+  dispose() {
+    if (!this._geo) return;
+    this.weaponMesh?.removeFromParent();
+    this.root.removeFromParent();
+    releaseGeometries(this._geo);
+    this._geo = null;
   }
 
   // --- Оружие в руке ---------------------------------------------------------
@@ -403,6 +352,27 @@ export class Humanoid {
         t.shoulderLx = t.shoulderRx = -2.8 + k;
         t.shoulderLz = 0.45; t.shoulderRz = -0.45;
         t.elbowL = t.elbowR = -0.3;
+      } else if (gesture === 'shadow') {
+        // Бой с тенью: стойка, пружинящие ноги, серии джебов и крестов.
+        const ph = g * 2.4, bounce = Math.sin(g * 4.8);
+        const jab = Math.max(0, Math.sin(ph * 2)) ** 2, cross = Math.max(0, Math.sin(ph * 2 + 2.5)) ** 2;
+        t.shoulderLx = -0.95 - 0.65 * jab; t.shoulderLz = 0.3 - 0.25 * jab; t.elbowL = -1.9 + 1.8 * jab;
+        t.shoulderRx = -0.95 - 0.65 * cross; t.shoulderRz = -0.3 + 0.25 * cross; t.elbowR = -1.9 + 1.8 * cross;
+        t.spineY = (cross - jab) * 0.32; t.spineX = 0.14;
+        t.hipLx = bounce * 0.16; t.hipRx = -bounce * 0.16; t.kneeL = t.kneeR = 0.2 + Math.abs(bounce) * 0.2;
+        t.bodyY = -0.04 - Math.abs(bounce) * 0.03;
+      } else if (gesture === 'flex') {
+        // Показывает бицепсы.
+        const k = Math.sin(g * 5) * 0.04;
+        t.shoulderLx = -0.2 + k; t.shoulderRx = -0.2 - k; t.shoulderLz = 1.3; t.shoulderRz = -1.3;
+        t.elbowL = t.elbowR = -2.35; t.spineX = -0.05;
+      } else if (gesture === 'dance') {
+        const b = Math.sin(g * 6.3), s2 = Math.sin(g * 3.15);
+        t.shoulderLx = -2.2 + b * 0.6; t.shoulderRx = -2.2 - b * 0.6;
+        t.shoulderLz = 0.35; t.shoulderRz = -0.35; t.elbowL = t.elbowR = -0.6;
+        t.hipLz = s2 * 0.12; t.hipRz = s2 * 0.12; t.spineY = s2 * 0.3;
+        t.kneeL = 0.3 + Math.max(0, b) * 0.4; t.kneeR = 0.3 + Math.max(0, -b) * 0.4;
+        t.bodyY = -0.05 - Math.abs(b) * 0.04;
       }
     }
 

@@ -76,8 +76,11 @@ export const CONFIG = {
   },
 
   npc: {
-    count: 36,              // прохожих вокруг игрока; дальние пересоздаются рядом
-    mobileCount: 20,
+    count: 84,              // прохожих вокруг игрока; дальние пересоздаются рядом
+    mobileCount: 36,
+    fighters: 16,           // из них одновременно — бойцов из ростера (fighters.js)
+    mobileFighters: 7,
+    crowdMax: 320,          // сколько дальних людей рисуется одной пачкой (crowd.js)
     lodDistance: 42,        // дальше — упрощённая фигура без анимации (crowd.js)
     mobileLodDistance: 30,
     driverVisible: 45,      // водителей дальних машин не рисуем
@@ -129,6 +132,7 @@ export const CONFIG = {
     startMoney: 300,
     // Сколько денег выпадает из убитых (диапазон), по ролям.
     drops: { civilian: [8, 35], gang: [25, 90], police: [40, 120] },
+    fighterDropScale: 4,    // из убитого бойца выпадает во столько раз больше
     magnetRadius: 4.5,      // деньги подтягиваются к игроку с этого расстояния
     saveKey: 'opencity.save.v1',
   },

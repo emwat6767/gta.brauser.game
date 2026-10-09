@@ -7,6 +7,10 @@ import { fireShot, lineOfSight } from './ballistics.js';
 import { Ragdoll } from './ragdoll.js';
 import { damp, dampAngle, lerp, wrapAngle, clamp } from './utils.js';
 import { CrowdRenderer } from './crowd.js';
+import { civilianLook, randomCivilianLook, gangLook, policeLook } from './outfits.js';
+import { FighterPool, fighterLook, fighterStats } from './fighters.js';
+
+export { randomCivilianLook, gangLook, policeLook };
 
 const _eye = new THREE.Vector3(), _aim = new THREE.Vector3(), _dir = new THREE.Vector3(), _muzzle = new THREE.Vector3();
 
@@ -53,14 +57,6 @@ export const NPC_STATE = {
 // иначе бойцы загораживают камеру.
 const FOLLOW_SLOTS = [[-2, 0.4], [2, 0.4], [-3.4, 1.4], [3.4, 1.4], [0, 3.2]];
 
-const PALETTE = {
-  skin: ['#f1c9a5', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#a57257'],
-  hair: ['#1b1b1b', '#3b2a1a', '#6b4423', '#a0785a', '#d6b370', '#555555'],
-  shirt: ['#c0392b', '#2980b9', '#27ae60', '#8e44ad', '#f39c12', '#16a085', '#d35400', '#ecf0f1', '#34495e', '#e84393'],
-  pants: ['#2c3e50', '#34495e', '#1f2d3d', '#5d4037', '#7f8c8d', '#212121', '#3e5c76'],
-  shoes: ['#111111', '#eeeeee', '#5d4037', '#333333'],
-};
-
 export const LINES = {
   push: ['Эй!', 'Смотри куда прёшь!', 'Осторожнее!', 'Ты чего?!'],
   down: ['Ай!', 'А-а-а!', 'Ох...'],
@@ -84,53 +80,37 @@ export const LINES = {
   carjacked: ['Моя машина!', 'Эй! Вор!', 'Верни тачку!'],
   scream: ['А-а-а!', 'Стреляют!', 'Бегите!', 'Помогите!'],
   blast: ['А-а-а!', 'Взрыв!', 'Бегите!', 'Что это было?!', 'Спасайтесь!'],
+  fighter: ['Хочешь размяться?', 'Ты сейчас серьёзно?', 'Сам напросился!', 'Покажи, на что способен!', 'Не по лицу!', 'Это был твой последний раунд!'],
+  fighterIdle: ['Завтра бой...', 'Режим, дисциплина, победа', 'Надо ещё раунд провести', 'Где тут спортзал?', 'Руки не забывай!'],
+  fighterChat: ['Как лагерь?', 'Видел мой последний бой?', 'Кто сегодня в зале?', 'Вес держу, всё ок', 'Когда реванш?', 'Тренер опять гоняет'],
 };
-
-export function randomCivilianLook(rng) {
-  return {
-    skin: rng.pick(PALETTE.skin), hair: rng.pick(PALETTE.hair), shirt: rng.pick(PALETTE.shirt),
-    pants: rng.pick(PALETTE.pants), shoes: rng.pick(PALETTE.shoes), scale: rng.range(0.93, 1.07),
-  };
-}
-
-// Бандиты тоже разные: майка цвета банды или тёмная с банданой, иногда кепка.
-export function gangLook(rng, color) {
-  const dark = rng.chance(0.3);
-  const cap = !dark && rng.chance(0.25);
-  return {
-    skin: rng.pick(PALETTE.skin), hair: rng.pick(['#141414', '#141414', '#3b2a1a']),
-    shirt: dark ? rng.pick(['#1e1e1e', '#2d2d2d', '#e8e8e8']) : color,
-    bandana: cap ? null : color, hat: cap ? color : null,
-    pants: rng.pick(['#1c1c1c', '#2b3a55', '#3a3a3a', '#4a3b2a']), shoes: rng.pick(['#111111', '#eeeeee', '#8a1c1c']),
-    scale: rng.range(0.95, 1.1),
-  };
-}
-
-export function policeLook(rng) {
-  return {
-    skin: rng.pick(PALETTE.skin), hair: '#141414', shirt: '#22407a', pants: '#1a2233',
-    shoes: '#0c0c0c', hat: '#16284d', scale: rng.range(0.98, 1.06),
-  };
-}
 
 export class NPC {
   // opts: { x, z, from, to, role, gang, look, allowedNodes }
   constructor(game, rng, opts) {
     const N = CONFIG.npc;
-    const { x, z, from, to, role = 'civilian', gang = null, look } = opts;
+    const { x, z, from, to, role = 'civilian', gang = null, look, fighter = null } = opts;
     this.game = game;
     this.rng = rng;
     this.role = role;
     this.gang = gang;
     this.allowedNodes = opts.allowedNodes ?? null; // Set id узлов, по которым можно гулять
-    const L = look ?? randomCivilianLook(rng);
+    const L = look ?? (fighter ? fighterLook(fighter) : civilianLook(rng, { district: opts.district }));
     this.model = new Humanoid(L);
-    this.radius = N.radius * (L.scale ?? 1);
+    this.radius = N.radius * (L.scale ?? 1) * (1 + ((L.bulk ?? 1) - 1) * 0.6);
+    this.fighter = fighter;   // боец из ростера (fighters.js) или null
+    this.hitResist = 3;       // сколько ударов подряд сбивают с ног
 
     const R = N.roles[role];
-    this.maxHealth = R.health;
-    this.health = R.health;
-    this.melee = new Melee(this, { damage: R.damage, cooldown: R.cooldown });
+    let { health, damage, cooldown } = R;
+    if (fighter) {
+      const S = fighterStats(fighter);
+      ({ health, damage, cooldown } = S);
+      this.hitResist = S.resist;
+    }
+    this.maxHealth = health;
+    this.health = health;
+    this.melee = new Melee(this, { damage, cooldown });
     const weapon = opts.weapon !== undefined ? opts.weapon : pickWeapon(rng, R.weapons);
     this.gun = null;
     if (weapon) {
@@ -148,11 +128,11 @@ export class NPC {
     this.position = new THREE.Vector3(x, game.world.getGroundHeight(x, z), z);
     this.knock = new THREE.Vector3(); // скорость от толчков/ударов (в т.ч. вертикальная)
     this.heading = to ? Math.atan2(to.x - x, to.z - z) : rng.range(-Math.PI, Math.PI);
-    this.walkSpeed = rng.range(N.walkSpeed[0], N.walkSpeed[1]);
+    this.walkSpeed = rng.range(N.walkSpeed[0], N.walkSpeed[1]) * (fighter ? fighterStats(fighter).speedMul : 1);
     this.idleChance = role === 'gang' ? 0.55 : N.idleChance;
     // Характер: не все одинаковые. Прохожие — бегуны и неторопливые, бандиты — смелые/трусливые.
-    this.bravery = rng.range(0.2, 1);      // < 0.5 — отступает раненым
-    this.aggression = rng.range(0.2, 1);   // насколько охотно ввязывается в драку
+    this.bravery = fighter ? rng.range(0.6, 1) : rng.range(0.2, 1);      // < 0.5 — отступает раненым
+    this.aggression = fighter ? rng.range(0.6, 1) : rng.range(0.2, 1);   // насколько охотно ввязывается в драку
     if (role === 'civilian') {
       if (rng.chance(0.08)) { this.jogger = true; this.walkSpeed = rng.range(3.1, 3.7); }
       else if (rng.chance(0.1)) this.walkSpeed = rng.range(0.85, 1.1); // пожилой/неспешный
@@ -283,15 +263,15 @@ export class NPC {
     if (this.role === 'civilian') {
       if (!this.dest || this.node === this.dest || this.rng.chance(0.02)) this._pickDestination();
       if (this.jogger || !this.rng.chance(this.node?.mid ? 0.1 : this.idleChance)) {
-        if (!this.jogger && !(this.phoneWalk > 0) && this.rng.chance(0.07)) {
+        if (!this.jogger && !this.fighter && !(this.phoneWalk > 0) && this.rng.chance(0.07)) {
           this.phoneWalk = this.rng.range(8, 20); // идёт и говорит по телефону
           this.say(this.rng.pick(LINES.phone));
         }
         return false;
       }
-      this.activity = this.rng.chance(0.4) ? 'phone' : null;
+      this.activity = this.fighter ? this.rng.pick(['shadow', 'shadow', 'flex', null]) : this.rng.chance(0.4) ? 'phone' : null;
       this.idleTime = this.activity ? this.rng.range(5, 12) : this.rng.range(1.5, 5);
-      if (this.activity) this.say(this.rng.pick(LINES.phone));
+      if (this.activity) this.say(this.rng.pick(this.fighter ? LINES.fighterIdle : LINES.phone));
       this._enter(NPC_STATE.IDLE);
       return true;
     }
@@ -332,7 +312,7 @@ export class NPC {
     // Говорят по очереди: у каждого свой "такт".
     const mine = Math.floor((this.stateTime + (this.talkPhase ??= this.rng.range(0, 6))) / 3) % 2 === 0;
     this.activity = mine ? 'talk' : null;
-    if (mine && this.talkCooldown <= 0 && this.rng.chance(dt * 0.5)) this.say(this.rng.pick(this.role === 'gang' ? LINES.gangChat : LINES.chat));
+    if (mine && this.talkCooldown <= 0 && this.rng.chance(dt * 0.5)) this.say(this.rng.pick(this.role === 'gang' ? LINES.gangChat : this.fighter ? LINES.fighterChat : LINES.chat));
     return 0;
   }
 
@@ -642,7 +622,7 @@ export class NPC {
   }
 
   _recover(afterFall) {
-    if (this.target && !this.target.isDead && (this.role !== 'civilian' || this.brawler)) {
+    if (this.target && !this.target.isDead && (this.role !== 'civilian' || this.brawler || this.fighter)) {
       this._enter(NPC_STATE.FIGHT);
       return;
     }
@@ -682,7 +662,7 @@ export class NPC {
     if (kind === 'punch') {
       this.hitStreak++;
       this.hitStreakTimer = 1.6;
-      if (this.hitStreak >= 3 && !this.isDown) {
+      if (this.hitStreak >= this.hitResist && !this.isDown) {
         this.hitStreak = 0;
         this.knockDown(dirX * 4, dirZ * 4, 1.5, attacker, 'punch', true);
       } else if (!this.isDown) {
@@ -700,6 +680,11 @@ export class NPC {
   _onAttacked(attacker) {
     const who = attacker?.driver ?? attacker; // удар машиной — виноват водитель
     if (!who || who === this || !who.position) return;
+    if (this.fighter && this.role === 'civilian') {
+      // Боец не бежит, а отвечает — хоть на игрока, хоть на другого.
+      this.aggro(who, this.rng.pick(LINES.fighter));
+      return;
+    }
     if (this.role === 'civilian' && this.brawler && who !== this.game.player) {
       // Участник уличной драки (incidents.js) даёт сдачи, а не убегает.
       this.aggro(who, this.rng.pick(LINES.brawl));
@@ -754,7 +739,9 @@ export class NPC {
     this.stumbleTime = 0.7;
     this.melee.cancel();
     this._enter(NPC_STATE.STUMBLE);
-    if (this.role === 'civilian') {
+    if (this.role === 'civilian' && this.fighter && by && by.position && this.rng.chance(0.55)) {
+      this.aggro(by, this.rng.pick(LINES.push));
+    } else if (this.role === 'civilian') {
       this.panic = 4;
       this.say(this.rng.pick(LINES.push));
     } else if (this.role === 'gang' && by === this.game.player) {
@@ -937,7 +924,8 @@ export class NPCManager {
     this.game = game;
     this.list = [];
     this._recycleTimer = 0;
-    this.crowd = new CrowdRenderer(game.scene);
+    this.crowd = new CrowdRenderer(game.scene, CONFIG.npc.crowdMax);
+    this.fighters = new FighterPool();   // бойцы из ростера, гуляющие по городу
     const p = game.player.position;
     for (let i = 0; i < CONFIG.npc.count; i++) this.spawnCivilian(p.x, p.z, 5, CONFIG.npc.spawnRadius, false);
 
@@ -953,6 +941,7 @@ export class NPCManager {
     for (const n of this.list) {
       if (n.role !== 'civilian' || n.vehicle || n.isDown || n === shooter) continue;
       if (n.position.distanceToSquared(position) > r2) continue;
+      if (n.fighter && (n.fighter.monster || n.bravery > 0.35)) continue; // бойцы не разбегаются
       if (n.panic <= 0 && rng.chance(0.3)) n.say(rng.pick(lines));
       n.panic = 8;
       if (n.state === NPC_STATE.IDLE || n.state === NPC_STATE.TALK || n.state === NPC_STATE.GOTO_CAR) n._enter(NPC_STATE.WALK);
@@ -972,9 +961,19 @@ export class NPCManager {
       else npc.vehicle.driver = null;
       npc.vehicle = null;
     }
-    npc.model.root.removeFromParent();
+    if (npc.fighter) this.fighters.release(npc.fighter);
+    npc.model.dispose();
     const i = this.list.indexOf(npc);
     if (i >= 0) this.list.splice(i, 1);
+  }
+
+  // Кто появится на этом месте: боец из ростера (пока их меньше CONFIG.npc.fighters) или обычный житель района.
+  _who(spot) {
+    const N = CONFIG.npc;
+    let fighters = 0;
+    for (const n of this.list) if (n.fighter && !n.isDead) fighters++;
+    const fighter = fighters < N.fighters && this.game.rng.chance(0.4) ? this.fighters.take(this.game.rng) : null;
+    return { fighter, district: this.game.world.districtAt?.(spot.x, spot.z) ?? null };
   }
 
   // Случайная точка на тротуаре между minR и maxR от (x, z). outOfView — по возможности за камерой.
@@ -1004,7 +1003,7 @@ export class NPCManager {
   spawnCivilian(x, z, minR, maxR, outOfView = true) {
     const spot = this.randomSidewalkSpot(x, z, minR, maxR, outOfView);
     if (!spot) return null;
-    const npc = this.add(new NPC(this.game, this.game.rng, { ...spot, role: 'civilian' }));
+    const npc = this.add(new NPC(this.game, this.game.rng, { ...spot, role: 'civilian', ...this._who(spot) }));
     npc._pickDestination();
     return npc;
   }
@@ -1024,7 +1023,7 @@ export class NPCManager {
     // Ищем тротуар около центра сектора, но не на глазах у игрока.
     const spot = this.randomSidewalkSpot(cx, cz, 0, 40, false);
     if (!spot || this.game.inView(spot.x, 1, spot.z, 1.5) && Math.hypot(spot.x - p.x, spot.z - p.z) < 110) return null;
-    const npc = this.add(new NPC(this.game, this.game.rng, { ...spot, role: 'civilian' }));
+    const npc = this.add(new NPC(this.game, this.game.rng, { ...spot, role: 'civilian', ...this._who(spot) }));
     npc._pickDestination();
     return npc;
   }

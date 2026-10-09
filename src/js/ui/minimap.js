@@ -218,6 +218,7 @@ export class Minimap {
       else if (npc.marked) { color = '#ff2e2e'; r = 3.6; ring = '#ffffff'; }            // цель задания/войны
       else if (npc.role === 'gang') { color = gangColor(npc.gang); r = 3.2; }
       else if (npc.role === 'police') { color = flash ? '#3d7cff' : '#ff3b3b'; r = 3.4; }
+      else if (npc.fighter) { color = '#ffd45a'; r = 3; }                                // боец из ростера
       ctx.fillStyle = ring;
       ctx.beginPath();
       ctx.arc(x, y, (r + 1) * d, 0, Math.PI * 2);

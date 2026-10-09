@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { NPC, NPC_STATE } from './npc.js';
+import { guardLook } from './outfits.js';
 import { formatMoney } from './ui/hud.js';
 
 // Ограбления банков и магазинов 24/7. Здания строит world.js (world.banks, world.stores),
@@ -32,13 +33,6 @@ function dollarTexture(color) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
-}
-
-function guardLook(rng) {
-  return {
-    skin: rng.pick(['#f1c9a5', '#e0ac69', '#c68642', '#8d5524']), hair: '#141414',
-    shirt: '#59636b', pants: '#262a2e', shoes: '#0c0c0c', hat: '#2b3136', scale: rng.range(1, 1.08),
-  };
 }
 
 export const heistConfig = (place) => (place.kind === 'bank' ? CONFIG.banks : CONFIG.stores);

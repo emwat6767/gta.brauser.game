@@ -12,6 +12,7 @@ import { CameraRig } from './camera.js';
 import { resolveInteractions } from './interactions.js';
 import { HUD } from './ui/hud.js';
 import { Minimap } from './ui/minimap.js';
+import { Nameplates } from './ui/nameplates.js';
 import { TouchControls } from './ui/touch.js';
 import { GangSystem } from './gangs.js';
 import { WantedSystem } from './wanted.js';
@@ -47,6 +48,7 @@ if (IS_TOUCH) {
   CONFIG.traffic.count = CONFIG.traffic.mobileCount;
   CONFIG.traffic.parkedCount = CONFIG.traffic.mobileParkedCount;
   CONFIG.npc.count = CONFIG.npc.mobileCount;
+  CONFIG.npc.fighters = CONFIG.npc.mobileFighters;
   CONFIG.npc.lodDistance = CONFIG.npc.mobileLodDistance;
 }
 const _frustum = new THREE.Frustum(), _pv = new THREE.Matrix4(), _sphere = new THREE.Sphere();
@@ -94,6 +96,7 @@ class Game {
     this.cameraRig = new CameraRig(this);
     this.hud = new HUD(this);
     this.minimap = new Minimap(this);
+    this.nameplates = new Nameplates(this);
     this.touch = new TouchControls(this);
     this.gangMenu = new GangMenu(this);
     this.menuOpen = false; // меню банды открыто — симуляция стоит
@@ -307,6 +310,7 @@ class Game {
     this.sky.position.copy(this.camera.position);
     this.renderer.render(this.scene, this.camera);
     this.hud.update(frameTime);
+    this.nameplates.update(frameTime);
     this.minimap.update(frameTime);
     this.touch.update();
     this.audio.update();

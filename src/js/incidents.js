@@ -175,7 +175,10 @@ export class IncidentDirector {
     const { game } = this;
     const victim = this._civilian(25, 100);
     if (!victim) return null;
-    const look = { ...randomCivilianLook(game.rng), shirt: '#1d1d1f', pants: '#232323', hat: '#111111' };
+    const look = {
+      ...randomCivilianLook(game.rng), top: 'hoodie', shirt: '#1d1d1f', accent: '#333333', bottom: 'jeans', pants: '#232323',
+      shoeStyle: 'hightop', shoes: '#111111', hat: '#111111', hatStyle: 'beanie', mask: '#111111', glasses: null, hairStyle: 'short',
+    };
     const robber = this._spawnCivilianNear(victim.position.x, victim.position.z, 14, look);
     if (!robber) return null;
     robber.gun = null;
