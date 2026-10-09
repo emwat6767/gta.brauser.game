@@ -237,11 +237,11 @@ export class TouchControls {
     this._setLabel('descend', mode === 'ironman' && !inCar && powers.flying ? 'ВНИЗ' : '');
     this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
     // В режимах силы кнопки ОРУЖИЕ / ПЕРЕЗ. становятся способностями Q и R, плюс третья — G.
-    this._setLabel('reload', gadgets ? gadgets[1].name.slice(0, 9) : gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
-    this._setLabel('gadgetc', gadgets ? gadgets[2].name.slice(0, 9) : '');
+    this._setLabel('reload', gadgets ? gadgets[1].name.slice(0, 10) : gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
+    this._setLabel('gadgetc', gadgets ? gadgets[2].name.slice(0, 10) : '');
     this._setLabel('squad', p.isDead ? '' : this.game.squad.size ? 'ОТПУСТ.' : 'БАНДА');
     this._setLabel('jobs', p.isDead ? '' : this.game.missions.active ? 'ЦЕЛЬ' : 'ЗАДАНИЯ');
-    this._setLabel('weapon', gadgets ? gadgets[0].name.slice(0, 9) : inCar || p.isDead || unarmed ? '' : SHORT_NAMES[p.arsenal.current]);
+    this._setLabel('weapon', gadgets ? gadgets[0].name.slice(0, 10) : inCar || p.isDead || unarmed ? '' : SHORT_NAMES[p.arsenal.current]);
     if (!gun && this.input.virtualDown.has('aim')) this.setToggle('aim', false);
     const v = inCar ? null : p.findEnterableVehicle();
     const bank = inCar || v ? null : this.game.heists?.canStart();
