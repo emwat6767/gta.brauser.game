@@ -11,7 +11,7 @@ import { rayBox } from './collision.js';
 //   lineOfSight(game, from, to)          — видит ли стрелок цель
 
 const UP = new THREE.Vector3(0, 1, 0);
-const _d = new THREE.Vector3(), _end = new THREE.Vector3(), _p = new THREE.Vector3();
+const _d = new THREE.Vector3(), _end = new THREE.Vector3(), _p = new THREE.Vector3(), _fa = new THREE.Vector3(), _fb = new THREE.Vector3();
 
 // Сегменты тела для попаданий: [точка A, точка B, радиус, зона].
 const SEGMENTS = [
@@ -45,10 +45,10 @@ export function raycastWorld(game, o, d, maxT) {
 }
 
 // Машины как коробки в их локальных осях.
-export function raycastVehicles(game, o, d, maxT, ignore) {
+export function raycastVehicles(game, o, d, maxT, ignore, team = null) {
   let best = null;
   for (const v of game.vehicles) {
-    if (v === ignore) continue;
+    if (v === ignore || (team && v.team === team)) continue;
     const rx = o.x - v.position.x, rz = o.z - v.position.z;
     // быстрый отсев: машина далеко от луча
     const reach = v.reach + 0.6;
@@ -71,13 +71,17 @@ export function raycastVehicles(game, o, d, maxT, ignore) {
 // Союзники: игрок и его банда (squad.js). Их пули друг в друга не попадают.
 export const isAlly = (game, c) => c === game.player || c?.follower === true;
 
+// Сторона (страна) в режиме «Война стран»: у людей и машин поле team; пули своих не ранят своих.
+export const teamOf = (c) => c?.team ?? c?.driver?.team ?? null;
+
 // Все, в кого можно попасть (живые и мёртвые), кроме ignore и сидящих в машинах.
 function* targets(game, ignore) {
   const p = game.player;
   const allies = !!ignore && isAlly(game, ignore);
-  if (p !== ignore && !p.vehicle && !allies) yield p;
+  const team = teamOf(ignore);
+  if (p !== ignore && !p.vehicle && !allies && !(team && p.team === team)) yield p;
   for (const n of game.npcs.list) {
-    if (n !== ignore && !n.vehicle && n.model.root.visible && !(allies && n.follower)) yield n;
+    if (n !== ignore && !n.vehicle && (n.model.root.visible || n.brain) && !(allies && n.follower) && !(team && n.team === team)) yield n;
   }
 }
 
@@ -92,6 +96,14 @@ export function raycastCharacters(game, o, d, maxT, ignore) {
     const s = _p.dot(d);
     if (s < -1.5 || s > maxT + 1.5) continue;
     if (_p.lengthSq() - s * s > 2.2 * 2.2) continue;
+    if (!c.model.root.visible) {
+      // Далёкий солдат (модель скрыта и не обновляется): одна капсула по позиции.
+      _fa.set(c.position.x, c.position.y + 0.35, c.position.z);
+      _fb.set(c.position.x, c.position.y + 1.55, c.position.z);
+      const t = rayCapsule(o, d, maxT, _fa, _fb, 0.3);
+      if (t !== null && (!best || t < best.t)) best = { t, character: c, zone: 'torso' };
+      continue;
+    }
     const J = c.model.getJoints();
     for (const [a, b, r, zone] of SEGMENTS) {
       const t = rayCapsule(o, d, maxT, J[a], J[b], r);
@@ -105,7 +117,7 @@ export function raycastCharacters(game, o, d, maxT, ignore) {
 export function raycastAll(game, o, d, maxT, ignore) {
   const w = raycastWorld(game, o, d, maxT);
   let hit = w ? { t: w.t, normal: w.normal, kind: 'world', type: w.type } : null;
-  const v = raycastVehicles(game, o, d, hit ? hit.t : maxT, ignore?.vehicle ?? null);
+  const v = raycastVehicles(game, o, d, hit ? hit.t : maxT, ignore?.vehicle ?? null, teamOf(ignore));
   if (v) hit = { t: v.t, normal: v.normal, kind: 'vehicle', vehicle: v.vehicle };
   const c = raycastCharacters(game, o, d, hit ? hit.t : maxT, ignore);
   if (c) hit = { t: c.t, kind: 'character', character: c.character, zone: c.zone, normal: null };
@@ -144,6 +156,21 @@ export function fireShot(game, { shooter, origin, dir, weapon, spread = 0, damag
   const from = muzzle ?? origin;
   const result = { hits: 0, killed: false, headshot: false };
   const shotDir = new THREE.Vector3();
+  if (def.projectile) {
+    // Граната / снаряд: летит по прямой, взрывается о первое препятствие (vfx.js), не задевает своих.
+    const P = def.projectile;
+    jitter(dir, spread, shotDir);
+    const team = teamOf(shooter);
+    game.vfx.projectile(from, shotDir, {
+      speed: P.speed, theme: P.theme, radius: 0.35, life: P.life, damage: def.damage * (shooter === game.player ? 1 : 0.6), aoe: P.aoe, force: P.force,
+      owner: shooter, kind: 'missile',
+      only: (c) => !(shooter === game.player && isAlly(game, c)) && !(team && teamOf(c) === team),
+    });
+    game.effects.muzzle(from, dir, weaponMesh);
+    game.audio.gunshot(weapon, from);
+    game.events.emit('weapon:fired', { shooter, weapon, position: from });
+    return result;
+  }
   for (let n = 0; n < def.pellets; n++) {
     jitter(dir, spread, shotDir);
     const hit = raycastAll(game, origin, shotDir, def.range, shooter);
@@ -170,7 +197,7 @@ export function fireShot(game, { shooter, origin, dir, weapon, spread = 0, damag
       }
     } else if (hit.kind === 'vehicle') {
       game.effects.burst(hit.point, hit.normal, 'spark', 5);
-      hit.vehicle.damage(def.damage * 0.35, shooter);
+      hit.vehicle.damage(def.damage * 0.35 * (hit.vehicle.spec.bulletResist ?? 1), shooter);
     } else {
       game.effects.burst(hit.point, hit.normal, hit.type === 'ground' ? 'dust' : hit.type === 'lamp' ? 'spark' : 'dust', 5);
     }

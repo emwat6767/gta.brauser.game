@@ -713,7 +713,7 @@ export class EliteVFX {
       let end = false, point = null, target = null;
       if (hit && hit.t <= step + p.radius) {
         // Своих не задеваем: фильтр по only.
-        if (hit.kind === 'character' && p.only && !p.only(hit.character)) {
+        if ((hit.kind === 'character' && p.only && !p.only(hit.character)) || (hit.kind === 'vehicle' && hit.vehicle.team && p.only && !p.only(hit.vehicle))) {
           // пролетает сквозь
         } else {
           end = true;

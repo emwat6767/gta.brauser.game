@@ -19,7 +19,7 @@ import { clamp, damp, dampAngle } from './utils.js';
 
 const _o = new THREE.Vector3(), _f = new THREE.Vector3(), _m = new THREE.Vector3(), _dir = new THREE.Vector3();
 const _eye = new THREE.Vector3(), _aimAt = new THREE.Vector3(), _camF = new THREE.Vector3();
-const WEAPON_KEYS = { weaponFists: 'fists', weaponPistol: 'pistol', weaponShotgun: 'shotgun', weaponSmg: 'smg' };
+const WEAPON_KEYS = { weaponFists: 'fists', weaponPistol: 'pistol', weaponShotgun: 'shotgun', weaponSmg: 'smg', weaponRifle: 'rifle', weaponSniper: 'sniper', weaponRpg: 'rpg' };
 
 export class Player {
   constructor(game) {
@@ -153,6 +153,7 @@ export class Player {
     gun?.update(dt);
     this.aiming = !!gun && control && this.grounded && input.isDown('aim');
     cameraRig.aiming = this.aiming;
+    cameraRig.scope = this.aiming && gun.def.scope ? gun.def.scope : 0;
     if (this.aiming || this.shootTimer > 0) {
       cameraRig.forward(_f);
       this.aimPitch = -Math.asin(clamp(_f.y, -1, 1));
@@ -443,6 +444,7 @@ export class Player {
     let bestD = CONFIG.player.enterDistance;
     for (const v of this.game.vehicles) {
       if (v.driver === this || (v.driver && Math.abs(v.speed) > 3)) continue;
+      if (v.driver && v.spec.noCarjack) continue;   // из танка, БТР и вертолёта водителя не выкинуть
       const d = v.distanceToPoint(this.position.x, this.position.z);
       if (d < bestD) {
         bestD = d;
@@ -466,6 +468,7 @@ export class Player {
     vehicle.driver = this;
     vehicle.ai = null;
     vehicle.sirenOn = false;
+    if (this.team) vehicle.team = this.team;   // угнанная на войне техника воюет за нас
     if (!vehicle.police) this.game.hud?.toast(vehicle.spec.name, 1.4);
     vehicle.seatAnchor.add(this.model.root);
     this.model.root.position.set(0, 0, 0);

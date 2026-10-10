@@ -38,6 +38,8 @@ import { PrisonSystem } from './prison.js';
 import { ChaosSystem } from './chaos.js';
 import { DayNight, createSky } from './daynight.js';
 import { Places } from './places.js';
+import { Stats } from './stats.js';
+import { WarSystem } from './war.js';
 
 // Точка входа. Game владеет всеми системами и крутит игровой цикл:
 //   1. ввод камеры, E (сесть/выйти/угнать)
@@ -91,6 +93,7 @@ class Game {
     this.gangs = new GangSystem(this);
     this.traffic = new TrafficManager(this);
     this.wanted = new WantedSystem(this);
+    this.stats = new Stats(this);         // счётчик убитых, серии, рекорды (stats.js)
     this.progress = new GangProgress(this);
     this.squad = new Squad(this);
     this.heists = new HeistSystem(this);
@@ -104,6 +107,7 @@ class Game {
     this.bosses = new BossSystem(this);   // злодей и герой города
     this.prison = new PrisonSystem(this); // тюрьма «Редрок»: арест, срок, друзья, побег (prison.js)
     this.pickups = new PickupSystem(this);
+    this.war = new WarSystem(this);       // война стран: армии, базы, техника, приказы (war.js)
     this.wallet = new Wallet(this);
     this.save = new SaveSystem(this);
     this.save.load();
@@ -229,7 +233,10 @@ class Game {
     // Арестованного отправляют в тюрьму «Редрок» (prison.js); погибшего заключённого — в тюремный лазарет.
     const prison = this.prison.ready ? this.prison : null;
     let arrest = null, diedInside = false;
-    if (prison && kind === 'busted') {
+    const inWar = this.war.active;
+    if (inWar) {
+      point = this.war.playerRespawnPoint();   // на войне возвращаемся в штаб своей страны
+    } else if (prison && kind === 'busted') {
       arrest = prison.beginArrest();
       point = arrest.point;
     } else if (prison?.inCustody) {
@@ -242,6 +249,7 @@ class Game {
     this.cameraRig.yaw = point.heading;
     this.cameraRig.initialized = false;
     this.hud.hideBigMessage();
+    if (inWar) this.war.onPlayerRespawn();
     if (arrest) prison.completeArrest(arrest);
     else if (diedInside) prison.onDiedInside();
     this.events.emit('player:respawn', { point });
@@ -251,7 +259,8 @@ class Game {
     const p = this.player;
     if (p.isDown || this.downState) return;
     if (p.vehicle) {
-      p.exitVehicle();
+      if (p.vehicle.spec.flies && p.vehicle.altitude > 4) this.hud.toast('Сначала посадите вертолёт: Shift / Z — вниз', 1.6);
+      else p.exitVehicle();
     } else if (this.powers.mode === 'colossus') {
       // Колосс не садится в машины — поднимает и бросает их (у банка — грабит).
       if (!this.powers.grabOrThrow()) this.heists.tryStart();
@@ -272,12 +281,15 @@ class Game {
     const wdt = dt * this.timeScale;
     for (const v of this.vehicles) v.update(v === this.player.vehicle ? dt : wdt);
     if (wdt > 0) {
+      const war = this.war.active;   // на войне прохожие, банды, полиция и трафик затихают
       this.npcs.update(wdt);
-      this.bosses.update(wdt);
-      this.gangs.update(wdt);
-      this.squad.update(wdt);
-      this.wanted.update(wdt);
-      this.traffic.update(wdt);
+      if (!war) {
+        this.bosses.update(wdt);
+        this.gangs.update(wdt);
+        this.squad.update(wdt);
+        this.wanted.update(wdt);
+        this.traffic.update(wdt);
+      } else this.war.update(wdt);
       this.chaos.update(wdt);
     }
     resolveInteractions(this);
@@ -289,15 +301,19 @@ class Game {
 
     if (input.wasPressed('toggleHelp')) this.hud.toggleHelp();
     if (input.wasPressed('mute')) this.hud.toast(this.audio.toggleMute() ? 'Звук выключен' : 'Звук включён', 1.2);
-    if (input.wasPressed('jobs') && !this.paused && !this.prison.ui?.isOpen) {
+    if (input.wasPressed('jobs') && !this.paused && !this.prison.ui?.isOpen && !this.war.ui.isOpen) {
       if (this.prison.inCustody) this.hud.toast('В тюрьме не до заданий банды: I — вещи и план', 2);
+      else if (this.war.active) this.hud.toast('На войне не до заданий банды: K — состояние войны', 2);
       else this.gangMenu.toggle();
     }
+    if (input.wasPressed('war') && !this.paused && !this.prison.ui?.isOpen && !this.gangMenu.isOpen && this.war.ui.endHidden) this.war.ui.toggleMenu();
+    if (input.wasPressed('orders') && !this.paused && !this.menuOpen) this.war.ui.toggleOrders();
     if (!this.paused && !this.menuOpen) {
+      this.war.ui.handleKeys(input);   // цифры при открытых приказах — приказы, а не смена оружия
       this.cameraRig.handleInput(frameTime);
       if (input.wasPressed('interact') && !this.prison.interact()) this._toggleVehicle();
       if (input.wasPressed('inventory') && this.prison.inCustody && !this.downState) this.prison.ui.openStatus();
-      if (input.wasPressed('squad') && !this.prison.inCustody) this.squad.toggle();
+      if (input.wasPressed('squad') && !this.prison.inCustody && !this.war.active) this.squad.toggle();
       if (input.wasPressed('power')) this.powers.cycle();
       if (input.wasPressed('powerPrev')) this.powers.cycle(-1);
       if (input.wasPressed('duel') && !this.player.isDead && !this.downState && !this.prison.inCustody) this.duel.toggle();
@@ -308,17 +324,20 @@ class Game {
       for (let i = 0; i < steps; i++) this._simulate(dt);
       this.pickups.update(frameTime);
       this.lights.update(frameTime, this.player);
-      this.heists.update(frameTime);
-      this.turf.update(frameTime);
-      this.incidents.update(frameTime);
       this.daynight.update(frameTime);
       this.places.update(frameTime);
-      this.worklife.update(frameTime);
       this.prison.update(frameTime);
-      this.duel.update(frameTime);
-      this.missions.update(frameTime);
+      if (!this.war.active) {
+        this.heists.update(frameTime);
+        this.turf.update(frameTime);
+        this.incidents.update(frameTime);
+        this.worklife.update(frameTime);
+        this.duel.update(frameTime);
+        this.missions.update(frameTime);
+      }
       this.effects.update(frameTime);
       this.vfx.update(frameTime);
+      this.stats.update(frameTime);
       this.save.update(frameTime);
       if (this.downState && (this.downState.timer -= frameTime) <= 0) this._respawn();
     }
@@ -333,6 +352,7 @@ class Game {
     this.renderer.info.reset();   // счётчики за кадр целиком: основной вид + трансляция (duel.js)
     this.renderer.render(this.scene, this.camera);
     this.duel?.renderStream(this.renderer, this.scene);
+    this.war.frame(frameTime);
     this.hud.update(frameTime);
     this.nameplates.update(frameTime);
     this.minimap.update(frameTime);
@@ -366,6 +386,7 @@ class Game {
 const overlay = document.getElementById('overlay');
 const status = document.getElementById('overlay-status');
 const playButton = document.getElementById('play');
+const playWarButton = document.getElementById('play-war');
 
 try {
   const game = new Game(document.getElementById('app'));
@@ -375,6 +396,7 @@ try {
 
   status.textContent = 'Город готов.';
   playButton.disabled = false;
+  if (playWarButton) playWarButton.disabled = false;
 
   const showMenu = (paused) => {
     overlay.classList.toggle('hidden', !paused);
@@ -393,6 +415,10 @@ try {
     showMenu(false);
   };
   playButton.addEventListener('click', play);
+  playWarButton?.addEventListener('click', () => {
+    play();
+    game.war.ui.toggleMenu(true);   // сразу выбрать страну и роль
+  });
   game.events.on('game:pause', () => showMenu(true));
 
   let hadLock = false;
@@ -403,7 +429,11 @@ try {
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && game.prison.ui?.isOpen && !game.prison.ui.screen?.locked) {
       game.prison.ui.close(); // Esc закрывает окно тюрьмы
-    } else if (e.code === 'Escape' && game.menuOpen) {
+    } else if (e.code === 'Escape' && game.war.ui.ordersOpen) {
+      game.war.ui.toggleOrders(false);
+    } else if (e.code === 'Escape' && game.menuOpen && game.war.ui.endHidden && !game.war.ui.menu.classList.contains('hidden')) {
+      game.war.ui.toggleMenu(false);
+    } else if (e.code === 'Escape' && game.menuOpen && game.war.ui.endHidden) {
       game.gangMenu.toggle(false); // Esc сначала закрывает меню банды
     } else if (e.code === 'Escape' && !game.paused) {
       document.exitPointerLock?.();

@@ -44,6 +44,10 @@ export class HUD {
     this._hitTimer = 0;
     this._toastTimer = 0;
     this._weaponText = '';
+    this.killEl = document.getElementById('killcount');
+    this.killNum = this.killEl.querySelector('b');
+    this.killSub = this.killEl.querySelector('small');
+    this._killVersion = -1;
     this.moneyEl = document.getElementById('money');
     this.moneyPopEl = document.getElementById('money-pop');
     this._money = -1;
@@ -265,32 +269,50 @@ export class HUD {
     this.flashEl.style.opacity = this._flash.toFixed(2);
     if (this._zoneTimer > 0 && (this._zoneTimer -= dt) <= 0) this.zoneEl.classList.remove('show');
 
+    // Счётчик убитых людей.
+    const stats = this.game.stats;
+    if (stats && stats.version !== this._killVersion) {
+      const first = this._killVersion < 0;
+      this._killVersion = stats.version;
+      this.killNum.textContent = String(stats.total.kills);
+      this.killSub.textContent = stats.session.kills && stats.session.kills !== stats.total.kills ? `за сессию ${stats.session.kills}` : '';
+      if (!first) {
+        this.killEl.classList.remove('bump');
+        void this.killEl.offsetWidth;
+        this.killEl.classList.add('bump');
+      }
+    }
+
     // Оружие: название, патроны (магазин / запас), перезарядка, перекрестье.
     const powers = this.game.powers;
     const superMode = !!powers?.unarmed;
     const modeTag = powers?.mode ?? 'normal';
     const gun = superMode ? null : player.gun;
-    const wText = superMode ? modeTag : gun ? `${gun.def.name}|${gun.mag}|${gun.reserve}|${modeTag}` : `fists|${modeTag}`;
+    // За рулём боевой машины: ствол башни (танк, БТР, джип с пулемётом, вертолёт) — название и готовность.
+    const vt = !superMode && player.vehicle?.turret ? player.vehicle.turret.hudInfo() : null;
+    const wText = vt ? `veh|${vt.name}|${vt.ready}` : superMode ? modeTag : gun ? `${gun.def.name}|${gun.mag}|${gun.reserve}|${modeTag}` : `fists|${modeTag}`;
     if (wText !== this._weaponText) {
       this._weaponText = wText;
-      this.weaponNameEl.textContent = superMode ? powers.name : gun ? gun.def.name : 'Кулаки';
-      this.weaponNameEl.style.color = modeTag !== 'normal' ? powers.color : '';
-      this.weaponAmmoEl.textContent = superMode ? 'РЕЖИМ' : !gun ? '' : gun.bottomless ? '∞' : `${gun.mag} | ${gun.reserve}`;
-      this.weaponAmmoEl.classList.toggle('empty', !!gun && gun.mag === 0);
+      this.weaponNameEl.textContent = vt ? vt.name : superMode ? powers.name : gun ? gun.def.name : 'Кулаки';
+      this.weaponNameEl.style.color = !vt && modeTag !== 'normal' ? powers.color : '';
+      this.weaponAmmoEl.textContent = vt ? (vt.slow ? (vt.ready ? 'ГОТОВО' : 'ЗАРЯДКА') : '∞') : superMode ? 'РЕЖИМ' : !gun ? '' : gun.bottomless ? '∞' : `${gun.mag} | ${gun.reserve}`;
+      this.weaponAmmoEl.classList.toggle('empty', vt ? !vt.ready && vt.slow : !!gun && gun.mag === 0);
     }
     this._updateGadgets(powers);
     if (this._modeTimer > 0 && (this._modeTimer -= dt) <= 0) this.modeEl.classList.add('hidden');
     const ts = this.game.timeScale;
     this.timeEl.style.opacity = ts < 0.99 ? String(Math.min(1, 1 - ts)) : '0';
     this._updateBossBar();
-    this.reloadBar.classList.toggle('hidden', !gun?.reloading);
-    if (gun?.reloading) this.reloadFill.style.width = `${Math.round(gun.reloadProgress * 100)}%`;
+    const slowReload = !!vt && vt.slow && !vt.ready;
+    this.reloadBar.classList.toggle('hidden', !gun?.reloading && !slowReload);
+    if (slowReload) this.reloadFill.style.width = `${Math.round(vt.progress * 100)}%`;
+    else if (gun?.reloading) this.reloadFill.style.width = `${Math.round(gun.reloadProgress * 100)}%`;
     const energy = ENERGY_MODES.has(modeTag);
-    const showCross = (!!gun || energy) && !player.vehicle && !player.isDead &&
-      (player.aiming || player.shootTimer > 0 || this.game.input.touchActive || this.game.input.pointerLocked);
+    const showCross = ((!!gun || energy) && !player.vehicle && !player.isDead &&
+      (player.aiming || player.shootTimer > 0 || this.game.input.touchActive || this.game.input.pointerLocked)) || (!!vt && !player.isDead);
     this.crosshair.classList.toggle('hidden', !showCross);
     if (showCross) {
-      const px = gun ? 3 + gun.spread(player.horizontalSpeed > 0.5) * (player.aiming ? 0.45 : 1) * window.innerHeight * 0.9 : 6;
+      const px = !vt && gun ? 3 + gun.spread(player.horizontalSpeed > 0.5) * (player.aiming ? 0.45 : 1) * window.innerHeight * 0.9 : 6;
       this.crosshair.style.setProperty('--gap', `${Math.min(40, px).toFixed(1)}px`);
     }
     this._hitTimer = Math.max(0, this._hitTimer - dt);

@@ -10,7 +10,7 @@ import { mergeColored } from './geometry.js';
 // Подбирает игрок пешком, просто подойдя ближе radius.
 
 const RING_GEO = new THREE.TorusGeometry(0.45, 0.04, 6, 24).rotateX(Math.PI / 2);
-const RING_COLORS = { pistol: 0x6fe38a, shotgun: 0xffb347, smg: 0x5fb8ff, cash: 0x7dff7a };
+const RING_COLORS = { pistol: 0x6fe38a, shotgun: 0xffb347, smg: 0x5fb8ff, rifle: 0xd9e36f, sniper: 0xc58cff, rpg: 0xff6a4a, cash: 0x7dff7a };
 
 let CASH = null;
 function cashModel() {

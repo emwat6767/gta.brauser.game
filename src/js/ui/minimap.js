@@ -228,6 +228,26 @@ export class Minimap {
       ctx.fillText(m.txt, x, y + 0.5 * d);
     }
 
+    // Базы и пункты захвата войны стран: цветные флажки, далёкие прижаты к краю.
+    for (const m of this.game.war?.minimapMarks?.() ?? []) {
+      let [x, y] = this.toScreen(m.x, m.z);
+      const dx = x - R, dy = y - R, dist = Math.hypot(dx, dy), edge = R - 11 * d;
+      if (dist > edge) {
+        x = R + (dx / dist) * edge;
+        y = R + (dy / dist) * edge;
+      }
+      const s = (m.big ? 7 : 5.5) * d;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(x - s - d, y - s - d, (s + d) * 2, (s + d) * 2);
+      ctx.fillStyle = m.color;
+      ctx.fillRect(x - s, y - s, s * 2, s * 2);
+      ctx.fillStyle = m.dark ? '#111' : '#ffffff';
+      ctx.font = `900 ${Math.round((m.big ? 10 : 8) * d)}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(m.txt, x, y + 0.5 * d);
+    }
+
     // NPC: прохожие — светлые точки, бандиты — цвет банды, полиция мигает, погибшие — серые.
     for (const npc of npcs.list) {
       if (npc.vehicle) continue;
@@ -237,6 +257,7 @@ export class Minimap {
       if (npc.isDead) color = '#7a7a7a';
       else if (npc.boss) continue;                                                         // рисуется отдельно (ниже)
       else if (npc.minion) { color = '#8e44c9'; r = 3.4; ring = '#ff2e2e'; }              // подручный злодея
+      else if (npc.warColor) { color = npc.warColor; r = npc.isPresident ? 4.4 : 3.2; ring = npc.isPresident ? '#ffffff' : '#111'; }   // солдат армии страны
       else if (npc.follower) { color = gangColor(npc.gang); r = 3.6; ring = '#ffffff'; } // боец отряда
       else if (npc.marked) { color = '#ff2e2e'; r = 3.6; ring = '#ffffff'; }            // цель задания/войны
       else if (npc.role === 'gang') { color = gangColor(npc.gang); r = 3.2; }

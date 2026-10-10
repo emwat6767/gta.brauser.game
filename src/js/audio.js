@@ -111,6 +111,19 @@ export class SoundSystem {
     if (type === 'shotgun') {
       this._noise({ when, duration: 0.45, type: 'lowpass', freq: hi * 0.6, q: 0.5, gain: 1.6 * gain, pan });
       this._tone({ when, duration: 0.22, freq: 95, freqEnd: 32, gain: 1.4 * gain, pan });
+    } else if (type === 'rifle') {
+      this._noise({ when, duration: 0.14, freq: hi, q: 0.6, gain: 1.0 * gain, pan });
+      this._tone({ when, duration: 0.09, freq: 120, freqEnd: 50, gain: 0.75 * gain, pan });
+    } else if (type === 'sniper') {
+      this._noise({ when, duration: 0.5, type: 'lowpass', freq: hi * 0.7, q: 0.5, gain: 1.7 * gain, pan });
+      this._tone({ when, duration: 0.3, freq: 85, freqEnd: 28, gain: 1.5 * gain, pan });
+      this._noise({ when: when + 0.12, duration: 0.6, type: 'lowpass', freq: hi * 0.25, q: 0.3, gain: 0.5 * gain, pan });   // эхо
+    } else if (type === 'rpg' || type === 'cannon') {
+      this._noise({ when, duration: 0.6, type: 'lowpass', freq: 900, q: 0.4, gain: 1.9 * gain, pan });
+      this._tone({ when, duration: 0.45, freq: type === 'cannon' ? 60 : 110, freqEnd: 24, gain: 2.0 * gain, pan });
+    } else if (type === 'hmg') {
+      this._noise({ when, duration: 0.12, freq: hi * 0.7, q: 0.5, gain: 1.3 * gain, pan });
+      this._tone({ when, duration: 0.09, freq: 90, freqEnd: 40, gain: 1.0 * gain, pan });
     } else if (type === 'smg') {
       this._noise({ when, duration: 0.1, freq: hi * 0.9, q: 0.6, gain: 0.9 * gain, pan });
       this._tone({ when, duration: 0.07, freq: 150, freqEnd: 60, gain: 0.6 * gain, pan });
@@ -253,7 +266,7 @@ export class SoundSystem {
     // Мотор: обороты растут внутри передачи и падают при переключении.
     const v = game.player.vehicle;
     let engineGain = 0;
-    if (v && !quiet && !v.wrecked) {
+    if (v && !quiet && !v.wrecked && !v.spec.flies) {
       const s = Math.abs(v.forwardSpeed ?? v.speed);
       const gears = [0, 7, 13, 19, 26, 34, 80];
       let gi = 0;
@@ -284,11 +297,13 @@ export class SoundSystem {
     }
     sir.gain.gain.setTargetAtTime(sirenGain, t, 0.2);
     // Полёт
-    const flying = !quiet && !!game.powers?.flying;
+    // Вертолёт под игроком: шум винта (громче и выше с раскруткой и скоростью).
+    const heli = v?.spec.flies && !v.wrecked ? v : null;
+    const flying = !quiet && (!!game.powers?.flying || (!!heli && heli.rotorSpeed > 0.15));
     const pv = game.player.velocity;
-    const sp = Math.hypot(pv.x, pv.y, pv.z);
+    const sp = heli ? 14 + Math.abs(heli.forwardSpeed) * 0.8 : Math.hypot(pv.x, pv.y, pv.z);
     jet.filter.frequency.setTargetAtTime(600 + Math.min(sp, 45) * 35, t, 0.1);
-    jet.gain.gain.setTargetAtTime(flying ? 0.12 + Math.min(sp, 45) * 0.006 : 0, t, 0.12);
+    jet.gain.gain.setTargetAtTime(flying ? (heli ? 0.07 + heli.rotorSpeed * 0.1 : 0.12 + Math.min(sp, 45) * 0.006) : 0, t, 0.12);
   }
 
   // Включение суперсилы.

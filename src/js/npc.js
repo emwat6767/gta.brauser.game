@@ -54,6 +54,7 @@ export const NPC_STATE = {
   GOTO: 'goto',       // идёт к точке (охранник — к своему посту), затем стоит
   GOTO_BENCH: 'gotobench', // идёт к скамейке
   SIT: 'sit',         // сидит на скамейке
+  WAR: 'war',         // солдат армии страны: поведением рулит WarBrain (war-ai.js)
 };
 
 // Места в строю отряда: [вправо, назад] от игрока, м. По бокам, а не прямо за спиной —
@@ -166,6 +167,9 @@ export class NPC {
     this.target = null;   // противник в состоянии FIGHT
     this.vehicle = null;
     this.seat = -1;       // место пассажира (-1 — за рулём или пешком)
+    this.team = opts.team ?? null;   // страна в режиме «Война стран» (war.js)
+    this.brain = null;               // WarBrain солдата (war-ai.js)
+    this.warColor = null;            // цвет команды для миникарты
     this.follower = false; // в отряде игрока
     this.guard = false;   // охранник банка (heists.js): не задерживает, а стреляет
     this.leader = null;
@@ -547,6 +551,9 @@ export class NPC {
       case NPC_STATE.FOLLOW:
         speed = this._updateFollow(dt);
         break;
+      case NPC_STATE.WAR:
+        speed = this.brain ? this.brain.update(dt) : 0;
+        break;
       case NPC_STATE.STUMBLE:
         if (this.stateTime > this.stumbleTime) this._recover(false);
         break;
@@ -594,7 +601,7 @@ export class NPC {
     if (this.lod) return; // вдали — упрощённая фигура без анимации (crowd.js)
     const pose = this.isDown ? 'down' : this.state === NPC_STATE.STUMBLE ? 'stumble' : this.state === NPC_STATE.SIT ? 'sit' : 'normal';
     // Оружие видно только в драке (в остальное время "в кармане"); грабитель им угрожает.
-    this.model.setWeapon(this.menace ?? (this.gun && this.state === NPC_STATE.FIGHT ? this.gun.type : null));
+    this.model.setWeapon(this.menace ?? (this.gun && (this.state === NPC_STATE.FIGHT || this.state === NPC_STATE.WAR) ? this.gun.type : null));
     this.model.animate(dt, {
       speed, pose, fall: this.fall, sitHeight: 0.52,
       guard: !this.gun && this.state === NPC_STATE.FIGHT && speed < 1,
@@ -704,15 +711,19 @@ export class NPC {
       const S = this.follower ? CONFIG.squad : null;
       fireShot(this.game, {
         shooter: this, origin: eye, dir: _dir, weapon: gun.type,
-        spread: gun.def.spread * (S ? this.game.progress.stats.spread : N.gunSpreadScale) + (moving ? 0.03 : 0),
+        spread: gun.def.spread * (this.brain ? this.brain.spread : S ? this.game.progress.stats.spread : N.gunSpreadScale) + (moving ? 0.03 : 0),
         damageScale: N.gunDamageToPlayer, muzzle: this.model.muzzleWorld(_muzzle), weaponMesh: this.model.weaponMesh,
       });
-      this.fireWait = this.rng.range(0.8, 1.4) / (gun.def.fireRate * (S ? S.fireRateScale : N.gunFireRateScale));
+      this.fireWait = this.rng.range(0.8, 1.4) / (gun.def.fireRate * (this.brain ? this.brain.fireScale : S ? S.fireRateScale : N.gunFireRateScale));
     }
     return true;
   }
 
   _recover(afterFall) {
+    if (this.brain) {
+      this._enter(NPC_STATE.WAR);
+      return;
+    }
     if (this.target && !this.target.isDead && (this.role !== 'civilian' || this.brawler || this.fighter)) {
       this._enter(NPC_STATE.FIGHT);
       return;
@@ -777,6 +788,10 @@ export class NPC {
   _onAttacked(attacker) {
     const who = attacker?.driver ?? attacker; // удар машиной — виноват водитель
     if (!who || who === this || !who.position) return;
+    if (this.brain) {
+      this.brain.onAttacked(who);
+      return;
+    }
     if (this.fighter && this.role === 'civilian') {
       // Боец не бежит, а отвечает — хоть на игрока, хоть на другого.
       this.aggro(who, this.rng.pick(LINES.fighter));
@@ -813,6 +828,7 @@ export class NPC {
     this.health = 0;
     this.melee.cancel();
     this.target = null;
+    this.brain?._releaseCover();
     // Начальная скорость тела: движение + отброс; удар кулаком толкает сильнее.
     const vel = new THREE.Vector3(Math.sin(this.heading) * this.speed, 0, Math.cos(this.heading) * this.speed).add(this.knock);
     if (kind === 'punch') vel.x += dirX * 3.5, vel.z += dirZ * 3.5;
@@ -825,7 +841,7 @@ export class NPC {
       this.gun = null;
     }
     this._enter(NPC_STATE.DEAD);
-    this.game.events.emit('character:killed', { target: this, attacker: attacker?.driver ?? attacker, kind });
+    this.game.events.emit('character:killed', { target: this, attacker: attacker?.driver ?? attacker, kind, zone: info?.zone });
   }
 
   // Лёгкий толчок: пошатнуться, обернуться на обидчика, отбежать (или дать сдачи).
@@ -952,7 +968,8 @@ export class NPC {
     this.heading = v.heading;
     this.model.root.position.copy(this.position);
     this.model.root.rotation.set(0, this.heading, 0);
-    if (this.leader) this._enter(NPC_STATE.FOLLOW);
+    if (this.brain) this._enter(NPC_STATE.WAR);
+    else if (this.leader) this._enter(NPC_STATE.FOLLOW);
     else {
       this.prevNode = null;
       this._setTarget(this._nearestAllowedNode());
@@ -1019,7 +1036,7 @@ export class NPC {
     this.model.root.rotation.set(0, this.heading, 0);
     this.prevNode = null;
     this._setTarget(this._nearestAllowedNode());
-    this._enter(NPC_STATE.WALK);
+    this._enter(this.brain ? NPC_STATE.WAR : NPC_STATE.WALK);
   }
 }
 
@@ -1214,7 +1231,7 @@ export class NPCManager {
       const lod = d2 > lod2 && !npc.ragdoll && !npc.vehicle && !npc.boss;
       if (lod !== npc.lod) npc.lod = lod;
       npc.model.body.visible = npc.vehicle ? d2 < N.driverVisible ** 2 : !lod;
-      if (d2 > freeze2 && npc.state !== NPC_STATE.FIGHT && !npc.vehicle) continue;
+      if (d2 > freeze2 && npc.state !== NPC_STATE.FIGHT && !npc.vehicle && !npc.brain) continue;
       if (npc.timeScale !== 1) {
         if (npc.timeScale > 0) npc.update(dt * npc.timeScale);
         continue;
@@ -1236,7 +1253,7 @@ export class NPCManager {
       else if (!npc.isDead) civilians++;
     }
     // Людей больше в час пик и меньше ночью (worklife.js); лишних вдали от глаз убираем по одному.
-    const target = Math.round(N.count * (this.game.worklife?.populationScale ?? 1));
+    const target = Math.round(N.count * (this.game.worklife?.populationScale ?? 1) * (this.game.war?.civilianScale ?? 1));
     for (let k = 0; k < 3 && civilians < target; k++) if (this._spawnSpread(p, 30, 130)) civilians++;
     if (civilians > target * 1.05) {
       const extra = this.list.find((n) => n.role === 'civilian' && !n.vehicle && !n.isDead && !n.watching && !n.workTrip &&

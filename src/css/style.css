@@ -778,6 +778,37 @@ body.touch #weapon-ammo {
   #touch .tbtn-interact { right: calc(88px + env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 58px; height: 58px; }
 }
 
+/* ---------- Счётчик убитых ---------- */
+
+#killcount {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font: 900 18px/1 'Arial Black', Arial, sans-serif;
+  color: #ff8a8a;
+  text-shadow: 2px 2px 0 #3a0a0a, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+  font-variant-numeric: tabular-nums;
+}
+
+#killcount span {
+  font-size: 16px;
+}
+
+#killcount small {
+  font: 700 11px/1 Arial, sans-serif;
+  color: #ffd9a8;
+  letter-spacing: 0.5px;
+}
+
+#killcount.bump b {
+  animation: kill-bump 0.35s ease-out;
+}
+
+@keyframes kill-bump {
+  0% { transform: scale(1.6); color: #fff; }
+  100% { transform: scale(1); }
+}
+
 /* ---------- Деньги ---------- */
 
 #money-box {
@@ -1607,6 +1638,26 @@ body.touch #duel-bar { top: 50px; width: 52vw; }
   border-color: rgba(255, 170, 200, 0.75);
 }
 
+#touch .tbtn-war,
+#touch .tbtn-orders {
+  top: calc(170px + env(safe-area-inset-top, 0px));
+  width: 42px;
+  height: 42px;
+  font-size: 8px;
+}
+
+#touch .tbtn-war {
+  left: calc(10px + env(safe-area-inset-left, 0px));
+  background: rgba(70, 90, 40, 0.65);
+  border-color: rgba(190, 220, 120, 0.8);
+}
+
+#touch .tbtn-orders {
+  left: calc(60px + env(safe-area-inset-left, 0px));
+  background: rgba(150, 40, 40, 0.65);
+  border-color: rgba(255, 170, 160, 0.8);
+}
+
 /* ---------- Тюрьма «Редрок»: окна, затемнение, внимание охраны ---------- */
 
 #touch .tbtn-prison {
@@ -1859,3 +1910,606 @@ body.touch #duel-bar { top: 50px; width: 52vw; }
 
 body.touch .pu-panel { width: 100%; }
 body.touch #prison-sus { bottom: 150px; }
+
+/* ---------- Война стран: меню, полоса сверху, приказы, итог ---------- */
+
+#play-war {
+  margin-top: 8px;
+  background: #4f6b2f;
+  color: #fff;
+}
+
+#play-war:disabled {
+  background: #333842;
+  color: #8a919c;
+}
+
+#war-menu,
+#war-end {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(5, 6, 10, 0.6);
+}
+
+.wm-panel,
+.we-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  max-height: 100%;
+  border: 3px solid #3b4a2a;
+  border-radius: 22px;
+  background: #14171c;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  color: #d9dde3;
+  font: 13px/1.35 Arial, sans-serif;
+}
+
+.wm-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #1f2a17;
+}
+
+.wm-title {
+  font: italic 900 20px/1.1 'Arial Black', Arial, sans-serif;
+  color: #c9e08a;
+}
+
+.wm-panel button,
+.we-panel button {
+  border: 0;
+  border-radius: 9px;
+  background: #ffd166;
+  color: #111;
+  font: 900 13px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+
+.wm-close {
+  padding: 8px 14px;
+  background: #3a3f48 !important;
+  color: #fff !important;
+}
+
+.wm-body {
+  padding: 4px 16px 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.wm-body section {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wm-body h3 {
+  margin: 0 0 8px;
+  font: 900 14px/1.2 Arial, sans-serif;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.wm-intro {
+  margin: 4px 0 8px;
+  color: #cfd5dc;
+}
+
+.wm-stat {
+  margin: 3px 0;
+  color: #9aa2ad;
+}
+
+.wm-stat b {
+  color: #ffd166;
+}
+
+.wm-countries {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.wm-body button.wm-country {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px 7px;
+  border: 2px solid #2b2f36;
+  background: #1c2027;
+  color: #fff;
+  text-align: center;
+}
+
+.wm-body button.wm-country canvas {
+  width: 76px;
+  height: 50px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.wm-body button.wm-country b {
+  font-size: 13px;
+}
+
+.wm-body button.wm-country small {
+  display: none;
+  font: 600 10px/1.15 Arial, sans-serif;
+  color: #9aa2ad;
+}
+
+.wm-body button.wm-country.sel {
+  border-color: var(--c, #ffd166);
+  background: #232a1d;
+  box-shadow: 0 0 14px -2px var(--c, #ffd166);
+}
+
+.wm-roles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.wm-body button.wm-role {
+  padding: 10px;
+  border: 2px solid #2b2f36;
+  background: #1c2027;
+  color: #fff;
+  text-align: left;
+}
+
+.wm-body button.wm-role b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+
+.wm-body button.wm-role small {
+  font: 500 11px/1.3 Arial, sans-serif;
+  color: #aeb6c0;
+}
+
+.wm-body button.wm-role.sel {
+  border-color: #c9e08a;
+  background: #232a1d;
+}
+
+.wm-opts {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.wm-body button.wm-pill {
+  margin: 0 6px 6px 0;
+  padding: 8px 14px;
+  border: 2px solid #2b2f36;
+  background: #1c2027;
+  color: #d9dde3;
+}
+
+.wm-body button.wm-pill.sel {
+  border-color: #c9e08a;
+  background: #2f3d22;
+  color: #fff;
+}
+
+.wm-go {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.wm-start {
+  padding: 14px 30px;
+  font-size: 16px !important;
+  background: #6fa83a !important;
+  color: #0c1405 !important;
+  letter-spacing: 1px;
+}
+
+.wm-start.cancel {
+  background: #3a3f48 !important;
+  color: #fff !important;
+}
+
+.wm-start.danger {
+  background: #b0382f !important;
+  color: #fff !important;
+}
+
+.wm-start:disabled {
+  background: #333842 !important;
+  color: #8a919c !important;
+  cursor: default;
+}
+
+.wm-warn {
+  margin: 0;
+  color: #ff6b6b;
+  font-weight: 800;
+}
+
+.wm-team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.wm-team canvas {
+  width: 36px;
+  height: 24px;
+  border-radius: 3px;
+}
+
+.wm-team span {
+  margin-left: auto;
+  color: #9aa2ad;
+}
+
+.wm-team.dead {
+  opacity: 0.45;
+}
+
+/* полоса сверху */
+
+#war-hud {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.wh-teams {
+  display: flex;
+  gap: 6px;
+}
+
+.wh-team {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 5px;
+  border-radius: 8px;
+  background: rgba(8, 10, 14, 0.66);
+  border-bottom: 3px solid var(--c);
+}
+
+.wh-team.me {
+  background: rgba(35, 48, 22, 0.8);
+  box-shadow: 0 0 0 2px var(--c);
+}
+
+.wh-team.dead {
+  opacity: 0.4;
+}
+
+.wh-team canvas {
+  width: 30px;
+  height: 20px;
+  border-radius: 2px;
+}
+
+.wh-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 52px;
+}
+
+.wh-info b {
+  font: 900 10px/1 Arial, sans-serif;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.wh-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.wh-bar i {
+  display: block;
+  height: 100%;
+  background: var(--c);
+}
+
+.wh-team em {
+  font: 900 14px/1 'Arial Black', Arial, sans-serif;
+  font-style: normal;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.wh-points {
+  display: flex;
+  gap: 5px;
+}
+
+.wh-pt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--c);
+  border: 2px solid #111;
+  color: #fff;
+  font: 900 11px/1 Arial, sans-serif;
+  text-shadow: 0 0 2px #000;
+}
+
+.wh-pt.cap {
+  width: 26px;
+  height: 26px;
+  border-color: #ffd166;
+}
+
+.wh-pt.contested {
+  animation: wh-blink 0.5s steps(2) infinite;
+}
+
+@keyframes wh-blink {
+  50% {
+    border-color: #ff3b3b;
+    transform: scale(1.18);
+  }
+}
+
+.wh-me {
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(8, 10, 14, 0.6);
+  font: 700 12px/1.2 Arial, sans-serif;
+  color: #e0e6ec;
+}
+
+.wh-me b {
+  color: #ffd166;
+}
+
+.wh-me u {
+  color: #c9e08a;
+  text-decoration: none;
+  font-weight: 900;
+}
+
+body.war #top-center {
+  top: calc(96px + env(safe-area-inset-top, 0px));
+}
+
+body.war #news {
+  top: calc(100px + env(safe-area-inset-top, 0px));
+}
+
+/* приказы */
+
+#war-orders {
+  position: absolute;
+  left: calc(14px + env(safe-area-inset-left, 0px));
+  top: calc(104px + env(safe-area-inset-top, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 250px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 2px solid #3b4a2a;
+  background: rgba(12, 16, 10, 0.88);
+}
+
+.wo-head {
+  font: 900 13px/1.2 Arial, sans-serif;
+  color: #c9e08a;
+  letter-spacing: 0.5px;
+}
+
+.wo-head small {
+  float: right;
+  font-weight: 600;
+  color: #8a919c;
+}
+
+#war-orders button {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  grid-template-areas: 'k n c';
+  gap: 1px 8px;
+  align-items: center;
+  padding: 8px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #1f2616;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+#war-orders button i {
+  grid-area: k;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: #c9e08a;
+  color: #111;
+  font: 900 12px/1 Arial, sans-serif;
+  font-style: normal;
+}
+
+#war-orders button b {
+  grid-area: n;
+  font: 800 13px/1.1 Arial, sans-serif;
+}
+
+#war-orders button span {
+  grid-area: c;
+  font: 700 11px/1 Arial, sans-serif;
+  color: #ffd166;
+}
+
+#war-orders button small {
+  grid-area: d;
+  font: 500 10px/1.2 Arial, sans-serif;
+  color: #9aa2ad;
+}
+
+#war-orders button.poor {
+  opacity: 0.5;
+}
+
+#war-orders button:hover {
+  background: #2a3520;
+}
+
+/* итог */
+
+.we-panel {
+  align-items: center;
+  padding: 24px 20px;
+  text-align: center;
+}
+
+.we-panel.win {
+  border-color: #c9a93a;
+}
+
+.we-panel.loss {
+  border-color: #6a2a2a;
+}
+
+.we-panel h2 {
+  margin: 10px 0 2px;
+  font: italic 900 40px/1 'Arial Black', Arial, sans-serif;
+  letter-spacing: 2px;
+}
+
+.we-panel.win h2 {
+  color: #ffd166;
+}
+
+.we-panel.loss h2 {
+  color: #ff6b6b;
+}
+
+.we-flag canvas {
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+
+.we-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 22px;
+  margin: 12px 0 18px;
+}
+
+.we-stats span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font: 700 11px/1 Arial, sans-serif;
+  color: #8a919c;
+  text-transform: uppercase;
+}
+
+.we-stats b {
+  font: 900 18px/1 'Arial Black', Arial, sans-serif;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .wm-countries {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .wm-roles {
+    grid-template-columns: 1fr;
+  }
+
+  #war-orders {
+    width: 230px;
+  }
+}
+
+/* телефон: полоса войны компактнее, чтобы не закрывать кнопки */
+body.touch #war-hud {
+  top: calc(4px + env(safe-area-inset-top, 0px));
+  gap: 2px;
+}
+
+body.touch .wh-teams {
+  gap: 4px;
+}
+
+body.touch .wh-team {
+  padding: 2px 5px 2px 3px;
+  gap: 4px;
+}
+
+body.touch .wh-team canvas {
+  width: 22px;
+  height: 15px;
+}
+
+body.touch .wh-info {
+  min-width: 26px;
+}
+
+body.touch .wh-info b {
+  display: none;
+}
+
+body.touch .wh-team em {
+  font-size: 12px;
+}
+
+body.touch .wh-pt {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+
+body.touch .wh-pt.cap {
+  width: 21px;
+  height: 21px;
+}
+
+body.touch .wh-me {
+  display: none;
+}
+
+body.touch #war-orders {
+  top: calc(60px + env(safe-area-inset-top, 0px));
+  width: 210px;
+  padding: 6px;
+  gap: 3px;
+}
+
+body.touch #war-orders button {
+  padding: 5px 6px;
+}

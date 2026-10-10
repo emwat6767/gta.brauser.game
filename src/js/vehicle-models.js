@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { mergeColored } from './geometry.js';
+import { MILITARY_TYPES } from './military-models.js';
 
 // Типы машин: внешний вид (профиль кузова и кабины, детали) и характер езды.
 //
@@ -234,6 +235,9 @@ export const VEHICLE_TYPES = {
     },
   },
 };
+
+// Военная техника режима «Война стран» (трафик её не создаёт: нет в TYPE_WEIGHTS).
+Object.assign(VEHICLE_TYPES, MILITARY_TYPES);
 
 // Значения по умолчанию для габаритов (после раскрытия base).
 for (const t of Object.values(VEHICLE_TYPES)) if (t.base) Object.assign(t, { ...VEHICLE_TYPES[t.base], ...t });

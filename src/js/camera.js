@@ -24,6 +24,8 @@ export class CameraRig {
     this._desired = new THREE.Vector3();
     this._look = new THREE.Vector3();
     this.aiming = false;
+    this.scope = 0;       // > 0 — оптический прицел: поле зрения (градусы), например 14 у снайперки
+    this.scopeBlend = 0;
     this.aimBlend = 0;
     this.recoil = 0;      // временный подброс (возвращается)
     this.shake = 0;       // тряска (удары Колосса, взрывы)
@@ -50,7 +52,7 @@ export class CameraRig {
     const C = CONFIG.camera;
     const input = this.game.input;
     if (input.mouseDX || input.mouseDY) {
-      const sens = C.sensitivity * (this.aiming ? C.aimSensitivity : 1);
+      const sens = C.sensitivity * (this.aiming ? C.aimSensitivity : 1) * (this.scopeBlend > 0.5 ? 0.3 : 1);
       this.yaw -= input.mouseDX * sens;
       this.pitch = clamp(this.pitch + input.mouseDY * sens, C.pitchMin, C.pitchMax);
       this.mouseIdle = 0;
@@ -143,7 +145,9 @@ export class CameraRig {
     const baseFov = aspect < 1.2
       ? Math.max(C.fov, (2 * Math.atan(Math.tan((62 * Math.PI) / 360) / aspect) * 180) / Math.PI)
       : C.fov;
-    const fov = Math.min(100, baseFov + (C.aimFov - C.fov) * ab + clamp(speed / CONFIG.vehicle.maxSpeed, 0, 1) * 12);
+    this.scopeBlend = damp(this.scopeBlend, this.scope > 0 && ab > 0.5 ? 1 : 0, 10, dt);
+    let fov = Math.min(100, baseFov + (C.aimFov - C.fov) * ab + clamp(speed / CONFIG.vehicle.maxSpeed, 0, 1) * 12);
+    if (this.scopeBlend > 0.001) fov += ((this.scope || 14) - fov) * this.scopeBlend;
     if (Math.abs(fov - this.camera.fov) > 0.01) {
       this.camera.fov = damp(this.camera.fov, fov, 9, dt);
       this.camera.updateProjectionMatrix();

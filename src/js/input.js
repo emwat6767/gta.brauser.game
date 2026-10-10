@@ -23,6 +23,11 @@ export const BINDINGS = {
   weaponPistol: ['Digit2'],
   weaponShotgun: ['Digit3'],
   weaponSmg: ['Digit4'],
+  weaponRifle: ['Digit5'],
+  weaponSniper: ['Digit6'],
+  weaponRpg: ['Digit7'],
+  war: ['KeyK'],                      // война стран: меню / приказы президента
+  orders: ['KeyU'],                   // война стран: колесо приказов
   squad: ['KeyT'],                    // позвать банду / отпустить
   jobs: ['KeyJ'],                     // меню банды (задания, репутация, районы)
   power: ['KeyX'],                    // суперсила: обычный → Сила → Умный костюм → Титан → Босс банды

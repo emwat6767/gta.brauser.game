@@ -3,6 +3,7 @@ import { CONFIG } from './config.js';
 import { mergeColored } from './geometry.js';
 import { clamp, damp, moveTowards } from './utils.js';
 import { VEHICLE_TYPES, buildTypeAssets } from './vehicle-models.js';
+import { Turret } from './military.js';
 
 export { VEHICLE_TYPES };
 
@@ -100,6 +101,8 @@ export class Vehicle {
     this._buildModel(police ? 0xf4f4f2 : this.spec.taxi ? 0xf2c230 : color);
     this._bouncePhase = Math.random() * 6;
     if (police) this._addPoliceKit();
+    this.team = null;        // сторона в режиме «Война стран» (страна), null — гражданская машина
+    this.turret = this.spec.turret ? new Turret(this, this.spec.turret) : null;
     game.scene.add(this.root);
     this.updateCircles();
     this._syncVisual(0);
@@ -180,7 +183,11 @@ export class Vehicle {
     const R = CONFIG.vehicle.wheelRadius * T.wheelScale;
     const halfBase = T.wheelBase / 2;
     this.wheels = [];
-    for (const [x, z, front] of [[T.track, halfBase, true], [-T.track, halfBase, true], [T.track, -halfBase, false], [-T.track, -halfBase, false]]) {
+    // Оси: по умолчанию две; у БТР — четыре (передние две рулят); у танка и вертолёта колёс нет.
+    const axles = T.noWheels ? [] : T.axles ?? [halfBase, -halfBase];
+    const wheelSpots = [];
+    for (const z of axles) wheelSpots.push([T.track, z, z > 0], [-T.track, z, z > 0]);
+    for (const [x, z, front] of wheelSpots) {
       const pivot = new THREE.Group();   // поворот руля (Y)
       pivot.position.set(x, R, z);
       const spinner = add(S.wheel, S.wheelMat, pivot); // вращение (X)
@@ -253,6 +260,7 @@ export class Vehicle {
     if (this.neonMesh) { this.neonMesh.geometry.dispose(); this.neonMat.dispose(); }
     this.sirenRed?.dispose();
     this.sirenBlue?.dispose();
+    this.turret?.dispose();
   }
 
   // Центры кругов коллизии в мировых координатах.
@@ -363,8 +371,6 @@ export class Vehicle {
   }
 
   update(dt) {
-    const V = CONFIG.vehicle;
-    const T = this.spec;
     if (this.carried) {
       this._syncVisual(0);
       return;
@@ -404,7 +410,15 @@ export class Vehicle {
       this._syncVisual(dt);
       return;
     }
+    this._drive(dt);
+  }
+
+  // Колёсная/гусеничная езда (вертолёт переопределяет: helicopter.js).
+  _drive(dt) {
+    const V = CONFIG.vehicle;
+    const T = this.spec;
     const { throttle, steer: steerInput, handbrake } = this._readControls(dt);
+    this.turret?.update(dt);
     const maxSpeed = V.maxSpeed * T.speed * (this.boost ?? 1);
 
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
@@ -442,6 +456,11 @@ export class Vehicle {
 
     // Поворот корпуса по "велосипедной" модели.
     this.yawRate = (vf / T.wheelBase) * Math.tan(this.steer) * (handbrake ? 1.35 : 1);
+    if (T.pivot) {
+      // Гусеничная машина: поворачивает на месте; чем быстрее едет, тем плавнее.
+      this.yawRate = steerInput * T.pivot / (1 + Math.abs(vf) * 0.08);
+      this.steer = 0;
+    }
     this.spin *= Math.exp(-5 * dt);
     this.heading += (this.yawRate + this.spin) * dt;
 
@@ -499,12 +518,27 @@ export class Vehicle {
       const px = fx * off, pz = fz * off;
       const c = { x: this.position.x + px, z: this.position.z + pz };
       const bx = c.x, bz = c.z;
+      if (this.spec.heavy && Math.abs(this.forwardSpeed) > 0.4) this._crush(c, fx, fz);   // танк давит фонари и деревья
       if (!world.resolveCircle(c, this.radius, _hit)) continue;
       this.position.x += c.x - bx;
       this.position.z += c.z - bz;
       this.applyImpact(_hit.nx, _hit.nz, px, pz, null);
     }
     this.updateCircles();
+  }
+
+  // Танк ломает фонари и деревья на пути (они падают, как от удара Колосса).
+  _crush(c, fx, fz) {
+    const world = this.game.world;
+    const r = this.radius + 0.25;
+    for (const b of [...world.colliders.query(c.x - r, c.z - r, c.x + r, c.z + r)]) {
+      if (b.type === 'lamp') {
+        const lamp = world.lamps.find((l) => l.collider === b);
+        if (lamp) this.game.chaos?.breakLamp(lamp, fx * this.forwardSpeed, fz * this.forwardSpeed);
+      } else if (b.type === 'tree') {
+        world.breakTrees((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2, 0.8, fx, fz);
+      }
+    }
   }
 
   // Отскок от препятствия с нормалью (nx, nz) в точке (px, pz) относительно центра.

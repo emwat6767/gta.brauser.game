@@ -790,11 +790,35 @@ export class World {
   // Сломанный фонарь (chaos.js): убрать из инстансов и коллизий (вместо него падает отдельный меш).
   hideLamp(lamp) {
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    if (!lamp.matrices) {
+      lamp.matrices = this.lampMeshes.map((mesh) => {
+        const m = new THREE.Matrix4();
+        mesh.getMatrixAt(lamp.index, m);
+        return m;
+      });   // для restoreLamp
+    }
     for (const mesh of this.lampMeshes) {
       mesh.setMatrixAt(lamp.index, zero);
       mesh.instanceMatrix.needsUpdate = true;
     }
     this.colliders.remove(lamp.collider);
+  }
+
+  // Вернуть сломанный фонарь (после войны стран: танки ломают фонари на пути).
+  restoreLamp(lamp) {
+    if (!lamp.broken || !lamp.matrices) return;
+    lamp.broken = false;
+    this.lampMeshes.forEach((mesh, i) => {
+      mesh.setMatrixAt(lamp.index, lamp.matrices[i]);
+      mesh.instanceMatrix.needsUpdate = true;
+    });
+    this.colliders.add(lamp.collider);
+    if (lamp.pole) {
+      lamp.pole.removeFromParent();
+      const ch = this.game.chaos;
+      if (ch) ch.dynamic = ch.dynamic.filter((d) => d.group !== lamp.pole);
+      lamp.pole = null;
+    }
   }
 
   _buildTrees() {
@@ -848,6 +872,7 @@ export class World {
       c.setHSL(rng.range(0.22, 0.33), rng.range(0.35, 0.55), rng.range(0.22, 0.34));
       crownMesh.setColorAt(i, c);
       t.index = i;
+      t.matrix = m.matrix.clone();   // чтобы вернуть дерево на место (restoreTrees)
       t.crown = c.getHex();
       t.collider = this.colliders.add({ minX: t.x - 0.3, maxX: t.x + 0.3, minZ: t.z - 0.3, maxZ: t.z + 0.3, height: 3, type: 'tree' });
     });
@@ -882,6 +907,33 @@ export class World {
       vfx?.treeFall(t.x, t.y, t.z, fx, fz, t.crown);
     }
     return n;
+  }
+
+  // Тихо убрать деревья в прямоугольнике (под постройки режима «Война стран»); возвращает убранные — для restoreTrees.
+  clearTreesIn(x0, x1, z0, z1) {
+    if (!this.trees?.length) return [];
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    const out = [];
+    for (const t of this.trees) {
+      if (t.broken || t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue;
+      t.broken = true;
+      out.push(t);
+      for (const mesh of this.treeMeshes) mesh.setMatrixAt(t.index, zero);
+      this.colliders.remove(t.collider);
+    }
+    for (const mesh of this.treeMeshes) mesh.instanceMatrix.needsUpdate = true;
+    return out;
+  }
+
+  restoreTrees(list) {
+    if (!list?.length) return;
+    for (const t of list) {
+      if (!t.broken || !t.matrix) continue;
+      t.broken = false;
+      for (const mesh of this.treeMeshes) mesh.setMatrixAt(t.index, t.matrix);
+      this.colliders.add(t.collider);
+    }
+    for (const mesh of this.treeMeshes) mesh.instanceMatrix.needsUpdate = true;
   }
 
   _buildBoundary() {

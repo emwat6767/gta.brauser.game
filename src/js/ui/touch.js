@@ -15,7 +15,7 @@
 const JOY_RADIUS = 60;         // px
 const RUN_THRESHOLD = 0.9;     // доля радиуса, после которой персонаж бежит
 const LOOK_SENSITIVITY = 1.7;  // множитель к чувствительности мыши
-const SHORT_NAMES = { fists: 'КУЛАКИ', pistol: 'ПИСТОЛ.', shotgun: 'ОБРЕЗ', smg: 'АВТОМАТ' };
+const SHORT_NAMES = { fists: 'КУЛАКИ', pistol: 'ПИСТОЛ.', shotgun: 'ОБРЕЗ', smg: 'АВТОМАТ', rifle: 'ВИНТОВКА', sniper: 'СНАЙПЕР.', rpg: 'ГРАНАТОМ.' };
 
 // Захват указателя, чтобы палец "не терялся" при выходе за элемент. Может бросить
 // исключение (например, для синтетических событий) — тогда просто работаем без него.
@@ -231,11 +231,16 @@ export class TouchControls {
     const unarmed = !!powers?.unarmed;
     const gun = inCar || p.isDead || unarmed ? null : p.gun;
     const gadgets = !inCar && !p.isDead && mode !== 'normal' ? powers.gadgetInfo() : null;
-    this._setLabel('jump', inCar ? 'РУЧНИК' : powers?.canFly ? 'ВЗЛЁТ' : 'ПРЫЖОК');
-    this._setLabel('attack', inCar || p.isDead ? '' : mode === 'exo' ? 'ЗАЛП' : gun ? 'ОГОНЬ' : 'УДАР');
+    const turret = inCar ? p.vehicle.turret : null;
+    const flies = inCar && p.vehicle.spec.flies;
+    this._setLabel('jump', flies ? 'ВВЕРХ' : inCar ? 'РУЧНИК' : powers?.canFly ? 'ВЗЛЁТ' : 'ПРЫЖОК');
+    this._setLabel('attack', turret ? 'ОГОНЬ' : inCar || p.isDead ? '' : mode === 'exo' ? 'ЗАЛП' : gun ? 'ОГОНЬ' : 'УДАР');
     this._setLabel('power', p.isDead ? '' : { normal: 'СИЛА', colossus: 'КОЛОСС', exo: 'ЭКЗО', titan: 'ТИТАН', boss: 'БОСС', chronos: 'ХРОНОС', shadow: 'ТЕНЬ', gravity: 'ГРАВИТ.', frost: 'ФРОСТ', duel_villain: 'ЗЛОДЕЙ', duel_hero: 'ГЕРОЙ' }[mode]);
-    this._setLabel('descend', powers?.canFly && !inCar && powers.flying ? 'ВНИЗ' : '');
-    this._setLabel('aim', gun ? 'ПРИЦЕЛ' : '');
+    this._setLabel('descend', flies || (powers?.canFly && !inCar && powers.flying) ? 'ВНИЗ' : '');
+    this._setLabel('aim', gun ? 'ПРИЦЕЛ' : turret && turret.guns.length > 1 ? 'ВТОРОЙ' : '');
+    const war = this.game.war;
+    this._setLabel('war', p.isDead ? '' : war?.active ? 'ВОЙНА ⚑' : 'ВОЙНА');
+    this._setLabel('orders', war?.active && war.role === 'president' && !p.isDead ? 'ПРИКАЗЫ' : '');
     // В режимах силы кнопки ОРУЖИЕ / ПЕРЕЗ. становятся способностями Q и R, плюс третья — G.
     this._setLabel('reload', gadgets ? gadgets[1].name.slice(0, 10) : gun && !gun.bottomless ? 'ПЕРЕЗ.' : '');
     this._setLabel('gadgetc', gadgets ? gadgets[2].name.slice(0, 10) : '');

@@ -198,6 +198,7 @@ export class ChaosSystem {
       inner.add(m);
     }
     pole.add(inner);
+    lamp.pole = pole;   // чтобы world.restoreLamp мог убрать упавший столб
     this.game.scene.add(pole);
     const len = Math.hypot(dx, dz) || 1;
     pole.userData = { axis: new THREE.Vector3(dz / len, 0, -dx / len), angle: 0, w: 0.5, landed: false };
@@ -244,7 +245,7 @@ export class ChaosSystem {
     }
     // Машины.
     for (const v of game.vehicles) {
-      if (v === ignore || v.carried || v.removed) continue;
+      if (v === ignore || v.carried || v.removed || (v.team && only && !only(v))) continue;
       const d = v.distanceToPoint(point.x, point.z);
       if (d > radius) continue;
       const k = 1 - d / radius;

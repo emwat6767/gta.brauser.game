@@ -8,7 +8,7 @@ import { mergeColored } from './geometry.js';
 // Модели строятся стволом вдоль +Z, рукоятью вниз (-Y); начало координат — в ладони.
 // humanoid.setWeapon() вешает модель в правую кисть.
 
-export const WEAPON_ORDER = ['fists', 'pistol', 'shotgun', 'smg'];
+export const WEAPON_ORDER = ['fists', 'pistol', 'shotgun', 'smg', 'rifle', 'sniper', 'rpg'];
 
 let MODELS = null;
 function models() {
@@ -47,6 +47,49 @@ function models() {
         { geometry: box(0.036, 0.065, 0.2, 0, 0.04, -0.18), color: wood },       // приклад
       ]),
       muzzle: new THREE.Vector3(0, 0.066, 0.39),
+    },
+    rifle: {
+      geometry: mergeColored([
+        { geometry: box(0.05, 0.075, 0.34, 0, 0.05, 0.08), color: metal },        // ствольная коробка
+        { geometry: cylZ(0.011, 0.34, 0, 0.068, 0.44), color: steel },            // ствол
+        { geometry: cylZ(0.018, 0.1, 0, 0.068, 0.34), color: dark },              // газовая трубка / надульник
+        { geometry: box(0.05, 0.05, 0.24, 0, 0.052, 0.27), color: wood },         // цевьё
+        { geometry: box(0.03, 0.17, 0.05, 0, -0.035, 0.1, 0.25), color: dark },   // изогнутый магазин
+        { geometry: box(0.03, 0.1, 0.04, 0, -0.012, -0.02, -0.3), color: dark },  // рукоять
+        { geometry: box(0.04, 0.075, 0.26, 0, 0.03, -0.26), color: wood },        // приклад
+        { geometry: box(0.012, 0.03, 0.012, 0, 0.1, 0.55), color: steel },        // мушка
+      ]),
+      muzzle: new THREE.Vector3(0, 0.068, 0.62),
+    },
+    sniper: {
+      geometry: mergeColored([
+        { geometry: box(0.045, 0.07, 0.4, 0, 0.05, 0.05), color: metal },         // ствольная коробка
+        { geometry: cylZ(0.012, 0.62, 0, 0.062, 0.62), color: steel },            // длинный ствол
+        { geometry: cylZ(0.019, 0.08, 0, 0.062, 0.9), color: dark },              // дульный тормоз
+        { geometry: cylZ(0.027, 0.26, 0, 0.14, 0.06), color: dark },              // оптика
+        { geometry: cylZ(0.034, 0.06, 0, 0.14, 0.2), color: metal },
+        { geometry: cylZ(0.034, 0.06, 0, 0.14, -0.08), color: metal },
+        { geometry: box(0.02, 0.05, 0.04, 0, 0.1, 0.12), color: dark },            // крепления оптики
+        { geometry: box(0.02, 0.05, 0.04, 0, 0.1, -0.02), color: dark },
+        { geometry: box(0.05, 0.07, 0.3, 0, 0.04, 0.34), color: wood },           // ложа
+        { geometry: box(0.04, 0.12, 0.1, 0, -0.03, -0.05, 0.1), color: dark },    // магазин
+        { geometry: box(0.045, 0.1, 0.3, 0, 0.02, -0.28, -0.1), color: wood },    // приклад
+        { geometry: box(0.014, 0.09, 0.014, 0.04, -0.02, 0.62, 0.15), color: steel }, // сошки
+        { geometry: box(0.014, 0.09, 0.014, -0.04, -0.02, 0.62, -0.15), color: steel },
+      ]),
+      muzzle: new THREE.Vector3(0, 0.062, 0.95),
+    },
+    rpg: {
+      geometry: mergeColored([
+        { geometry: cylZ(0.05, 0.8, 0, 0.05, 0.05), color: 0x3d4a2f },            // труба
+        { geometry: cylZ(0.065, 0.12, 0, 0.05, -0.38), color: dark },             // раструб сзади
+        { geometry: new THREE.ConeGeometry(0.075, 0.2, 10).rotateX(Math.PI / 2).translate(0, 0.05, 0.62), color: 0x6a6f3a }, // граната
+        { geometry: cylZ(0.035, 0.18, 0, 0.05, 0.5), color: 0x55584a },
+        { geometry: box(0.03, 0.12, 0.05, 0, -0.04, 0.0, -0.1), color: dark },    // рукоять
+        { geometry: box(0.03, 0.1, 0.04, 0, -0.03, 0.2), color: dark },           // передняя рукоять
+        { geometry: box(0.03, 0.07, 0.12, 0.06, 0.1, 0.05), color: metal },       // прицел
+      ]),
+      muzzle: new THREE.Vector3(0, 0.05, 0.7),
     },
   };
   MODELS.material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.5 });

@@ -109,6 +109,7 @@ export const CONFIG = {
       police: { health: 70, damage: 9, cooldown: 0.4, weapons: { pistol: 1 } },
       boss: { health: 1600, damage: 26, cooldown: 0.75, weapons: {} },   // злодей и герой города (bosses.js)
       inmate: { health: 70, damage: 10, cooldown: 0.5, weapons: {} },    // заключённый (prison.js)
+      soldier: { health: 95, damage: 12, cooldown: 0.45, weapons: { rifle: 1 } },   // солдат армии страны (war.js)
     },
     // Стрельба NPC: разброс умножается, урон по игроку уменьшается (иначе слишком жёстко).
     gunSpreadScale: 4,
@@ -134,12 +135,36 @@ export const CONFIG = {
       name: 'Автомат', damage: 16, pellets: 1, fireRate: 11, auto: true, magazine: 30,
       spread: 0.018, bloom: 0.011, recoil: 0.018, range: 70, reload: 1.8, impulse: 3.5, twoHanded: true,
     },
+    // Армейское оружие (режим «Война стран», Digit5–7). Подбирается на базах и с убитых солдат.
+    rifle: {
+      name: 'Винтовка', damage: 22, pellets: 1, fireRate: 8, auto: true, magazine: 30,
+      spread: 0.012, bloom: 0.008, recoil: 0.024, range: 140, reload: 2.0, impulse: 4.5, twoHanded: true,
+    },
+    sniper: {
+      name: 'Снайперка', damage: 95, pellets: 1, fireRate: 0.9, auto: false, magazine: 5,
+      spread: 0.0015, bloom: 0.02, recoil: 0.16, range: 320, reload: 2.8, impulse: 12, twoHanded: true, scope: 14,
+    },
+    rpg: {
+      name: 'Гранатомёт', damage: 150, pellets: 1, fireRate: 0.5, auto: false, magazine: 1,
+      spread: 0.004, bloom: 0.01, recoil: 0.2, range: 220, reload: 3.0, impulse: 0, twoHanded: true,
+      projectile: { speed: 52, aoe: 7.5, force: 20, theme: 'fire', life: 5 },
+    },
+    // Техника: стволы машин (military.js). В руки не берутся.
+    hmg: {
+      name: 'Крупнокалиберный пулемёт', damage: 20, pellets: 1, fireRate: 9, auto: true, magazine: 100,
+      spread: 0.014, bloom: 0.006, recoil: 0.006, range: 160, reload: 3, impulse: 5, twoHanded: true, mounted: true,
+    },
+    cannon: {
+      name: 'Танковое орудие', damage: 190, pellets: 1, fireRate: 0.35, auto: false, magazine: 1,
+      spread: 0.002, bloom: 0, recoil: 0.0, range: 300, reload: 0, impulse: 0, twoHanded: true, mounted: true,
+      projectile: { speed: 95, aoe: 9, force: 26, theme: 'fire', life: 4 },
+    },
   },
   // Деньги.
   economy: {
     startMoney: 300,
     // Сколько денег выпадает из убитых (диапазон), по ролям.
-    drops: { civilian: [8, 35], gang: [25, 90], police: [40, 120] },
+    drops: { civilian: [8, 35], gang: [25, 90], police: [40, 120], soldier: [20, 60] },
     fighterDropScale: 4,    // из убитого бойца выпадает во столько раз больше
     magnetRadius: 4.5,      // деньги подтягиваются к игроку с этого расстояния
     saveKey: 'opencity.save.v1',

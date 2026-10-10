@@ -59,6 +59,7 @@ export class SaveSystem {
     this.game.progress?.deserialize(data.rep);
     this.game.turf?.deserialize(data.turf);
     this.game.prison?.deserialize(data.prison);
+    this.game.stats?.deserialize(data.stats);
     return true;
   }
 
@@ -66,7 +67,7 @@ export class SaveSystem {
     this.dirty = false;
     try {
       const { wallet, progress, turf } = this.game;
-      const data = { v: 3, money: wallet.money, rep: progress?.serialize(), turf: turf?.serialize(), prison: this.game.prison?.serialize() };
+      const data = { v: 3, money: wallet.money, rep: progress?.serialize(), turf: turf?.serialize(), prison: this.game.prison?.serialize(), stats: this.game.stats?.serialize() };
       window.localStorage.setItem(CONFIG.economy.saveKey, JSON.stringify(data));
     } catch {
       /* без сохранения */
