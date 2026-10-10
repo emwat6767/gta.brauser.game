@@ -68,7 +68,7 @@ export class CameraRig {
     const vehicle = player.vehicle;
 
     if (vehicle) {
-      this._target.copy(vehicle.position).y += C.targetHeightVehicle;
+      this._target.copy(vehicle.position).y += C.targetHeightVehicle + (vehicle.spec.camHeight ?? 0);
       if (this.mouseIdle > C.autoAlignDelay && Math.abs(vehicle.speed) > 2) {
         this.yaw = dampAngle(this.yaw, vehicle.heading, C.autoAlignRate, dt);
       }
@@ -99,7 +99,7 @@ export class CameraRig {
 
     const scale = vehicle ? 1 : this.game.powers?.mods.scale ?? 1;
     const flying = !vehicle && this.game.powers?.flying;
-    const base = (vehicle ? C.distanceVehicle : C.distanceOnFoot * (1 + (scale - 1) * 0.8) * (flying ? 1.5 : 1)) * this.zoom;
+    const base = (vehicle ? C.distanceVehicle * (vehicle.spec.camScale ?? 1) : C.distanceOnFoot * (1 + (scale - 1) * 0.8) * (flying ? 1.5 : 1)) * this.zoom;
     const wanted = base + (C.aimDistance - base) * ab;
     const pitch = clamp(this.pitch - this.recoil, C.pitchMin, C.pitchMax);
     const cp = Math.cos(pitch), sp = Math.sin(pitch);

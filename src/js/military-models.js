@@ -22,7 +22,7 @@ function camo(c, seed, { sides = 14, sx = 1.2, sy = 0.6, sz = 1.4, z0 = c.zr + 0
 
 export const MILITARY_TYPES = {
   jeep: {
-    name: 'Армейский джип', speed: 0.85, accel: 1.1, grip: 1.1, height: 1.7, hp: 220, width: 2.05, wheelBase: 3.1, wheelScale: 1.3,
+    name: 'Армейский джип', camScale: 1.1, speed: 0.85, accel: 1.1, grip: 1.1, height: 1.7, hp: 220, width: 2.05, wheelBase: 3.1, wheelScale: 1.3,
     circles: [-1.5, 0, 1.5], radius: 1.1, lightY: 0.85, open: true, bulletResist: 0.55, military: true,
     body: [[-2.4, 0.48], [2.3, 0.48], [2.44, 0.6], [2.42, 0.95], [1.5, 1.08], [1.0, 1.1], [-2.3, 1.1], [-2.44, 0.98], [-2.46, 0.62]],
     cabin: [[0.95, 1.1], [1.3, 1.1], [1.12, 1.62], [1.05, 1.62]],
@@ -47,7 +47,7 @@ export const MILITARY_TYPES = {
   },
 
   apc: {
-    name: 'БТР', speed: 0.55, accel: 0.7, grip: 1.3, height: 2.5, hp: 420, width: 2.6, wheelBase: 5.6, wheelScale: 1.75,
+    name: 'БТР', camScale: 1.5, camHeight: 0.8, speed: 0.55, accel: 0.7, grip: 1.3, height: 2.5, hp: 420, width: 2.6, wheelBase: 5.6, wheelScale: 1.75,
     axles: [2.55, 0.85, -0.95, -2.75], circles: [-2.8, -1.4, 0, 1.4, 2.8], radius: 1.45, cabin: null, interior: false, noDefaultLights: true,
     bulletResist: 0.4, noCarjack: true, military: true, track: 1.18,
     body: [[-3.75, 0.62], [3.35, 0.62], [3.8, 0.95], [3.8, 1.38], [2.7, 1.88], [-3.2, 2.0], [-3.8, 1.75], [-3.85, 1.0]],
@@ -76,7 +76,7 @@ export const MILITARY_TYPES = {
   },
 
   tank: {
-    name: 'Танк', speed: 0.42, accel: 0.55, grip: 2.0, height: 2.6, hp: 760, width: 3.2, wheelBase: 5.0, noWheels: true, noArch: true,
+    name: 'Танк', camScale: 1.6, camHeight: 1.0, speed: 0.42, accel: 0.55, grip: 2.0, height: 2.6, hp: 760, width: 3.2, wheelBase: 5.0, noWheels: true, noArch: true,
     circles: [-2.6, -0.9, 0.9, 2.6], radius: 1.75, cabin: null, interior: false, noDefaultLights: true,
     bulletResist: 0.12, noCarjack: true, military: true, pivot: 0.95, heavy: true,
     body: [[-3.5, 0.42], [3.3, 0.42], [3.62, 0.78], [3.6, 1.05], [2.6, 1.5], [-3.2, 1.52], [-3.55, 1.25], [-3.62, 0.8]],
@@ -105,7 +105,7 @@ export const MILITARY_TYPES = {
   },
 
   truck: {
-    name: 'Армейский грузовик', speed: 0.6, accel: 0.7, grip: 0.95, height: 3.0, hp: 280, width: 2.4, wheelBase: 4.8, wheelScale: 1.55,
+    name: 'Армейский грузовик', camScale: 1.4, camHeight: 0.6, speed: 0.6, accel: 0.7, grip: 0.95, height: 3.0, hp: 280, width: 2.4, wheelBase: 4.8, wheelScale: 1.55,
     circles: [-2.8, -1.4, 0, 1.4, 2.8], radius: 1.2, military: true, noCarjack: false, bulletResist: 0.7, lightY: 0.9,
     body: [[-4.2, 0.62], [3.4, 0.62], [3.62, 0.8], [3.6, 1.35], [2.9, 1.55], [2.6, 2.38], [1.5, 2.45], [-4.2, 1.1]],
     cabin: [[1.45, 1.58], [2.55, 1.56], [2.52, 2.3], [1.5, 2.3]], glassWidth: 2.1,
@@ -128,7 +128,7 @@ export const MILITARY_TYPES = {
   },
 
   heli: {
-    name: 'Ударный вертолёт', speed: 1, accel: 1, grip: 1, height: 2.8, hp: 320, width: 1.9, wheelBase: 2.0, noWheels: true, noArch: true,
+    name: 'Ударный вертолёт', camScale: 2.0, camHeight: 1.2, speed: 1, accel: 1, grip: 1, height: 2.8, hp: 320, width: 1.9, wheelBase: 2.0, noWheels: true, noArch: true,
     circles: [-1.8, 0, 1.8], radius: 1.2, cabin: null, interior: false, noDefaultLights: true, bulletResist: 0.5, military: true, flies: true, noCarjack: true,
     body: [[-1.6, 0.55], [2.5, 0.5], [3.4, 0.95], [3.2, 1.45], [2.2, 2.0], [0.4, 2.15], [-1.4, 2.0], [-1.8, 1.3]],
     driver: [0, 1.7, 0.8], dash: 1.6, seats: [[0, 0.5, 0.8]], doors: [[-1.7, 0.8], [1.7, 0.8]],

@@ -116,6 +116,7 @@ export class WarSystem {
     g.wanted.clear();
     g.squad?.dismiss(true);
     if (g.powers.mode !== 'normal') g.powers.set('normal');
+    for (const b of g.bosses?.list ?? []) b.suspend();   // злодей и герой города уходят на время войны
     g.hud.hideBigMessage?.();
 
     for (const t of this.teams) this._initTeam(t);
@@ -158,6 +159,7 @@ export class WarSystem {
     this.points = [];
     this._restoreCity();
     this._restorePlayer();
+    for (const b of g.bosses?.list ?? []) b.unsuspend();
     g.wanted.frozen = false;
     this.civilianScale = 1;
     this.teams = [];

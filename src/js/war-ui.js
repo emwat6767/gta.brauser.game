@@ -182,6 +182,7 @@ export class WarUI {
   }
 
   onEnd() {
+    this.game.hud.setObjective('');
     this.hud.classList.add('hidden');
     document.body.classList.remove('war');
     this.orders.classList.add('hidden');
@@ -229,6 +230,7 @@ export class WarUI {
     if (this._hudTimer > 0) return;
     this._hudTimer = 0.25;
     const g = this.game;
+    this._objective(war, g);
     // Команды: флаг, билеты, пункты.
     const sig = war.teams.map((t) => `${t.id}${Math.round(t.tickets)}${t.alive}${t.kills}`).join() + war.points.map((p) => `${p.owner}${p.contested}`).join() + g.stats.session.soldiers + Math.round(g.wallet.money / 10);
     if (sig !== this._sig) {
@@ -245,6 +247,23 @@ export class WarUI {
       const r = rankFor(g.stats.session.soldiers);
       this.hMe.innerHTML = `${war.role === 'president' ? '🎖 Президент' : r.name} · убито на войне <b>${g.stats.session.soldiers}</b>${war.role === 'president' ? ' · <u>U</u> приказы' : ''}`;
     }
+  }
+
+  // Подсказка цели сверху: ближайший чужой или нейтральный пункт, иначе — штаб ближайшего врага.
+  _objective(war, g) {
+    const mine = war.playerTeam;
+    const p = g.player.position;
+    if (!mine || g.player.isDead) return g.hud.setObjective('');
+    let best = null, bd = Infinity;
+    for (const pt of war.points) {
+      if (pt.owner === mine.id) continue;
+      const d = Math.hypot(pt.x - p.x, pt.z - p.z);
+      if (d < bd) { bd = d; best = pt; }
+    }
+    if (best) return g.hud.setObjective(`⚑ Захватите «${best.name}» — <b>${Math.round(bd)} м</b>`);
+    const foe = war.teams.filter((t) => t.alive && t !== mine && t.base.hq).sort((a, b) => Math.hypot(a.base.hq.x - p.x, a.base.hq.z - p.z) - Math.hypot(b.base.hq.x - p.x, b.base.hq.z - p.z))[0];
+    if (foe) return g.hud.setObjective(`🎯 Добейте ${foe.country.name}: штаб президента — <b>${Math.round(Math.hypot(foe.base.hq.x - p.x, foe.base.hq.z - p.z))} м</b>`);
+    return g.hud.setObjective('');
   }
 
   // ------------------------------------------------------------ итог
