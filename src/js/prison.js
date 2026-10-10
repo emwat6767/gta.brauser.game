@@ -5,6 +5,7 @@ import { Vehicle } from './vehicle.js';
 import { NPC_STATE } from './npc.js';
 import { PrisonCrew, jumpsuitLook, guardUniformLook } from './prison-crew.js';
 import { PrisonUI } from './prison-ui.js';
+import { PrisonExtras } from './prison-extras.js';
 import { installSocial } from './prison-social.js';
 import {
   ITEMS, SENTENCE_HOURS, FINE, ESCAPE_EXTRA_HOURS, BAIL_BASE, BAIL_PER_HOUR, SCHEDULE, phaseAt, GUARD_WARN, GUARD_CAUGHT, TOWER_WARN,
@@ -83,6 +84,7 @@ export class PrisonSystem {
     this.pending = null;
     if (!this.ready) return;
     this.crew = new PrisonCrew(this);
+    this.extras = new PrisonExtras(this);
     this.ui = new PrisonUI(this);
     this.sentry = { position: new THREE.Vector3(), role: 'police', isDead: false, name: 'Часовой', prisonSentry: true, velocity: new THREE.Vector3() };
     this.towerCd = this.layout.towers.map((_, i) => 0.4 + i * 0.3);
@@ -517,14 +519,14 @@ export class PrisonSystem {
 
   // ---------------------------------------------------------------- время
   // Пролистать время: срок идёт, проверки отрабатываются.
-  _advance(hours, { silent = false } = {}) {
+  _advance(hours, { silent = false, noChecks = false } = {}) {
     const d = this.game.daynight;
     const prev = d.hour;
     d.hour = (d.hour + hours) % 24;
     d.update(0, true);
     if (this.inCustody) {
       this.served += hours;
-      this._eventsBetween(prev, hours);
+      if (!noChecks) this._eventsBetween(prev, hours);
     }
     this.lastHour = d.hour;
     this.crew.update(0);
@@ -555,7 +557,7 @@ export class PrisonSystem {
 
   _tickTime(dt) {
     const d = this.game.daynight;
-    if (!d.frozen) this.served += dt * d.speed;
+    if (!d.frozen) this.served += dt * d.rate;
     const now = d.hour;
     const prev = this.lastHour ?? now;
     const delta = (now - prev + 24) % 24;
@@ -740,7 +742,15 @@ export class PrisonSystem {
     this._lastPhaseId = this.phase.id;
     this.dayPlan = { day: this.crew.day, search: Math.random() < 0.4, patdown: Math.random() < 0.4, patAt: 12.7 + Math.random() * 2.8, done: {} };
     game.save?.markDirty();
-    this.ui.openIntake({ hours, fine, level: info.level, wasFugitive: info.wasFugitive, cell: this.cell.id });
+    // Привезли ночью: оформление тянется до утра, чтобы не сидеть в пустой тюрьме.
+    let skipped = 0;
+    if (this.isNight) {
+      skipped = (6 - this.hour + 24) % 24;
+      this._advance(skipped, { noChecks: true });
+      this.lastHour = this.hour;
+      this._lastPhaseId = this.phase.id;
+    }
+    this.ui.openIntake({ hours, fine, level: info.level, wasFugitive: info.wasFugitive, cell: this.cell.id, skipped: Math.round(skipped) });
     const officer = this.crew.guards.find((g) => g.id === 'intake');
     const block = this.cell.block === 'A' ? 'A (у западной стены)' : 'B (у северной стены)';
     this.ui.screen.onClose = () => {
@@ -876,7 +886,7 @@ export class PrisonSystem {
         }
       }
       if (w.level === 0 && !copNear) {
-        this.fugitive.timer -= 0.5 * game.daynight.speed;
+        this.fugitive.timer -= 0.5 * game.daynight.rate;
         if (this.fugitive.timer <= 0) {
           this.state = 'free';
           game.hud.setObjective('');
@@ -1289,13 +1299,35 @@ export class PrisonSystem {
     if (!silent) this.game.hud.toast('Форма снята: снова роба', 2);
   }
 
+  // Детали тюрьмы (мелкая мебель, оборудование) делятся на куски; далёкие куски не рисуются.
+  _chunks(dt) {
+    const L = this.layout;
+    if (!L.chunks?.length) return;
+    this._chunkT = (this._chunkT ?? 0) - dt;
+    if (this._chunkT > 0) return;
+    this._chunkT = 0.3;
+    const { camera, input } = this.game;
+    const scale = input?.touchActive ? 0.6 : 1;
+    const pos = camera.position;
+    for (const ch of L.chunks) {
+      const d = ch.box.distanceToPoint(pos);
+      const far = ch.far * scale;
+      const vis = ch.visible ? d < far + 8 : d < far;
+      if (vis === ch.visible) continue;
+      ch.visible = vis;
+      for (const m of ch.meshes) m.visible = vis;
+    }
+  }
+
   // ---------------------------------------------------------------- проверка кадра
   update(dt) {
     if (!this.ready) return;
     this.t += dt;
     this.crew.update(dt);
+    this.extras.update(dt);
     this._animate(dt);
     this._towers(dt);
+    this._chunks(dt);
     if (this.state === 'inside') this._tickInside(dt);
     else if (this.state === 'fugitive') this._tickFugitive(dt);
     this._scan(dt);

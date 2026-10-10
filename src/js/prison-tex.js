@@ -236,3 +236,55 @@ export function posterTexture(kind = 0) {
   g.strokeRect(2, 2, 124, 156);
   return finish(c, { repeat: false, aniso: 4 });
 }
+
+// Атлас табличек: десятки маленьких вывесок (номера камер, указатели, правила) рисуются в одну текстуру,
+// а в сцене это один меш. add() запоминает табличку (локальные координаты тюрьмы), build() рисует атлас.
+export class PlateAtlas {
+  constructor() { this.items = []; }
+
+  add(text, x, y, z, nx, nz, w, h, style) {
+    if (!style || w <= 0) return;
+    this.items.push({ text, x, y, z, nx, nz, w, h, style });
+  }
+
+  // Возвращает { texture, rects } — rects[i] = { u0, v0, u1, v1 } в долях атласа (v вверх).
+  build() {
+    const W = 2048;
+    const slots = [];
+    let x = 0, y = 0, rowH = 0;
+    for (const it of this.items) {
+      const pw = Math.round(Math.min(960, Math.max(192, it.w * 420)));
+      const ph = Math.max(48, Math.round(pw * it.h / it.w));
+      if (x + pw > W) { x = 0; y += rowH + 4; rowH = 0; }
+      slots.push({ x, y, pw, ph });
+      x += pw + 4;
+      rowH = Math.max(rowH, ph);
+    }
+    const H = Math.min(4096, Math.max(64, y + rowH + 4));
+    const [c, g] = canvas(W, H);
+    g.fillStyle = '#222';
+    g.fillRect(0, 0, W, H);
+    this.items.forEach((it, i) => {
+      const s = slots[i];
+      const st = it.style;
+      g.save();
+      g.translate(s.x, s.y);
+      g.fillStyle = st.bg ?? '#23272e';
+      g.fillRect(0, 0, s.pw, s.ph);
+      g.strokeStyle = st.frame ?? '#d9b13b';
+      g.lineWidth = Math.max(3, s.ph * 0.07);
+      g.strokeRect(g.lineWidth / 2, g.lineWidth / 2, s.pw - g.lineWidth, s.ph - g.lineWidth);
+      g.fillStyle = st.fg ?? '#f2f2f2';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      let fs = s.ph * 0.62;
+      g.font = `900 ${fs}px "Arial Narrow", Arial, sans-serif`;
+      while (g.measureText(it.text).width > s.pw * 0.9 && fs > 10) { fs -= 2; g.font = `900 ${fs}px "Arial Narrow", Arial, sans-serif`; }
+      g.fillText(it.text, s.pw / 2, s.ph * 0.54);
+      g.restore();
+    });
+    const texture = finish(c, { repeat: false, aniso: 4 });
+    const rects = slots.map((s) => ({ u0: s.x / W, v0: 1 - (s.y + s.ph) / H, u1: (s.x + s.pw) / W, v1: 1 - s.y / H }));
+    return { texture, rects };
+  }
+}

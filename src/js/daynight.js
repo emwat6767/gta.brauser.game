@@ -121,7 +121,8 @@ export class DayNight {
     this.game = game;
     const D = CONFIG.daynight;
     this.hour = D.start;
-    this.speed = 24 / D.dayLength;          // часов в секунду
+    this.speed = 24 / D.dayLength;          // часов в секунду днём
+    this.rate = this.speed;                 // текущая скорость: ночью время идёт быстрее (nightBoost)
     this.frozen = !D.enabled;
     this.night = 0;
     this.lightDir = new THREE.Vector3(0.45, 0.8, 0.3).normalize();
@@ -162,6 +163,15 @@ export class DayNight {
     this.beamTex = glowTexture(128, 0);
   }
 
+  // Ночь пролетает быстрее: с 22:30 до 5:00 время идёт вчетверо быстрее (плавный разгон и торможение).
+  nightBoost(h) {
+    let k = 0;
+    if (h >= 21.8) k = Math.min(1, (h - 21.8) / 0.8);
+    else if (h < 5.0) k = 1;
+    else if (h < 5.8) k = 1 - (h - 5.0) / 0.8;
+    return 1 + 3 * k;
+  }
+
   // Следующая фаза суток (клавиша N).
   nextPhase() {
     if (this.game.prison?.inCustody) {
@@ -191,7 +201,10 @@ export class DayNight {
 
   update(dt, force = false) {
     const { game } = this;
-    if (!this.frozen && dt > 0) this.hour = (this.hour + dt * this.speed) % 24;
+    if (!this.frozen && dt > 0) {
+      this.rate = this.speed * this.nightBoost(this.hour);
+      this.hour = (this.hour + dt * this.rate) % 24;
+    }
     const h = this.hour;
     const { a, b, t } = this._key(h);
     const mixC = (idx, out) => out.copy(a[idx]).lerp(b[idx], t);

@@ -3,8 +3,16 @@ import { CONFIG } from './config.js';
 import { GeometryBuilder, mergeColored } from './geometry.js';
 import {
   brickTexture, plasterTexture, tileTexture, concreteTexture, gravelTexture, barsTexture, chainlinkTexture, razorTexture,
-  courtTexture, labelTexture, posterTexture,
+  courtTexture, labelTexture, posterTexture, PlateAtlas,
 } from './prison-tex.js';
+import { createKit } from './prison-props.js';
+import { makeLib } from './prison-detail-lib.js';
+import { detailCells, detailBlocks, doorHardwareGeometry } from './prison-detail-cells.js';
+import { detailCafe, detailKitchen, detailCommissary, detailLaundry, detailLibrary } from './prison-detail-rooms.js';
+import { makeFurniture } from './prison-detail-furniture.js';
+import { detailAdmin, detailGate, detailVisit, detailInfirmary, detailHole, holeDoorGeometry } from './prison-detail-areas.js';
+import { detailYard, detailFence, detailPerimeter, detailTowers, detailNightLights } from './prison-detail-outdoors.js';
+import { createRng } from './utils.js';
 
 // Тюрьма штата «Редрок» — один квартал города (landmarkBlocks.prison), 76 x 76 м, обнесён бетонной стеной с
 // колючкой и угловыми вышками. Строится в «локальных» координатах (x вправо, z к воротам) и переводится в мировые
@@ -78,10 +86,16 @@ export function buildPrison(world, block, { group, glowMat }) {
   const B = {
     brick: new GeometryBuilder(), plaster: new GeometryBuilder(), tile: new GeometryBuilder(), conc: new GeometryBuilder(),
     gravel: new GeometryBuilder(), plain: new GeometryBuilder(), bars: new GeometryBuilder(), glass: new GeometryBuilder(),
-    glow: new GeometryBuilder(), winGlow: new GeometryBuilder(), clear: new GeometryBuilder(), ceil: new GeometryBuilder(),
+    glow: new GeometryBuilder(), winGlow: new GeometryBuilder(), clear: new GeometryBuilder(), ceil: new GeometryBuilder(), paint: new GeometryBuilder(),
   };
   const parts = [];          // мебель и металл: { geometry, color } (уже в мировых координатах)
   const col = (c) => new THREE.Color(c);
+  // Детали (prison-props.js): склеенные меши по кускам, таблички-атлас, разметка пола.
+  const kit = createKit({ K, toWorld, cx, cz, world, glowMat, envMap: game.envMap });
+  const detailRng = createRng(5150);
+  const lib = makeLib(kit, detailRng);
+  const fur = makeFurniture(kit, detailRng);
+  const plates = new PlateAtlas();
 
   const emit = (b, a, bb, c, d, n, uv, color) => {
     const t = (p) => { const [x, z] = toWorld(p[0], p[2]); return [x, p[1], z]; };
@@ -101,6 +115,7 @@ export function buildPrison(world, block, { group, glowMat }) {
     [x0 / tile, z1 / tile, x1 / tile, z1 / tile, x1 / tile, z0 / tile, x0 / tile, z0 / tile], color);
   const down = (b, x0, z0, x1, z1, y, color, tile = 2) => emit(b, [x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [0, -1, 0],
     [x0 / tile, z0 / tile, x1 / tile, z0 / tile, x1 / tile, z1 / tile, x0 / tile, z1 / tile], color);
+  const paint = { flat: (x0, z0, x1, z1, y, color) => up(B.paint, x0, z0, x1, z1, y, color, 1) };
 
   // Мебель: коробка в локальных координатах (центр lx, ly, lz), поворот ry вокруг вертикали.
   const furn = (w, h, d, lx, ly, lz, color, ry = 0) => {
@@ -110,12 +125,6 @@ export function buildPrison(world, block, { group, glowMat }) {
     g.translate(wx, ly, wz);
     parts.push({ geometry: g, color });
     return g;
-  };
-  const cylF = (rt, rb, h, seg, lx, ly, lz, color) => {
-    const g = new THREE.CylinderGeometry(rt, rb, h, seg);
-    const [wx, wz] = toWorld(lx, lz);
-    g.translate(wx, ly, wz);
-    parts.push({ geometry: g, color });
   };
 
   // Коллайдеры (локальный прямоугольник -> мировой AABB).
@@ -196,9 +205,10 @@ export function buildPrison(world, block, { group, glowMat }) {
     for (const r of [[x0, z0, x1, z0 + 0.35], [x0, z1 - 0.35, x1, z1], [x0, z0 + 0.35, x0 + 0.35, z1 - 0.35], [x1 - 0.35, z0 + 0.35, x1, z1 - 0.35]]) {
       wallBox(r[0], r[1], r[2], r[3], h + 0.25, h + 0.75, { out: ['px', 'nx', 'pz', 'nz'], ext: 'conc', extColor: '#9a9a96', top: true, tile: 6 });
     }
-    // Светильники под потолком (светятся ночью сильнее).
+    // Светильники под потолком в стальных каркасах (светятся ночью сильнее).
+    kit.use(id);
     for (let x = x0 + 3; x < x1 - 1.5; x += 4.5) {
-      for (let z = z0 + 3; z < z1 - 1.5; z += 4.5) down(B.glow, x - 0.7, z - 0.18, x + 0.7, z + 0.18, h - 0.03, '#ffffff', 1);
+      for (let z = z0 + 3; z < z1 - 1.5; z += 4.5) lib.cageLamp(kit.frame(x, z, 0, FLOOR), 0, h - FLOOR - 0.07, 0, 1.4, 0.34);
     }
     // Окна: тёмное стекло с решёткой снаружи, горит жёлтым ночью.
     const sideOf = { n: { fixed: z0, a: x0, b: x1, axis: 'x', dir: -1 }, s: { fixed: z1, a: x0, b: x1, axis: 'x', dir: 1 }, w: { fixed: x0, a: z0, b: z1, axis: 'z', dir: -1 }, e: { fixed: x1, a: z0, b: z1, axis: 'z', dir: 1 } };
@@ -258,7 +268,7 @@ export function buildPrison(world, block, { group, glowMat }) {
   up(B.conc, -3, 20, 3, 37.5, H0 + 0.035, '#9b9b96', 6);               // шлюз
 
   // ================================================================ ПЕРИМЕТР
-  const wallStyle = { out: ['px', 'nx', 'pz', 'nz'], ext: 'conc', extColor: '#a09f98', wall: '#a8a8a2', dado: '#a8a8a2', top: true, tile: 6 };
+  const wallStyle = { out: ['px', 'nx', 'pz', 'nz'], ext: 'conc', extColor: '#bdbbb2', wall: '#b4b3ac', dado: '#b4b3ac', top: true, tile: 6 };
   // Бетонная стена по 4 сторонам; в передней — проём шлюза.
   const perim = (x0, z0, x1, z1) => { wallBox(x0, z0, x1, z1, 0, WALL_H, wallStyle); solid(x0, z0, x1, z1, WALL_H); };
   perim(-37.5, -37.5, 37.5, -36);                // север
@@ -309,28 +319,13 @@ export function buildPrison(world, block, { group, glowMat }) {
     }
   }
 
-  // Угловые вышки: четыре опоры, кабина с окнами, крыша, прожектор.
+  // Угловые вышки: опоры — коллайдеры (вид — prison-detail-outdoors.js: стальной каркас, кабина с остеклением, прожектор).
   const towers = [];
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     const tx = sx * 34, tz = sz * 34;
-    for (const [dx, dz] of [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]]) {
-      furn(0.45, 8.6, 0.45, tx + dx, 4.3, tz + dz, '#5a5f66');
-      solid(tx + dx - 0.25, tz + dz - 0.25, tx + dx + 0.25, tz + dz + 0.25, 8.6);
-    }
-    furn(3.8, 0.35, 3.8, tx, 8.75, tz, '#3a3e44');
-    // Кабина.
-    wallBox(tx - 1.7, tz - 1.7, tx + 1.7, tz + 1.7, 8.9, 10.9, { out: ['px', 'nx', 'pz', 'nz'], ext: 'conc', extColor: '#8d8f8a', top: false });
-    for (const [lx, lz, nx, nz] of [[tx, tz + 1.72, 0, 1], [tx, tz - 1.72, 0, -1], [tx + 1.72, tz, 1, 0], [tx - 1.72, tz, -1, 0]]) {
-      if (nz) fz(B.glass, lz + nz * 0.02, lx - 1.2, lx + 1.2, 9.5, 10.5, nz, '#16222f');
-      else fx(B.glass, lx + nx * 0.02, lz - 1.2, lz + 1.2, 9.5, 10.5, nx, '#16222f');
-    }
-    furn(4.4, 0.3, 4.4, tx, 11.05, tz, '#30343a');
-    // Лестница.
-    for (let s = 0; s < 14; s++) furn(0.9, 0.08, 0.3, tx + sx * -1.9, 0.6 + s * 0.6, tz + sz * -1.4 - s * 0.0, '#4a4f56');
+    for (const [dx, dz] of [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]]) solid(tx + dx - 0.25, tz + dz - 0.25, tx + dx + 0.25, tz + dz + 0.25, 8.6);
     // Часовой в кабине (модель без ИИ создаёт prison.js): точка и направление.
     towers.push({ x: tx, z: tz, sx, sz, y: 8.9 });
-    // Прожектор: светящаяся панель на кабине.
-    furn(0.6, 0.5, 0.6, tx - sx * 1.2, 11.3, tz - sz * 1.2, '#222');
   }
 
   // ================================================================ ЗДАНИЯ
@@ -357,10 +352,10 @@ export function buildPrison(world, block, { group, glowMat }) {
   building('infirm', 20, 20, 32, 32, { floor: '#c7d2d8', wallColor: '#bdb0a4', doors: { n: [[26, 2.4]] }, windows: ['n', 's', 'e'], name: 'Лазарет' });
   room('infirm', 20, 20, 32, 32, { name: 'Лазарет' });
   // --- Блок A (камеры вдоль западной стены)
-  building('cbw', -32, -20, -16, 18, { floor: '#7d8084', wallColor: '#b4a597', doors: { e: [[-12, 2.8], [8, 2.8]] }, windows: ['w', 's'], name: 'Блок A' });
+  building('cbw', -32, -20, -16, 18, { floor: '#7d8084', wallColor: '#b4a597', doors: { e: [[-12, 2.8], [8, 2.8]] }, windows: ['s'], name: 'Блок A' });
   room('cbw', -32, -20, -16, 18, { name: 'Блок A' });
   // --- Блок B (камеры вдоль северной стены)
-  building('cbn', -32, -32, -4, -20, { floor: '#7d8084', wallColor: '#b4a597', doors: { s: [[-15, 2.4]] }, windows: ['n', 'w'], name: 'Блок B' });
+  building('cbn', -32, -32, -4, -20, { floor: '#7d8084', wallColor: '#b4a597', doors: { s: [[-15, 2.4]] }, windows: ['w'], name: 'Блок B' });
   room('cbn', -32, -32, -4, -20, { name: 'Блок B' });
   // --- Столовая
   building('cafe', -14, -20, 6, -4, { floor: '#a6aaa0', wallColor: '#bcab9d', doors: { w: [[-11, 2.6]], e: [[-11, 2.6]], s: [[-7, 2.4]], n: [[4.5, 2.0]] }, windows: ['s'], name: 'Столовая' });
@@ -385,7 +380,6 @@ export function buildPrison(world, block, { group, glowMat }) {
 
   // ================================================================ КАМЕРЫ
   const cells = [];
-  const bunkColor = '#4b5b73', mattress = '#d8d2bc', steel = '#9aa3ad';
   const barsPlane = (b, axis, fixed, a, c, y0, y1) => {
     // Решётка-плоскость в билдер bars: UV по ширине в тайлах (2.4 м на тайл).
     const tile = 2.4;
@@ -400,30 +394,12 @@ export function buildPrison(world, block, { group, glowMat }) {
     const cell = { id, index, block: blockKey, rect, front };
     const [x0, z0, x1, z1] = rect;
     const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
-    // Расставляем мебель относительно «глубины» камеры: depth — от решётки вглубь, along — вдоль решётки.
     const alongAxis = front.axis === 'z' ? 'z' : 'x';
     const dir = front.dir;                          // единичный вектор наружу (по x для 'z'-решётки, по z для 'x'-решётки)
-    const at = (along, depth, y, w, h, d, color) => {
-      // along — вдоль решётки от центра; depth — вглубь камеры (от решётки), метры.
-      const c = alongAxis === 'z' ? [front.fixed - dir * depth, mz + along] : [mx + along, front.fixed - dir * depth];
-      furn(alongAxis === 'z' ? d : w, h, alongAxis === 'z' ? w : d, c[0], y, c[1], color);
-      return c;
-    };
-    // Двухъярусная койка вдоль боковой стены (bedSide: -1/+1).
-    const bunk = (offset) => {
-      const w = 0.9, len = 1.95, depthC = 3.5 - 0.15 - len / 2;
-      at(bedSide * offset, depthC, 0.28, w, 0.12, len, bunkColor);
-      at(bedSide * offset, depthC, 0.46, w - 0.1, 0.16, len - 0.1, mattress);
-      at(bedSide * offset, depthC, 1.18, w, 0.12, len, bunkColor);
-      at(bedSide * offset, depthC, 1.36, w - 0.1, 0.16, len - 0.1, '#c7bfa6');
-      for (const [da, dd] of [[-w / 2, -len / 2], [w / 2, -len / 2], [-w / 2, len / 2], [w / 2, len / 2]]) at(bedSide * offset + da, depthC + dd, 0.8, 0.07, 1.6, 0.07, steel);
-      return alongAxis === 'z' ? [front.fixed - dir * depthC, mz + bedSide * offset] : [mx + bedSide * offset, front.fixed - dir * depthC];
-    };
-    const bedPos = bunk(0.56);
-    // Унитаз-раковина в углу у задней стены, стол и полка.
-    at(-bedSide * 0.7, 3.25, 0.4, 0.5, 0.8, 0.45, steel);
-    at(-bedSide * 0.7, 3.2, 0.95, 0.4, 0.3, 0.2, steel);
-    at(-bedSide * 0.5, 2.3, 0.4, 0.8, 0.05, 0.5, '#6b5b45');
+    cell.bedSide = bedSide;
+    // Койка стоит у боковой стены (depth 2.375 от решётки, смещение 0.56 в сторону bedSide) — как в prison-detail-cells.js.
+    const depthC = 3.5 - 0.15 - 1.95 / 2;
+    const bedPos = alongAxis === 'z' ? [front.fixed - dir * depthC, mz + bedSide * 0.56] : [mx + bedSide * 0.56, front.fixed - dir * depthC];
     cell.bed = { x: bedPos[0], z: bedPos[1] };
     // Постер на задней стене (туннель за ним).
     const pBack = alongAxis === 'z' ? [front.fixed - dir * 3.45, mz - bedSide * 0.2] : [mx - bedSide * 0.2, front.fixed - dir * 3.45];
@@ -501,73 +477,28 @@ export function buildPrison(world, block, { group, glowMat }) {
   }
   cells.push(...cellsA, ...cellsB);
 
-  // Общие комнаты блоков: столы с табуретами, телевизор, телефоны, душевая.
-  const steelTable = (lx, lz) => {
-    cylF(0.55, 0.55, 0.06, 14, lx, 0.78, lz, steel);
-    cylF(0.08, 0.1, 0.78, 8, lx, 0.39, lz, '#6a717a');
-    for (const [dx, dz] of [[0.85, 0], [-0.85, 0], [0, 0.85], [0, -0.85]]) {
-      cylF(0.2, 0.2, 0.05, 10, lx + dx, 0.46, lz + dz, '#7a828b');
-      cylF(0.05, 0.05, 0.46, 6, lx + dx, 0.23, lz + dz, '#6a717a');
-    }
-    solid(lx - 0.5, lz - 0.5, lx + 0.5, lz + 0.5, 0.8, { type: 'barrier' });
-  };
-  const tv = (lx, lz, nx, nz) => {
-    furn(nz ? 1.5 : 0.18, 0.9, nx ? 1.5 : 0.18, lx, 2.5, lz, '#15171a');
-    if (nz) fz(B.glow, lz + nz * 0.1, lx - 0.65, lx + 0.65, 2.1, 2.85, nz, '#a8c8ff', 1);
-    else fx(B.glow, lx + nx * 0.1, lz - 0.65, lz + 0.65, 2.1, 2.85, nx, '#a8c8ff', 1);
-  };
-  const phone = (lx, lz, nx, nz) => {
-    furn(nx ? 0.2 : 0.4, 0.55, nz ? 0.2 : 0.4, lx, 1.4, lz, '#3a4350');
-    furn(nx ? 0.1 : 0.12, 0.28, nz ? 0.1 : 0.12, lx + nx * 0.12, 1.5, lz + nz * 0.12, '#1c2026');
-  };
-  for (const [x, z] of [[-24, -14], [-20, -14], [-24, -4], [-20, -4], [-24, 6], [-20, 6]]) steelTable(x, z);
-  tv(-16.5, -3, -1, 0);
-  phone(-16.4, 12, -1, 0);
-  phone(-16.4, 14, -1, 0);
-  for (const [x, z] of [[-26, -24.5], [-21, -24.5], [-16, -24.5], [-11, -24.5]]) steelTable(x, z);
-  tv(-6, -24, -1, 0);
-  phone(-4.4, -22, -1, 0);
+  // Общие комнаты блоков: стальные столы (коллайдеры; сами столы, телевизоры и телефоны рисует prison-detail-cells.js).
+  for (const [x, z] of [[-24, -14], [-20, -14], [-24, -4], [-20, -4], [-24, 6], [-20, 6], [-26, -24.5], [-21, -24.5], [-16, -24.5], [-11, -24.5]]) {
+    solid(x - 0.5, z - 0.5, x + 0.5, z + 0.5, 0.8, { type: 'barrier' });
+  }
 
-  // ================================================================ СТОЛОВАЯ
+  // ================================================================ СТОЛОВАЯ (вид — prison-detail-rooms.js)
   for (let r = 0; r < 4; r++) {
     for (const x of [-9.5, -1.5]) {
       const z = -15.6 + r * 3.3;
-      furn(5.2, 0.07, 0.8, x, 0.78, z, '#b9c0c7');
-      furn(5.2, 0.07, 0.3, x, 0.46, z - 0.7, '#8a929b');
-      furn(5.2, 0.07, 0.3, x, 0.46, z + 0.7, '#8a929b');
-      for (const dx of [-2.2, 2.2]) furn(0.1, 0.78, 0.7, x + dx, 0.39, z, '#6a717a');
       solid(x - 2.6, z - 0.45, x + 2.6, z + 0.45, 0.8, { type: 'barrier' });
     }
   }
-  // Раздача: прилавок у северной стены, подносы.
-  furn(11, 1.0, 0.9, -3.5, 0.5, -18.4, '#a8b0b7');
-  furn(11, 0.06, 1.0, -3.5, 1.03, -18.4, '#c8ced4');
   solid(-9, -18.9, 2, -17.9, 1.1, { type: 'barrier' });
-  for (let k = 0; k < 7; k++) furn(0.5, 0.04, 0.35, -8 + k * 1.5, 1.08, -18.3, '#8e9aa6');
   sign('СТОЛОВАЯ', -3.5, 3.4, -19.7, 0, 1, 4, 0.9, { bg: '#2f3a48' });
 
   // ================================================================ КУХНЯ
-  for (const x of [-2, 1, 4]) {
-    furn(2.2, 0.9, 1.0, x, 0.45, -29, '#aab2b9');
-    furn(2.0, 0.08, 0.9, x, 0.94, -29, '#d3d8dc');
-    solid(x - 1.1, -29.5, x + 1.1, -28.5, 1, { type: 'barrier' });
-  }
-  furn(3.4, 1.0, 1.1, 8, 0.5, -29.5, '#7c838a');
-  for (const [x, z] of [[1.5, -24], [5, -24]]) {
-    furn(2.4, 0.9, 1.2, x, 0.45, z, '#c3c9ce');
-    solid(x - 1.2, z - 0.6, x + 1.2, z + 0.6, 0.95, { type: 'barrier' });
-  }
+  for (const x of [-2, 1, 4]) solid(x - 1.1, -29.5, x + 1.1, -28.5, 1, { type: 'barrier' });
+  for (const [x, z] of [[1.5, -24], [5, -24]]) solid(x - 1.2, z - 0.6, x + 1.2, z + 0.6, 0.95, { type: 'barrier' });
 
   // ================================================================ ЛАВКА («Commissary»)
-  // Окно 3.2 м в южной стене: прилавок снаружи блокирует вход, торговец внутри; полки с товарами.
-  furn(3.3, 1.1, 0.9, 15, 0.55, -19.4, '#8a6b45');
-  furn(3.5, 0.08, 1.0, 15, 1.12, -19.4, '#b88d5a');
+  // Окно 3.2 м в южной стене: прилавок снаружи блокирует вход, торговец внутри.
   solid(13.2, -19.9, 16.8, -18.9, 1.2, { type: 'barrier' });
-  const shelfColors = ['#c0392b', '#e6b422', '#2d7fd6', '#27ae60', '#8e44ad', '#e8e8e8', '#d35400'];
-  for (let s = 0; s < 3; s++) {
-    for (let k = 0; k < 7; k++) furn(0.55, 0.32, 0.3, 11.2 + k * 1.15, 0.5 + s * 0.7, -31.2, shelfColors[(k + s) % shelfColors.length]);
-    furn(8.4, 0.05, 0.5, 15, 0.3 + s * 0.7, -31.2, '#6b5b45');
-  }
   sign('ЛАВКА', 15, 3.5, -19.7, 0, 1, 3.4, 0.9, { bg: '#2f4a2f', frame: '#ffd45a', sub: 'COMMISSARY' });
   // Стекло над прилавком.
   fz(B.clear, -19.9, 13, 17, 1.2, 3.0, 1, '#bfe6ff', 1);
@@ -589,7 +520,7 @@ export function buildPrison(world, block, { group, glowMat }) {
       const slab = new THREE.Mesh(new THREE.BoxGeometry(dw, 2.5, 0.16), new THREE.MeshStandardMaterial({ color: 0x5d6168, roughness: 0.45, metalness: 0.7 }));
       slab.position.set(dw / 2, 1.25 + H0, 0);
       slab.castShadow = true;
-      leaf.add(slab);
+      leaf.add(slab, new THREE.Mesh(holeDoorGeometry(THREE, mergeColored, dw, H0), M.metal));
       const slot = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.22), new THREE.MeshBasicMaterial({ color: 0x050607 }));
       slot.position.set(dw / 2, 1.7 + H0, 0.085);
       const slot2 = slot.clone();
@@ -604,67 +535,35 @@ export function buildPrison(world, block, { group, glowMat }) {
       group.add(leaf);
       const colb = solid(x0 + 0.1, -28.7, x1 - 0.1, -28.3, BUILD_H);
       colb.dyn = true;
-      furn(0.9, 0.35, 2.0, x0 + 0.8, 0.35, -30.5, '#74777c');
-      furn(0.5, 0.45, 0.5, x1 - 0.5, 0.25, -31.2, '#9aa3ad');
       hole.cells.push({ id: `H${i + 1}`, rect: [x0, -31.5, x1, -28.5], collider: colb, doorMesh: leaf, inside: P(mid, -30.0), outside: P(mid, -27.3), mid, locked: false, open: 0, outwardW: dirW(0, 1) });
     }
     wallBox(31.4, -31.5, 31.6, -28.5, 0, BUILD_H, {});
     solid(31.4, -31.5, 31.6, -28.5, BUILD_H);
-    furn(2.2, 0.9, 1.0, 24, 0.45, -22.3, '#6b5b45');
     sign('КАРЦЕР', 26, 3.5, -19.7, 0, 1, 3, 0.8, { bg: '#4a1a1a', frame: '#ff6a6a' });
   }
 
-  // ================================================================ ПРАЧЕЧНАЯ
-  for (let k = 0; k < 4; k++) {
-    furn(1.5, 1.4, 1.3, -12.7 + k * 2.0, 0.7, -0.9, '#d5dade');
-    cylF(0.4, 0.4, 0.1, 14, -12.7 + k * 2.0, 0.85, -0.2, '#2b3a4a');
-    solid(-13.45 + k * 2.0, -1.55, -11.95 + k * 2.0, -0.25, 1.4, { type: 'barrier' });
-  }
-  furn(2.4, 0.9, 1.0, -8, 0.45, 8, '#b9bdc2');
-  furn(2.4, 0.9, 1.0, -8, 0.45, 11, '#b9bdc2');
+  // ================================================================ ПРАЧЕЧНАЯ (вид — prison-detail-rooms.js)
+  for (let k = 0; k < 4; k++) solid(-13.45 + k * 2.0, -1.55, -11.95 + k * 2.0, -0.25, 1.4, { type: 'barrier' });
   solid(-9.2, 7.5, -6.8, 8.5, 0.95, { type: 'barrier' });
   solid(-9.2, 10.5, -6.8, 11.5, 0.95, { type: 'barrier' });
-  // Тележки с бельём и корзина с формой охраны.
-  for (const [x, z] of [[-4.5, 4], [-4.5, 15]]) {
-    furn(1.2, 0.8, 0.8, x, 0.55, z, '#7e8a95');
-    furn(1.1, 0.35, 0.7, x, 1.1, z, '#e8e4d8');
-    solid(x - 0.6, z - 0.4, x + 0.6, z + 0.4, 1.0, { type: 'barrier' });
-  }
-  furn(0.9, 1.0, 0.6, -12.8, 0.5, 16.6, '#2a3f66');
-  furn(0.8, 0.12, 0.5, -12.8, 1.04, 16.6, '#3b5ea8');
+  for (const [x, z] of [[-4.5, 4], [-4.5, 15]]) solid(x - 0.6, z - 0.4, x + 0.6, z + 0.4, 1.0, { type: 'barrier' });
   solid(-13.3, 16.3, -12.3, 16.9, 1.0, { type: 'barrier' });
+  solid(-13.5, 2.7, -12.4, 7.9, 2.0, { type: 'barrier' });                  // сушильные машины
   sign('ПРАЧЕЧНАЯ', -8, 3.4, 17.7, 0, -1, 3.6, 0.8, { bg: '#2c4a5e' });
 
-  // ================================================================ БИБЛИОТЕКА
-  for (let k = 0; k < 4; k++) {
-    furn(0.45, 2.4, 3.2, 5.4, 1.2, 1.6 + k * 4.0, '#6b4a2f');
-    solid(5.2, 0 + k * 4.0, 5.65, 3.4 + k * 4.0, 2.4, { type: 'barrier' });
-    for (let b = 0; b < 8; b++) furn(0.3, 0.35 + (b % 3) * 0.05, 0.12, 5.1, 0.6 + (b % 4) * 0.55, 0.3 + k * 4.0 + b * 0.35, ['#8a2b2b', '#2b4a8a', '#2b8a4a', '#8a6b2b'][b % 4]);
-  }
-  furn(2.4, 0.08, 1.0, 1.4, 0.76, 8, '#8a6b45');
-  furn(0.08, 0.76, 0.9, 0.4, 0.38, 8, '#4a3a2a');
-  furn(0.08, 0.76, 0.9, 2.4, 0.38, 8, '#4a3a2a');
+  // ================================================================ БИБЛИОТЕКА (вид — prison-detail-rooms.js)
+  for (let k = 0; k < 4; k++) solid(5.0, 0 + k * 4.0, 5.45, 3.4 + k * 4.0, 2.4, { type: 'barrier' });
+  for (let k = 0; k < 2; k++) solid(-1.5, 3.4 + k * 6, -1.05, 6.6 + k * 6, 2.4, { type: 'barrier' });
   solid(0.2, 7.5, 2.6, 8.5, 0.8, { type: 'barrier' });
+  for (const z of [2.6, 12.5, 15.8]) solid(0.8, z - 0.4, 2.4, z + 0.4, 0.8, { type: 'barrier' });
   sign('БИБЛИОТЕКА', 2, 3.4, 17.7, 0, -1, 3.6, 0.8, { bg: '#3a2f22', frame: '#d9b13b' });
 
   // ================================================================ АДМИНИСТРАЦИЯ
-  // Приём: стойка, скамья «обезьянник», стена для фото.
-  furn(6.5, 1.1, 1.0, -27, 0.55, 24.5, '#6b5b45');
-  furn(6.8, 0.07, 1.2, -27, 1.12, 24.5, '#9b8f78');
+  // Приём, кабинет начальника, оружейная: вид — prison-detail-areas.js, здесь только коллайдеры.
   solid(-30.3, 24, -23.7, 25, 1.2, { type: 'barrier' });
-  furn(0.5, 0.45, 3.0, -31.5, 0.25, 28.5, '#4a4f56');
-  furn(0.12, 1.8, 1.0, -26.0, 1.0, 30.8, '#d9d6c6');
-  sign('ПРИЁМ', -27, 3.3, 20.2, 0, -1, 2.6, 0.7, { bg: '#2a3a52' });
-  // Кабинет начальника.
-  furn(2.4, 0.08, 1.1, -18.5, 0.78, 29.5, '#4a3322');
-  furn(0.9, 0.5, 0.9, -18.5, 0.5, 30.5, '#2a2a30');
   solid(-19.7, 29, -17.3, 30.1, 0.9, { type: 'barrier' });
-  furn(2.6, 0.1, 0.4, -18.5, 3.0, 31.7, '#5a1a1a');
-  // Оружейная: стеллажи.
-  for (let k = 0; k < 3; k++) {
-    furn(0.4, 2.2, 1.6, -9.2, 1.1, 22.5 + k * 3.0, '#3a4350');
-    solid(-9.45, 21.7 + k * 3.0, -8.95, 23.3 + k * 3.0, 2.2, { type: 'barrier' });
-  }
+  for (let k = 0; k < 3; k++) solid(-9.45, 21.7 + k * 3.0, -8.95, 23.3 + k * 3.0, 2.2, { type: 'barrier' });
+  sign('ПРИЁМ', -27, 3.3, 20.2, 0, -1, 2.6, 0.7, { bg: '#2a3a52' });
 
   // ================================================================ ШЛЮЗ (ворота)
   const gates = [];
@@ -688,33 +587,16 @@ export function buildPrison(world, block, { group, glowMat }) {
   };
   const outerGate = gateLeaf(36.75, 'outer');
   const innerGate = gateLeaf(27.0, 'inner');
-  // Будка охраны у шлюза (стол, мониторы).
-  furn(2.0, 0.08, 0.9, -5.4, 0.78, 22.5, '#4a4f56');
-  furn(0.7, 0.45, 0.06, -5.4, 1.1, 22.3, '#15171a');
-  furn(2.0, 0.08, 0.9, 5.4, 0.78, 22.5, '#4a4f56');
-  furn(0.7, 0.45, 0.06, 5.4, 1.1, 22.3, '#15171a');
   sign('ТЮРЬМА ШТАТА «РЕДРОК»', 0, 5.4, 37.55, 0, 1, 7.6, 1.2, { bg: '#1b1d22', frame: '#d9b13b', sub: 'STATE PENITENTIARY · REDROCK', w: 1216, h: 192 });
   sign('СТОП: ПОСТОРОННИМ ВХОД ЗАПРЕЩЁН', 0, 3.9, 37.6, 0, 1, 4.8, 0.7, { bg: '#7a1414', frame: '#fff' });
-  // Шлагбаум/плитка на въезде (снаружи).
-  furn(6, 0.1, 3, 0, H0 + 0.05, 40.2, '#333');
 
-  // ================================================================ ЛАЗАРЕТ и СВИДАНИЯ
-  for (let k = 0; k < 3; k++) {
-    furn(1.0, 0.45, 2.0, 22.5 + k * 3.0, 0.35, 29.5, '#d8dee2');
-    furn(0.9, 0.12, 1.9, 22.5 + k * 3.0, 0.62, 29.5, '#f2f2f2');
-    solid(22 + k * 3.0, 28.5, 23 + k * 3.0, 30.5, 0.7, { type: 'barrier' });
-  }
-  furn(0.5, 1.8, 2.0, 31.5, 0.9, 24, '#cfd6da');
+  // ================================================================ ЛАЗАРЕТ и СВИДАНИЯ (вид — prison-detail-areas.js)
+  for (let k = 0; k < 3; k++) solid(22 + k * 3.0, 28.5, 23 + k * 3.0, 30.5, 0.7, { type: 'barrier' });
   sign('ЛАЗАРЕТ', 26, 3.3, 20.2, 0, -1, 2.6, 0.7, { bg: '#2f5a4a' });
   // Свидания: стеклянная перегородка с трубками и стулья.
   fx(B.clear, 14.5, 21, 31, 0.9, 3.0, 1, '#bfe6ff', 1);
   fx(B.clear, 14.5, 21, 31, 0.9, 3.0, -1, '#bfe6ff', 1);
-  furn(0.3, 1.0, 10.5, 14.5, 0.5, 26.2, '#4a4f56');
   seeSolid(14.3, 21, 14.7, 31.5, 3.0, { type: 'barrier' });
-  for (let k = 0; k < 4; k++) {
-    furn(0.5, 0.45, 0.5, 11.5, 0.25, 22.5 + k * 2.2, '#3a4350');
-    furn(0.5, 0.45, 0.5, 17.5, 0.25, 22.5 + k * 2.2, '#3a4350');
-  }
   sign('СВИДАНИЯ', 14, 3.3, 20.2, 0, -1, 2.8, 0.7, { bg: '#2a3a52' });
 
   // ================================================================ ДВОР
@@ -728,45 +610,22 @@ export function buildPrison(world, block, { group, glowMat }) {
     court.position.set((a0 + b0) / 2, H0 + 0.045, (a1 + b1) / 2);
     court.receiveShadow = true;
     group.add(court);
+    // Кольца, железо, столы и трибуна рисует prison-detail-outdoors.js; здесь — коллайдеры и точки для заключённых.
     for (const sx of [0, 1]) {
       const hx = sx ? 27.4 : 12.6, nx = sx ? -1 : 1;
-      furn(0.18, 3.6, 0.18, hx - nx * 0.3, 1.8, -11, '#3a3f46');
-      furn(0.1, 1.05, 1.8, hx - nx * 0.05, 3.25, -11, '#e8e8e8');
-      cylF(0.24, 0.24, 0.05, 12, hx + nx * 0.28, 3.05, -11, '#e0742a');
       solid(hx - nx * 0.3 - 0.15, -11.15, hx - nx * 0.3 + 0.15, -10.85, 3.6, { type: 'barrier' });
       yardFeatures.hoops.push(P(hx + nx * 0.8, -11));
     }
-    // Железо: скамьи со штангами и блины.
     for (let k = 0; k < 3; k++) {
       const x = 13 + k * 4.2, z = 9;
-      furn(0.5, 0.45, 1.4, x, 0.25, z, '#4a4f56');
-      furn(0.12, 0.1, 1.9, x, 0.95, z + 0.5, '#2b2f35');
-      for (const dz of [-0.85, 0.85]) {
-        const [wx, wz] = toWorld(x, z + 0.5 + dz);
-        const pg = new THREE.CylinderGeometry(0.32, 0.32, 0.12, 14);
-        pg.rotateX(Math.PI / 2);
-        pg.rotateY(K * Math.PI / 2);
-        pg.translate(wx, 1.0, wz);
-        parts.push({ geometry: pg, color: '#1a1c20' });
-      }
       solid(x - 0.45, z - 0.85, x + 0.45, z + 0.85, 1.1, { type: 'barrier' });
       yardFeatures.weights.push(P(x - 1.1, z));
     }
-    for (let k = 0; k < 6; k++) cylF(0.4, 0.4, 0.1, 14, 28 + (k % 2) * 0.1, 0.1 + k * 0.1, 3 + (k % 3) * 0.2, '#2b2f35');
-    // Столы для карт и шашек.
     for (const [x, z] of [[9.5, -8], [9.5, -4], [9.5, 12], [9.5, 15]]) {
-      furn(1.8, 0.08, 0.7, x, 0.76, z, '#9b8f78');
-      furn(1.8, 0.06, 0.28, x, 0.45, z - 0.6, '#7d7461');
-      furn(1.8, 0.06, 0.28, x, 0.45, z + 0.6, '#7d7461');
       solid(x - 0.9, z - 0.4, x + 0.9, z + 0.4, 0.8, { type: 'barrier' });
       yardFeatures.tables.push(P(x - 1.3, z));
     }
-    // Трибуна-лавка у стены столовой.
-    for (let s = 0; s < 3; s++) furn(0.6, 0.12, 8, 7 + s * 0.6, 0.3 + s * 0.3, 8, '#7d7461');
     yardFeatures.bleachers.push(P(8, 8));
-    // Бак.
-    cylF(0.35, 0.3, 0.8, 10, 8, 0.5, -15, '#2f5d3a');
-    // Стена для гандбола — вдоль внутренней стороны сетки.
   }
 
   // ================================================================ СЕТКА ДВОРА (восточный периметр, escape-линия)
@@ -789,8 +648,6 @@ export function buildPrison(world, block, { group, glowMat }) {
       colSeg.dyn = true;
       fenceSegs.push({ index: i, mesh: m, collider: colSeg, cut: false, z0, z1, mid, point: P(FENCE_X - 0.9, mid), through: P(FENCE_X + 1.4, mid) });
     }
-    for (let z = -20; z <= 20; z += 4) furn(0.18, 4.0, 0.18, FENCE_X, 2.0, z, '#6a7078');
-    furn(0.12, 0.12, 40, FENCE_X, 3.7, 0, '#6a7078');
     razor(FENCE_X, -20, FENCE_X, 20, 4.2, 0.9);
   }
 
@@ -866,11 +723,12 @@ export function buildPrison(world, block, { group, glowMat }) {
 
   // Динамические двери камер: плоскость-решётка на шарнире.
   const doorGeo = new THREE.PlaneGeometry(0.95, 2.6);
+  const doorHw = doorHardwareGeometry(THREE, mergeColored, H0);
   for (const cell of cells) {
     const d = new THREE.Group();
     const m = new THREE.Mesh(doorGeo, M.bars);
     m.position.set(0.475, 1.3 + H0, 0);
-    d.add(m);
+    d.add(m, new THREE.Mesh(doorHw, M.metal));
     const f = cell.front;
     const hinge = f.axis === 'z' ? toWorld(f.fixed, cell.doorMid - cell.doorW / 2) : toWorld(cell.doorMid - cell.doorW / 2, f.fixed);
     d.position.set(hinge[0], 0, hinge[1]);
@@ -894,11 +752,58 @@ export function buildPrison(world, block, { group, glowMat }) {
       new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }),
     );
     const [wx, wz] = toWorld(t.x, t.z);
-    cone.position.set(wx, 11.3, wz);
+    cone.position.set(wx, 11.75, wz);
     cone.visible = false;
     group.add(cone);
     beams.push({ mesh: cone, tower: t, angle: Math.random() * 6.28, speed: 0.45 + Math.random() * 0.15, x: wx, z: wz });
   }
+
+  // ================================================================ ДЕТАЛИ (склеенные меши, таблички, разметка)
+  const dctx = { kit, lib, fur, cells, FLOOR, BUILD_H, WALL_H, H0, plates, paint, solid, seeSolid, rng: detailRng, fx, fz, up, down, B, M, group, buildings, towers, toWorld, dirW, P, K, world, glowMat, yardFeatures, hole, razor };
+  detailCells(dctx);
+  detailBlocks(dctx);
+  detailCafe(dctx);
+  detailKitchen(dctx);
+  detailCommissary(dctx);
+  detailLaundry(dctx);
+  detailLibrary(dctx);
+  detailAdmin(dctx);
+  detailGate(dctx);
+  detailVisit(dctx);
+  detailInfirmary(dctx);
+  detailHole(dctx);
+  detailYard(dctx);
+  detailFence(dctx);
+  detailPerimeter(dctx);
+  detailTowers(dctx);
+  detailNightLights(dctx);
+  const paintMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  addBuilt(B.paint, paintMat, 'prison-paint', { cast: false });
+  // Таблички-атлас: один меш на все вывески
+  {
+    const atlas = plates.build();
+    const pb = new GeometryBuilder();
+    plates.items.forEach((it, i) => {
+      const r = atlas.rects[i];
+      const [wx, wz] = toWorld(it.x, it.z);
+      const [dx, dz] = dirW(it.nx, it.nz);
+      const rx = dz, rz = -dx;
+      const hw = it.w / 2, hh = it.h / 2;
+      const c = new THREE.Color(0xffffff);
+      const pt = (sx, sy) => [wx + rx * hw * sx, it.y + hh * sy, wz + rz * hw * sx];
+      pb.quad(pt(-1, -1), pt(1, -1), pt(1, 1), pt(-1, 1), [dx, 0, dz], [r.u0, r.v0, r.u1, r.v0, r.u1, r.v1, r.u0, r.v1], c);
+    });
+    if (!pb.isEmpty) {
+      const pm = new THREE.MeshBasicMaterial({ map: atlas.texture });
+      world.glow.push({ mat: pm, base: new THREE.Color(0xffffff), day: 0.85, night: 1.2 });
+      const mesh = new THREE.Mesh(pb.build(), pm);
+      mesh.name = 'prison-plates';
+      group.add(mesh);
+    }
+  }
+  const detailStats = kit.stats();
+  const chunkList = kit.build(group, { cast: new Set() });
+  for (const ch of chunkList) ch.visible = true;
 
   // ================================================================ LAYOUT для prison.js
   const worldRect = (r) => {
@@ -1002,7 +907,7 @@ export function buildPrison(world, block, { group, glowMat }) {
   const layout = {
     gate, K, center: { x: cx, z: cz }, toWorld, toLocal, P, dirW, headingW, zoneAt, inCompound,
     rooms, buildings, cells, hole, towers, beams, gates: { outer: outerGate, inner: innerGate, list: gates }, stations,
-    razorMeshes, signs, colliders, placeInfo,
+    razorMeshes, signs, colliders, placeInfo, chunks: chunkList, detailStats,
     yard: rooms.yard, perimeterHalf: 36, spots, posts, patrols, fenceSegs, holeCells: hole.cells,
     // Выход из туннеля: от камеры — наружу за стену, на тротуар.
     tunnelExit(cell) {
@@ -1015,6 +920,11 @@ export function buildPrison(world, block, { group, glowMat }) {
     wallClimb: { inside: P(35, 0), outside: P(40.3, 0) },
     bounds: { minX: cx - 38, maxX: cx + 38, minZ: cz - 38, maxZ: cz + 38 },
   };
+  // Уличный фонарь не загораживает ворота.
+  for (const l of world.lamps ?? []) {
+    const [lx, lz] = toLocal(l.x, l.z);
+    if (Math.abs(lx) < 4 && lz > 36) world.hideLamp?.(l);
+  }
   world.landmarks.prison = { x: cx, z: cz, name: 'Тюрьма «Редрок»' };
   world.prison = layout;
   return layout;
