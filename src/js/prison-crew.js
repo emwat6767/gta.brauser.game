@@ -61,11 +61,9 @@ const GUARDS = [
   { id: 'medic', kind: 'post', post: 'medic', name: 'Nurse Dana', title: 'Лазарет', hours: [7, 20], look: 'medic', noGuard: true, talk: 'medic' },
   { id: 'pA', kind: 'patrol', route: 'blockA', name: 'Guard Dixon', title: 'Охрана · Блок A', always: true },
   { id: 'pB', kind: 'patrol', route: 'blockB', name: 'Guard Moore', title: 'Охрана · Блок B', always: true },
-  { id: 'pAl', kind: 'patrol', route: 'alley', name: 'Guard Sutton', title: 'Охрана · Аллея', always: true },
   { id: 'pY1', kind: 'patrol', route: 'yard', name: 'Guard Hale', title: 'Охрана · Двор', hours: [6, 21.5] },
   { id: 'pY2', kind: 'patrol', route: 'yard', offset: 2, name: 'Guard Cruz', title: 'Охрана · Двор', hours: [6, 21.5] },
   { id: 'pC', kind: 'patrol', route: 'cafe', name: 'Guard Bishop', title: 'Охрана · Столовая', hours: [6, 21.5] },
-  { id: 'pE', kind: 'patrol', route: 'east', name: 'Guard Doyle', title: 'Охрана · Коридор', hours: [6, 21.5] },
 ];
 
 const YARD_PREF = {
@@ -308,9 +306,10 @@ export class PrisonCrew {
     const npc = new NPC(game, game.rng, { x: d.x, z: d.z, role: 'police', look: g.look, weapon: null, name: g.name });
     npc.guard = true;
     npc.prisonGuard = g;
-    npc.melee = new Melee(npc, { damage: 4, cooldown: 0.55 });
-    npc.hitResist = 6;
-    npc.maxHealth = npc.health = 95;
+    npc.melee = new Melee(npc, { damage: 2.6, cooldown: 0.95 });
+    npc.melee.gate = (o) => this.prison.guardMayStrike(o);     // охрана бьёт по очереди, а не толпой (prison.js)
+    npc.hitResist = 4;
+    npc.maxHealth = npc.health = 75;
     npc.bravery = 1;
     npc.walkSpeed = 1.55;
     npc.idleTime = 1e9;
@@ -332,7 +331,7 @@ export class PrisonCrew {
   refreshTag(rec) {
     if (!rec.npc) return;
     const lv = this.prison.friendLevelOf(rec);
-    rec.npc.tagline = `Заключённый · ${this.prison.friendName(lv)}`;
+    rec.npc.tagline = rec.gang ? `Ваша банда · ${this.prison.friendName(lv)}` : `Заключённый · ${this.prison.friendName(lv)}`;
   }
 
   // ------------------------------------------------------------------ назначения

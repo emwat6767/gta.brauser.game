@@ -70,8 +70,14 @@ export function detailCells(ctx) {
 
 // Общие помещения блоков: разметка, потолок, камеры наблюдения, часы, телевизоры, телефоны, столы.
 export function detailBlocks(ctx) {
-  const { kit, lib, FLOOR, BUILD_H, paint, plates, solid, rng } = ctx;
+  const { kit, lib, FLOOR, BUILD_H, paint, plates, solid, rng, brk } = ctx;
   const CEIL = BUILD_H - FLOOR;                 // потолок над полом
+  // Телевизоры и телефоны — отдельные куски: их можно сломать (prison-wreck.js).
+  const smashable = (id, kind, local, y, hp, draw) => {
+    kit.use(`brk-${id}`, 90);
+    draw();
+    brk.push({ id, kind, local, y: FLOOR + y, hp, r: kind === 'tv' ? 1.1 : 0.7, chunk: `brk-${id}` });
+  };
 
   // ---------------------------------------------------------------- БЛОК A
   {
@@ -91,9 +97,10 @@ export function detailBlocks(ctx) {
     for (let z = -18; z < 17; z += 4.5) kit.prim.box(0.04, 0.3, 0.04, -20.0, FLOOR + CEIL - 0.1, z, '#59636d', 0, 'steel');
     // Восточная стена (x = -16.5): рамка смотрит в комнату (-x)
     const E = (z) => kit.frame(-16.5, z, Math.PI, FLOOR);
-    lib.wallTv(E(-3), 0.16, 2.5, 0);
-    lib.wallPhone(E(12), 0.04, 0);
-    lib.wallPhone(E(14), 0.04, 0);
+    smashable('tv-a', 'tv', [-16.66, -3], 2.5, 45, () => lib.wallTv(E(-3), 0.16, 2.5, 0));
+    smashable('ph-a1', 'phone', [-16.54, 12], 1.45, 30, () => lib.wallPhone(E(12), 0.04, 0));
+    smashable('ph-a2', 'phone', [-16.54, 14], 1.45, 30, () => lib.wallPhone(E(14), 0.04, 0));
+    kit.use('cbw');
     lib.noticeBoard(E(-8), 0.03, 1.7, 0, 1.3, 0.85);
     lib.clock(E(2.0), 0.03, 3.4, 0);
     lib.extinguisher(E(4.0), 0.0, 0);
@@ -141,8 +148,9 @@ export function detailBlocks(ctx) {
     lib.horn(Sw(-28), 0.02, 3.55, 0);
     // Восточная стена (x = -4.5): рамка смотрит в -x
     const E = (z) => kit.frame(-4.5, z, Math.PI, FLOOR);
-    lib.wallTv(E(-24), 0.16, 2.5, 0);
-    lib.wallPhone(E(-22), 0.04, 0);
+    smashable('tv-b', 'tv', [-4.66, -24], 2.5, 45, () => lib.wallTv(E(-24), 0.16, 2.5, 0));
+    smashable('ph-b1', 'phone', [-4.54, -22], 1.45, 30, () => lib.wallPhone(E(-22), 0.04, 0));
+    kit.use('cbn');
     kit.prim.box(0.38, 1.35, 0.04, -4.7, FLOOR + 1.1, -23.1, '#4d5660', 0, 'steel');
     kit.prim.box(0.38, 1.35, 0.04, -4.7, FLOOR + 1.1, -20.9, '#4d5660', 0, 'steel');
     lib.fountain(kit.frame(-4.85, -26.5, Math.PI, FLOOR), 0, 0);

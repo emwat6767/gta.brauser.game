@@ -41,7 +41,7 @@ export class PrisonExtras {
     // Часовые: центр кабины чуть смещён к двери, взгляд — наружу, с поворотами по сторонам.
     L.towers.forEach((t, i) => {
       defs.push({
-        id: `tower${i}`, look: this._look('guard'), local: [t.x - t.sx * 0.8, t.z - t.sz * 0.2], y: 8.8, heading: Math.atan2(t.sx, t.sz),
+        id: `tower${i}`, tower: t, look: this._look('guard'), local: [t.x - t.sx * 0.8, t.z - t.sz * 0.2], y: 8.8, heading: Math.atan2(t.sx, t.sz),
         pose: 'normal', weapon: 'shotgun', scan: { amp: 1.1, speed: 0.33, phase: i * 1.7 }, watch: 55,
       });
     });
@@ -93,7 +93,7 @@ export class PrisonExtras {
     const cam = game.camera.position;
     let made = 0;
     for (const d of this.defs) {
-      const active = !d.hours || (h >= d.hours[0] && h < d.hours[1]);
+      const active = (!d.hours || (h >= d.hours[0] && h < d.hours[1])) && !d.tower?.dead;
       if (active && !d.model && made < 2) { this._spawn(d); made++; }
       else if (!active && d.model) this._remove(d);
       if (!d.model) continue;

@@ -19,6 +19,7 @@ export class Melee {
     this.wait = 0;         // оставшаяся пауза между ударами
     this.side = 1;         // чередуем руки
     this._hitDone = false;
+    this.gate = null;      // необязательная проверка «можно ли сейчас бить» (prison.js: охрана бьёт по очереди)
   }
 
   get active() {
@@ -31,6 +32,7 @@ export class Melee {
 
   start() {
     if (!this.ready) return false;
+    if (this.gate && !this.gate(this.owner)) return false;
     this.t = 1e-4;
     this.side = -this.side;
     this._hitDone = false;
@@ -83,7 +85,10 @@ export function findTargetInFront(game, attacker, range, minDot = 0.35, includeD
 
 function strike(game, attacker, range, damage) {
   const target = findTargetInFront(game, attacker, range + 0.2);
-  if (!target) return null;
+  if (!target) {
+    game.events.emit('combat:whiff', { attacker, range, damage });   // удар по воздуху: тюрьма ломает предметы (prison-wreck.js)
+    return null;
+  }
   const dx = target.position.x - attacker.position.x, dz = target.position.z - attacker.position.z;
   const d = Math.hypot(dx, dz) || 1;
   target.takeDamage(damage, attacker, dx / d, dz / d, 'punch');

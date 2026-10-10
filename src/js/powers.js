@@ -180,15 +180,21 @@ export class PowerSystem {
   cycle(dir = 1) {
     const i = POWER_ORDER.indexOf(this.mode);
     if (i < 0) return this.set('normal');
-    this.set(POWER_ORDER[(i + dir + POWER_ORDER.length) % POWER_ORDER.length]);
+    const pr = this.game.prison;
+    const n = POWER_ORDER.length;
+    for (let k = 1; k <= n; k++) {
+      const m = POWER_ORDER[(i + dir * k + n * n) % n];
+      if (!pr?.inCustody || pr.powersAllowed(m)) { this.set(m); return; }
+    }
+    this.set('normal');
   }
 
   set(mode) {
     const { game } = this;
     const p = game.player;
     if (mode === this.mode || p.isDead) return;
-    if (mode !== 'normal' && game.prison?.inCustody) {
-      game.hud.toast('В тюрьме силы подавлены', 2);
+    if (mode !== 'normal' && game.prison?.inCustody && !game.prison.powersAllowed(mode)) {
+      game.hud.toast('В тюрьме силы подавлены. Откройте путь героя, банды или разрушителя: I → «Путь»', 3);
       return;
     }
     if (this.carried) this._drop();

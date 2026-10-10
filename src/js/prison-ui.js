@@ -1,7 +1,7 @@
 import { fighterTag } from './fighters.js';
 import { formatMoney } from './ui/hud.js';
 import {
-  ITEMS, SHOP_COMMISSARY, SHOP_BLACK, TRAITS, FRIEND_LEVELS, PRANKS, RUMORS, JOBS, SCHEDULE, LAWYER,
+  ITEMS, SHOP_COMMISSARY, SHOP_BLACK, TRAITS, FRIEND_LEVELS, PRANKS, RUMORS, JOBS, SCHEDULE, LAWYER, PATHS,
 } from './prison-data.js';
 
 // Окна тюремной жизни (поверх игры, пока открыто — симуляция стоит): приём, разговор, лавка, телефон, визиты,
@@ -140,12 +140,13 @@ export class PrisonUI {
     const extra = info.wasFugitive ? '<p class="pu-warn">Побег пойман: срок удвоен, штраф удвоен, перед отсидкой — карцер.</p>' : '';
     return `<section><h3>Приговор</h3>
       <p>Срок: <b>${fmtH(info.hours)}</b> · Штраф: <b>${formatMoney(info.fine)}</b> · Камера: <b>${esc(info.cell)}</b></p>${extra}
-      <p class="pu-sub">Оружие и силы отобраны, выдана оранжевая роба. Деньги остались при вас — в лавке ими можно платить.</p>${night}</section>
+      <p class="pu-sub">Оружие и силы отобраны (их можно вернуть: см. «Путь»), выдана оранжевая роба. Деньги остались при вас — в лавке ими можно платить.</p>${night}</section>
       <section><h3>Как тут жить</h3><ul class="pu-list">
         <li><b>E / ДЕЙСТВИЕ</b> — поговорить с заключённым (подружиться, пошутить, подарить, разыграть), использовать места во дворе, лавку, телефон.</li>
         <li><b>I / ВЕЩИ</b> — вещи, друзья, что известно, перемотка времени. Подъём в 6:00, отбой в 21:30 — камеры запираются.</li>
         <li>Срок идёт по игровому времени. Можно спать (перемотка), работать за деньги, качаться, играть в карты и баскетбол.</li>
-        <li>Хотите на волю раньше: адвокат и залог (свидания, телефон) — или <b>побег</b>: подкоп, сетка и стена, форма охранника, взятка, бунт. Узнавайте детали у друзей.</li>
+        <li>Хотите на волю раньше: адвокат и залог (свидания, телефон) — или <b>побег</b>: подкоп, бельевая тележка, сетка и стена, форма охранника, взятка, бунт. Узнавайте детали у друзей.</li>
+        <li><b>Не хотите тихо сидеть?</b> I → «Путь»: станьте <b>героем</b> (разнимайте драки, защищайте слабых), соберите <b>банду</b> (E → «Позвать в банду») или <b>крушите тюрьму</b> (бейте телевизоры, двери, ворота, закладывайте бомбы под стены и вышки). Каждый путь открывает силы (X/V).</li>
       </ul></section>
       <section>${this.btn('Войти в блок', () => this.close(), { cls: 'main' })}</section>`;
     void P;
@@ -178,7 +179,7 @@ export class PrisonUI {
     const face = `<div class="pu-face" style="background:${rec.look.skin}">${esc((rec.name.replace(/[«»"]/g, '').split(' ').map((w) => w[0]).slice(0, 2).join('')) || '?')}</div>`;
     const head = `<div class="pu-person">${face}<div class="pu-pinfo"><b>${esc(tag.title)}</b><small>${esc(tag.sub)}${T.hidden ? '' : ` · ${T.label}`}</small>
       <div class="gm-bar"><div style="width:${pct}%"></div></div>
-      <small>${P.friendName(lv)} · ${Math.round(rec.friend)}${next ? ` / ${next.at}` : ''}${rec.following ? ' · идёт с вами' : ''}</small></div>${this.money()}</div>`;
+      <small>${P.friendName(lv)} · ${Math.round(rec.friend)}${next ? ` / ${next.at}` : ''}${rec.gang ? ' · в вашей банде' : rec.following ? ' · идёт с вами' : ''}</small></div>${this.money()}</div>`;
     const log = `<div class="pu-log">${s.log.slice(-6).map((l) => `<p class="${l.who}${l.kind ? ' ' + l.kind : ''}">${l.who === 'npc' ? '<i>' + esc(rec.nick || rec.name.split(' ')[0]) + ':</i> ' : ''}${esc(l.text)}</p>`).join('')}</div>`;
     let opts = '';
     if (s.mode === 'root') {
@@ -303,7 +304,7 @@ export class PrisonUI {
 
   _status(s) {
     const P = this.prison;
-    const tabs = [['items', 'Вещи'], ['friends', 'Друзья'], ['know', 'План и слухи'], ['status', 'Срок']];
+    const tabs = [['items', 'Вещи'], ['friends', 'Друзья'], ['path', 'Путь'], ['know', 'План и слухи'], ['status', 'Срок']];
     const bar = `<div class="pu-tabs">${tabs.map(([id, l]) => this.btn(l, () => { s.tab = id; this.render(); }, { cls: s.tab === id ? 'on' : 'ghost' })).join('')}</div>`;
     let body = '';
     if (s.tab === 'items') {
@@ -315,6 +316,7 @@ export class PrisonUI {
         else if (id === 'sheet') act = this.btn('Связать верёвку (3 шт.)', () => { P.craftRope(); this.render(); }, { disabled: P.inv.sheet < 3 });
         else if (id === 'uniform') act = this.btn(P.wearing === 'uniform' ? 'Снять форму' : 'Надеть форму', () => { P.toggleUniform(); this.render(); });
         else if (id === 'phone') act = this.btn('Позвонить', () => this.openPhone());
+        else if (id === 'bomb') act = this.btn('Заложить здесь', () => P.plantBomb());
         else if (id === 'radio') act = this.btn('Слушать', () => { this.game.hud.toast(P._tvLine(), 4); });
         return `<div class="pu-item sm"><div class="pu-ico">${it.icon}</div><div class="pu-iinfo"><b>${it.name} ×${P.inv[id]}</b><small>${it.desc}${it.illegal ? ' · контрабанда' : ''}</small></div>${act}</div>`;
       }).join('') : '<p class="pu-sub">Карманы пусты. Загляните в лавку (E у окошка во дворе блока).</p>';
@@ -325,13 +327,15 @@ export class PrisonUI {
         const lv = P.friendLevelOf(r);
         return `<div class="pu-item sm"><div class="pu-face sm" style="background:${r.look.skin}"></div><div class="pu-iinfo"><b>${esc(r.name)}</b><small>${P.friendName(lv)} · ${Math.round(r.friend)} очк.${r.following ? ' · идёт с вами' : ''}</small></div></div>`;
       }).join('') : '<p class="pu-sub">Пока ни с кем не знакомы. Подойдите к заключённому и нажмите E.</p>';
+    } else if (s.tab === 'path') {
+      body = this._pathTab();
     } else if (s.tab === 'know') {
       const chip = (ok, text) => `<li class="${ok ? 'got' : ''}">${ok ? '✔' : '○'} ${text}</li>`;
       body = `<h3>Пути на волю</h3><ul class="pu-list plan">
         <li><b>Подкоп:</b></li>${chip(P.know.has('tunnel'), 'узнать про подкоп (слухи)')}${chip(P.has('spoon') || P.dig > 0, 'ложка')}${chip(P.dig >= 1 || P.tunnel, `подкоп ${Math.round(P.dig * 100)}%`)}
         <li><b>Сетка и стена:</b></li>${chip(P.has('cutters') || P.layout.fenceSegs.some((x) => x.cut), 'кусачки')}${chip(P.layout.fenceSegs.some((x) => x.cut), 'прорезать сетку во дворе')}${chip(P.has('rope'), 'верёвка с крюком (или 3 простыни)')}
         <li><b>Форма охранника:</b></li>${chip(P.has('uniform'), 'форма из корзины в прачечной')}${chip(P.has('idcard'), 'пропуск (у Скиппи)')}
-        <li><b>Взятка:</b></li>${chip(P.know.has('bribe'), 'узнать, кто берёт')}${chip(this.game.wallet.money >= 500, '$500 для сержанта Мака')}
+        <li><b>Взятка:</b></li>${chip(P.know.has('bribe'), 'узнать, кто берёт')}${chip(this.game.wallet.money >= 300, '$300 для сержанта Мака')}
         <li><b>Бунт:</b></li>${chip(P.know.has('boss'), 'подружиться с Домом (Кореш)')}${chip(P.know.has('riot'), 'узнать про бунт')}${chip(P.has('keys'), 'ключи из кабинета начальника')}
       </ul><h3>Что вы узнали</h3>`;
       const seen = RUMORS.filter((r) => P.rumorsSeen.has(r.id));
@@ -345,6 +349,37 @@ export class PrisonUI {
         <div class="pu-opts">${this.btn(`Перемотать до: ${P.scheduleNext().label}`, () => { this.close(); P.waitUntilNextPhase(); }, { sub: 'время идёт, срок отбывается', disabled: P.alert >= 2 })}</div>`;
     }
     return `<section>${bar}${body}</section>`;
+  }
+
+  // Вкладка «Путь»: очки героя, банды и разрушителя, открытые силы и команды банде.
+  _pathTab() {
+    const P = this.prison;
+    const names = Object.fromEntries(this.game.powers.modeList().map((m) => [m.mode, m.name]));
+    const cards = P.pathCards().map((c) => {
+      const base = c.cur?.at ?? 0;
+      const pct = c.next ? Math.round(((c.pts - base) / (c.next.at - base)) * 100) : 100;
+      return `<div class="pu-path" style="margin:8px 0;padding:6px 10px;border-left:4px solid ${c.P.color};background:rgba(255,255,255,.05)">
+        <b>${c.P.icon} ${c.P.name}</b> · ${c.cur ? esc(c.cur.name) : 'без ступени'} · ${c.pts} очк.
+        <div class="gm-bar"><div style="width:${pct}%;background:${c.P.color}"></div></div>
+        <small>${esc(c.P.blurb)}</small><br>
+        <small><b>${c.next ? `Дальше «${esc(c.next.name)}» (${c.next.at}):` : 'Все ступени пройдены:'}</b> ${esc((c.next ?? c.cur)?.text ?? '')}</small></div>`;
+    }).join('');
+    const open = [...P.unlockedModes()].filter((m) => m !== 'normal').map((m) => names[m] ?? m);
+    let body = `<h3>Три пути</h3>${cards}
+      <p class="pu-sub">Открытые силы (X/V): <b>${open.length ? open.join(', ') : 'пока нет'}</b>. Очки дают: драки и спасённые слабые — героя; люди в банде и победа над Домом — банду; разбитые телевизоры, двери, ворота, стены и вышки — разрушителя.</p>`;
+    const crew = P.gangMembers();
+    body += `<h3>Банда ${crew.length}/${P.gangCap()}</h3>`;
+    body += crew.length
+      ? `<ul class="pu-list">${crew.map((r) => `<li>${esc(r.name)} · ${P.friendName(P.friendLevelOf(r))}${r.npc ? (r.following ? ' · с вами' : ' · во дворе') : ' · вне поля зрения'}</li>`).join('')}</ul>`
+      : '<p class="pu-sub">Подружитесь с заключённым до «Приятеля» и позовите его в банду (E → «Позвать в банду»).</p>';
+    const cmd = (label, fn, sub = '', disabled = false) => this.btn(label, () => { const r = fn(); if (r?.msg) this.game.hud.toast(r.msg, 3.2); this.render(); }, { sub, disabled });
+    body += `<div class="pu-opts">${cmd('Собрать банду', () => P.gangCall(), 'все, кто рядом, идут за вами', !crew.length)}
+      ${cmd('Распустить', () => P.gangDismiss(), '', !crew.length)}
+      ${cmd('Драка-отвлечение', () => P.gangDistract(), 'двое бойцов дерутся, охрана смотрит туда (90 с отдыха)', crew.length < 2)}
+      ${cmd('Банда: на охрану!', () => P.gangAttackGuards(), 'только в тревогу или бунт', !crew.length)}
+      ${PATHS.gang.tiers[2] && P.pathTier('gang') >= 2 ? cmd('Звонок братве: подорвать стену ($400)', () => P.callBreakout(), 'нужен телефон; через 40 с взрыв у ближней заплатки') : ''}</div>`;
+    if (P.pathTier('hero') >= 2) body += `<p class="pu-sub">Вы — Легенда «Редрока»: начальник готов помиловать вас (разговор в кабинете, E у его стола).</p>`;
+    return body;
   }
 
   // ------------------------------------------------------------ сон и время

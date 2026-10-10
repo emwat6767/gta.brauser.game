@@ -121,6 +121,14 @@ export class ChaosSystem {
         }
       }
     }
+    // Свободные предметы внутри тюрьмы (скамьи, ящики, бачки, конусы, гидранты): летят от ударов и взрывов.
+    for (const q of world.prison?.looseProps ?? []) {
+      const p = { type: q.type, x: q.x, y: q.y, z: q.z, heading: q.heading, alive: true, dyn: null };
+      this.props.push(p);
+      const key = `${Math.floor(q.x / CELL)},${Math.floor(q.z / CELL)}`;
+      if (!this.cells.has(key)) this.cells.set(key, []);
+      this.cells.get(key).push(p);
+    }
   }
 
   // Предметы в радиусе r от (x, z) (в покое).
@@ -265,7 +273,7 @@ export class ChaosSystem {
     // Тряска камеры рядом с игроком.
     const dp = Math.hypot(p.position.x - point.x, p.position.z - point.z);
     if (dp < radius * 4) game.cameraRig.addShake?.(Math.min(0.5, (force / 30) * (1 - dp / (radius * 4))));
-    game.events.emit('chaos:blast', { point, radius, attacker });
+    game.events.emit('chaos:blast', { point, radius, attacker, damage, force, kind });
   }
 
   // --- Каждый шаг ---------------------------------------------------------------------

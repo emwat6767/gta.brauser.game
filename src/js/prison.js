@@ -7,6 +7,8 @@ import { PrisonCrew, jumpsuitLook, guardUniformLook } from './prison-crew.js';
 import { PrisonUI } from './prison-ui.js';
 import { PrisonExtras } from './prison-extras.js';
 import { installSocial } from './prison-social.js';
+import { installPath } from './prison-path.js';
+import { installWreck } from './prison-wreck.js';
 import {
   ITEMS, SENTENCE_HOURS, FINE, ESCAPE_EXTRA_HOURS, BAIL_BASE, BAIL_PER_HOUR, SCHEDULE, phaseAt, GUARD_WARN, GUARD_CAUGHT, TOWER_WARN,
 } from './prison-data.js';
@@ -48,6 +50,7 @@ export class PrisonSystem {
     this.know = new Set();     // что известно (слухи): tunnel, fence, ...
     this.rumorsSeen = new Set();
     this.stats = { respect: 0, strength: 0, days: 0, escapes: 0, jobs: 0, wins: 0, bribed: 0 };
+    this.path = { hero: 0, gang: 0, wreck: 0 };      // очки путей: герой, банда, разрушитель (prison-path.js)
     this.sus = 0;
     this.alert = 0;            // 0 тихо, 2 тревога (побег), 3 бунт
     this.alertTimer = 0;
@@ -92,6 +95,8 @@ export class PrisonSystem {
     for (const cell of this.layout.cells) this._initDoor(cell);
     for (const cell of this.layout.holeCells) this._initDoor(cell);
     this._buildStations();
+    this._initPath();
+    this._initWreck();
     this._hooks();
     this._syncDoors(true);
   }
@@ -122,10 +127,11 @@ export class PrisonSystem {
     game.events.on('character:damaged', ({ target, attacker, amount }) => {
       if (!this.inCustody) return;
       const p = game.player;
-      if (target === p && attacker?.prisonGuard && !this.busy && p.health < p.maxHealth * 0.22) {
+      if (target === p && attacker?.prisonGuard && !this.busy && p.health < p.maxHealth * 0.25) {
         this.subdue('Охранники скрутили вас и поволокли в карцер');
         return;
       }
+      if (attacker === p) this._gangAssist(target);
       if (attacker === p && target?.prisonGuard) this._onPlayerHitGuard(target);
       if (attacker === p && target?.prisonInmate && !this.spar) this._onPlayerHitInmate(target, amount);
     });
@@ -143,14 +149,53 @@ export class PrisonSystem {
     });
   }
 
+  // Удар по охраннику: сначала он дерётся один на один (его товарищи смотрят), общая тревога — если драка затянулась,
+  // охранника уложили или убили.
   _onPlayerHitGuard(g) {
-    if (this.bribe > 0) return;
-    this.startAlarm('Нападение на охранника!', true);
+    if (this.bribe > 0 || this.alert >= 2) return;
+    const n = g.npc;
+    const now = this.t;
+    this._guardHits = (this._guardHits ?? []).filter((x) => now - x < 12);
+    this._guardHits.push(now);
+    if (this._guardHits.length === 1) this.game.hud.toast('Вы ударили охранника. Он дерётся один на один — но затянете драку, и будет тревога', 3.5);
+    if (n && n.state !== NPC_STATE.FIGHT && !n.isDown) n.aggro(this.game.player, ['Ты нарвался!', 'Руки убрал!', 'Получай, заключённый!'][(Math.random() * 3) | 0]);
+    if (this._guardHits.length >= 7 || (n && (n.isDown || n.health < n.maxHealth * 0.3))) this.startAlarm('Нападение на охранника!', true);
+  }
+
+  // Охрана бьёт по очереди: не чаще, чем раз в 0.55 с, и не больше двух ударов одновременно.
+  guardMayStrike(owner) {
+    if (this.t - (this._lastSwing ?? -9) < 0.55) return false;
+    for (const g of this.crew.guards) {
+      const n = g.npc;
+      if (n && n !== owner && n.melee?.active && n.target === this.game.player) return false;
+    }
+    this._lastSwing = this.t;
+    return true;
+  }
+
+  // Тревога: на игрока идут не больше трёх ближайших охранников, остальные держат периметр и кричат.
+  _dispatchGuards(max = 3) {
+    const p = this.game.player;
+    const list = this.crew.guards.filter((g) => g.npc && !g.npc.isDead && !g.noGuard && g.id !== 'clerk' && g.id !== 'medic' &&
+      Math.hypot(g.npc.position.x - p.position.x, g.npc.position.z - p.position.z) < 42);
+    list.sort((a, b) => Math.hypot(a.npc.position.x - p.position.x, a.npc.position.z - p.position.z) - Math.hypot(b.npc.position.x - p.position.x, b.npc.position.z - p.position.z));
+    list.forEach((g, i) => {
+      const n = g.npc;
+      if (i < max) {
+        if (n.target !== p || n.state !== NPC_STATE.FIGHT) n.aggro(p, ['Тревога!', 'Стоять!', 'Он здесь!'][(Math.random() * 3) | 0]);
+      } else if (n.target === p && n.state === NPC_STATE.FIGHT) {
+        n.dropTarget();
+        this.crew.hold(g, 2.5);
+        if (Math.random() < 0.4) n.say('Сдавайся! Тебе не уйти!', true);
+      }
+    });
   }
 
   _onPlayerHitInmate(npc, amount) {
     const rec = npc.prisonInmate;
     if (!rec) return;
+    if (this._pathOnHitInmate(rec, npc)) return;      // разняли драку, бьёте хулигана, выручаете охрану: не нарушение
+    if (rec.gang) return;
     // Видел ли кто-то из охраны: рядом и в поле зрения.
     const pp = this.game.player.position;
     for (const g of this.crew.guards) {
@@ -209,6 +254,8 @@ export class PrisonSystem {
     if (ph.id === 'count') {
       this.liftToday = 0;
       this.stats.days++;
+      this._riotSaves = 0;
+      this._pathDaily();
       this.dayPlan = { day: this.crew.day, search: Math.random() < 0.4, patdown: Math.random() < 0.4, patAt: 12.7 + Math.random() * 2.8, done: {} };
     }
     if (ph.id === 'lockin') this.game.hud.toast('Скоро отбой — идите в камеру!', 3);
@@ -233,6 +280,7 @@ export class PrisonSystem {
   }
 
   _setDoor(cell, open, instant = false) {
+    if (cell.broken) open = true;       // выбитая дверь больше не запирается
     cell.targetOpen = open ? 1 : 0;
     if (instant) { cell.open = cell.targetOpen; this._applyDoor(cell); }
     if (open && cell.colOn) { this.game.world.colliders.remove(cell.collider); cell.colOn = false; }
@@ -244,6 +292,7 @@ export class PrisonSystem {
   }
 
   setGate(gt, open) {
+    if (gt.broken) open = true;
     gt.target = open ? 1 : 0;
     if (!open && !gt.colOn) { this.game.world.colliders.add(gt.collider); gt.colOn = true; }
   }
@@ -282,6 +331,7 @@ export class PrisonSystem {
     const h = this.hour;
     const night = h >= 19.3 || h < 6.3;
     for (const b of L.beams) {
+      if (b.dead) { b.mesh.visible = false; continue; }
       b.angle += b.speed * dt;
       b.mesh.visible = night;
       if (night) b.mesh.lookAt(b.x + Math.sin(b.angle) * 28, 0.2, b.z + Math.cos(b.angle) * 28);
@@ -290,6 +340,7 @@ export class PrisonSystem {
 
   _inBeam(pp) {
     for (const b of this.layout.beams) {
+      if (b.dead) continue;
       const dx = pp.x - b.x, dz = pp.z - b.z;
       const d = Math.hypot(dx, dz);
       if (d > 31) continue;
@@ -397,7 +448,7 @@ export class PrisonSystem {
       }
       if (!seen && (zone?.id === 'strip' || this._wallZone(pp) || a?.id === 'climb')) {
         for (const t of this.layout.towers) {
-          if (this._towerSees(t, pp, night)) { seen = true; seer = { tower: t }; break; }
+          if (!t.dead && this._towerSees(t, pp, night)) { seen = true; seer = { tower: t }; break; }
         }
       }
     }
@@ -438,7 +489,7 @@ export class PrisonSystem {
     const { game } = this;
     if (this.alert < 2) game.hud.news(`ТРЕВОГА в «Редроке»: ${reason}`, '#ff5a5a');
     this.alert = Math.max(this.alert, 2);
-    this.alertTimer = Math.max(this.alertTimer, 75);
+    this.alertTimer = Math.max(this.alertTimer, 45);
     this.sus = 0;
     this.warned = false;
     this.crew.setLockdown(true);
@@ -447,10 +498,7 @@ export class PrisonSystem {
     this.setGate(this.layout.gates.outer, false);
     game.audio.alarm?.(game.player.position);
     this.ui.setAlarm(true);
-    for (const g of this.crew.guards) {
-      const n = g.npc;
-      if (n && !n.isDead && !g.noGuard && g.id !== 'clerk') n.aggro(game.player, ['Тревога!', 'Стоять!', 'Он здесь!'][(Math.random() * 3) | 0]);
-    }
+    this._dispatchGuards();
     if (violent) game.hud.toast('ТРЕВОГА! Охрана ловит вас', 3);
   }
 
@@ -650,6 +698,7 @@ export class PrisonSystem {
     if (!hostile) { this.towerWarn = Math.max(0, this.towerWarn - dt); return; }
     for (let i = 0; i < L.towers.length; i++) {
       const t = L.towers[i];
+      if (t.dead) continue;
       const tp = L.P(t.x, t.z);
       const d = Math.hypot(pp.x - tp.x, pp.z - tp.z);
       if (d > (this.alert >= 2 || fug ? 48 : 40)) continue;
@@ -719,6 +768,8 @@ export class PrisonSystem {
     this.lawyerVisits = 0;
     this.flags.hazed = false;
     this.fugitive = { timer: 0, hunt: 0, disguised: false };
+    this.repairAll();      // пока вас не было, тюрьму привели в порядок
+    this.event = null;
     for (const seg of this.layout.fenceSegs) if (seg.cut) this._mend(seg);
     // Старые вещи: контрабанду забирают, остальное лежит в камере.
     for (const k of Object.keys(this.inv)) if (ITEMS[k]?.illegal) delete this.inv[k];
@@ -780,7 +831,7 @@ export class PrisonSystem {
     this.busy = true;
     this._cancelAction(true);
     const { game } = this;
-    const msg = { served: 'Срок отбыт. Вы свободны!', bail: 'Залог внесён. Вы свободны!', lawyer: 'Адвокат добился освобождения. Вы свободны!' }[reason] ?? 'Вы свободны!';
+    const msg = { served: 'Срок отбыт. Вы свободны!', bail: 'Залог внесён. Вы свободны!', lawyer: 'Адвокат добился освобождения. Вы свободны!', pardon: 'Помилование! Начальник подписал бумаги. Вы свободны!' }[reason] ?? 'Вы свободны!';
     try {
       await this._blackout(msg, () => {
         this.state = 'free';
@@ -969,6 +1020,7 @@ export class PrisonSystem {
     add('kitchen', L.spots.kitchen[0], 3.4, () => ({ label: 'Кухня', run: () => this.ui.openJob('kitchen') }));
     add('library', S.library, 2.8, () => ({ label: 'Библиотека', run: () => this.ui.openJob('library') }));
     add('uniform', S.uniform, 1.7, () => ({ label: 'Корзина с формой охраны', run: () => this.rummageUniform() }));
+    add('cart', S.cart, 1.9, () => this.cartStation());
     add('gateinner', S.gatePanelInner, 2.3, () => this.gateStation());
     add('gateouter', S.gatePanelOuter, 2.3, () => this.gateStation());
     add('warden', L.posts.warden, 2.2, () => this.wardenStation());
@@ -1114,8 +1166,9 @@ export class PrisonSystem {
 
   digStep(cell) {
     const fast = this.has('map') ? 2 : 1;
-    this.startAction({ id: 'dig', label: 'Копаете подкоп', dur: 6, illegal: true, rate: 0.5, noise: 3.5, done: () => {
-      this.dig = Math.min(1, this.dig + 6 * fast / 54);
+    const crew = 1 + Math.min(3, this.gangMembers?.().length ?? 0) * 0.25;      // банда копает вместе и стоит на стрёме
+    this.startAction({ id: 'dig', label: 'Копаете подкоп', dur: 5, illegal: true, rate: 0.32, noise: 2.5, done: () => {
+      this.dig = Math.min(1, this.dig + 6 * fast * crew / 30);
       cell.posterMesh.rotation.z = 0.12;
       cell.dirtMesh.visible = true;
       cell.dirtMesh.scale.setScalar(0.5 + this.dig);
@@ -1310,6 +1363,7 @@ export class PrisonSystem {
     const scale = input?.touchActive ? 0.6 : 1;
     const pos = camera.position;
     for (const ch of L.chunks) {
+      if (ch.broken) continue;
       const d = ch.box.distanceToPoint(pos);
       const far = ch.far * scale;
       const vis = ch.visible ? d < far + 8 : d < far;
@@ -1326,6 +1380,7 @@ export class PrisonSystem {
     this.crew.update(dt);
     this.extras.update(dt);
     this._animate(dt);
+    this._wreckTick(dt);
     this._towers(dt);
     this._chunks(dt);
     if (this.state === 'inside') this._tickInside(dt);
@@ -1340,6 +1395,7 @@ export class PrisonSystem {
     const p = game.player;
     this._tickTime(dt);
     this._tickAction(dt);
+    this._pathTick(dt);
     game.wanted.frozen = true;
     if (game.wanted.heat > 0) game.wanted.clear();
     if (this.bribe > 0) this.bribe = Math.max(0, this.bribe - dt);
@@ -1353,13 +1409,10 @@ export class PrisonSystem {
     // Тревога затихает со временем; пока идёт — охрана бежит за игроком (в бунт охрана дерётся с заключёнными).
     if (this.alert === 3) this._tickRiot(dt);
     else if (this.alert >= 2) {
-      this.alertTimer -= dt;
-      for (const g of this.crew.guards) {
-        const n = g.npc;
-        if (n && !n.isDead && n.state !== NPC_STATE.FIGHT && this.alertTimer > 0 && !g.noGuard && g.id !== 'clerk' && g.id !== 'medic') {
-          if (Math.hypot(n.position.x - p.position.x, n.position.z - p.position.z) < 40) n.aggro(p);
-        }
-      }
+      // Спрятался от глаз охраны — тревога стихает втрое быстрее.
+      this.alertTimer -= dt * (this.sinceSeen > 6 ? 3 : 1);
+      this._dispT = (this._dispT ?? 0) - dt;
+      if (this._dispT <= 0 && this.alertTimer > 0) { this._dispT = 0.6; this._dispatchGuards(); }
       if (this.alertTimer <= 0) this._endAlarm(false);
     }
     if (this.patdown > 0) {
@@ -1469,6 +1522,8 @@ export class PrisonSystem {
       marks.push({ x: S.commissary.x, z: S.commissary.z, txt: '$', color: '#1f9a3e' });
       marks.push({ x: S.visit.x, z: S.visit.z, txt: 'А', color: '#2d6fb3' });
       for (const ph of S.phones) marks.push({ x: ph.x, z: ph.z, txt: 'Т', color: '#5d6b7a' });
+      if (this.event) marks.push({ x: this.event.x, z: this.event.z, txt: '!', color: '#ff3a3a', big: true });
+      if (this.know.has('breach')) for (const pt of L.patches) if (!pt.broken) marks.push({ x: pt.x, z: pt.z, txt: '▒', color: '#c98a5a' });
     }
     return marks;
   }
@@ -1481,6 +1536,7 @@ export class PrisonSystem {
       know: [...this.know], seen: [...this.rumorsSeen], stats: this.stats, friends: Object.fromEntries(this.crew.inmates.filter((r) => r.friend).map((r) => [r.id, Math.round(r.friend)])),
       dig: this.dig, tunnel: this.tunnel, fence: this.layout.fenceSegs.filter((s) => s.cut).map((s) => s.index), lawyer: this.lawyerVisits,
       fug: this.fugitive.timer, day: this.crew.day, wearing: this.wearing,
+      path: this.path, gang: this.crew.inmates.filter((r) => r.gang).map((r) => r.id), yardKing: !!this.flags.yardKing,
     };
   }
 
@@ -1493,6 +1549,9 @@ export class PrisonSystem {
     this.know = new Set(d.know ?? []);
     this.rumorsSeen = new Set(d.seen ?? []);
     Object.assign(this.stats, d.stats ?? {});
+    Object.assign(this.path, d.path ?? {});
+    for (const rec of this.crew.inmates) if (d.gang?.includes(rec.id)) { rec.gang = true; rec.look = { ...rec.look, bandana: '#e6b422' }; }
+    if (d.yardKing) this.flags.yardKing = true;
   }
 
   // Вызывается из Game.start(): вернуть игрока в тюрьму, если он вышел из игры, сидя в ней.
@@ -1535,3 +1594,5 @@ export class PrisonSystem {
 }
 
 installSocial(PrisonSystem);
+installPath(PrisonSystem);
+installWreck(PrisonSystem);

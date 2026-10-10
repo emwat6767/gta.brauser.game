@@ -57,7 +57,10 @@ const M = {
     opts.push({ id: 'cards', label: 'Сыграть в карты', sub: 'ставка на деньги' });
     if (lv >= 1) opts.push({ id: 'spar', label: 'Спарринг (ставка)', sub: 'честная драка до 30% здоровья' });
     if (lv >= 3) opts.push({ id: 'cover', label: 'Попросить прикрыть', sub: 'друг отвлечёт охрану на 45 секунд' });
-    if (lv >= 4) opts.push({ id: 'follow', label: rec.following ? 'Отпустить' : 'Позвать с собой', sub: rec.following ? '' : 'друг пойдёт за вами и вступится в драке' });
+    if (lv >= 4 && !rec.gang) opts.push({ id: 'follow', label: rec.following ? 'Отпустить' : 'Позвать с собой', sub: rec.following ? '' : 'друг пойдёт за вами и вступится в драке' });
+    if (rec.gang) opts.push({ id: 'gangLeave', label: 'Выгнать из банды', sub: 'снимет повязку и пойдёт по своим делам' });
+    else if (lv >= 2 && rec.trait !== 'boss') opts.push({ id: 'recruit', label: 'Позвать в банду', sub: `взнос: пачка сигарет или $30 · банда ${this.gangMembers().length}/${this.gangCap()}` });
+    if (rec.trait === 'boss') opts.push({ id: 'duel', label: 'Бросить вызов: бой за двор', sub: this.flags.yardKing ? 'двор уже ваш' : 'победите Дома — двор и его люди ваши', disabled: !!this.flags.yardKing });
     if (rec.trait === 'boss' && lv >= 3) opts.push({ id: 'riot', label: 'Поднять бунт', sub: this.know.has('riot') ? 'охрана растеряется, камеры откроются' : 'сначала узнайте, что это возможно', disabled: !this.know.has('riot') });
     return opts;
   },
@@ -109,9 +112,16 @@ const M = {
       },
       follow: () => {
         if (rec.following) { this.setFollow(rec, false); return { line: 'Ладно. Если что — зови.', kind: 'neutral' }; }
-        if (this.allies.length >= 2) return { line: 'Нас и так двое. Больше охрана заметит.', kind: 'neutral' };
+        if (this.allies.length >= this.gangCap()) return { line: 'Нас и так много. Больше охрана заметит.', kind: 'neutral' };
         this.setFollow(rec, true);
         return { line: 'Я с тобой, брат. Куда идём?', kind: 'good' };
+      },
+      recruit: () => this.recruit(rec),
+      gangLeave: () => { this.leaveGang(rec); return { line: 'Понял. Не очень-то и хотелось.', kind: 'neutral' }; },
+      duel: () => {
+        if (this.flags.yardKing) return { line: 'Ты уже победил. Двор твой.', kind: 'neutral' };
+        rec.yardDuel = true;
+        return { line: 'Двор — мой. Но давай, попробуй забрать. До тридцати процентов.', kind: 'neutral', open: 'spar' };
       },
       riot: () => {
         if (this.alert >= 2) return { line: 'Не сейчас. Слишком много охраны.', kind: 'neutral' };
@@ -277,7 +287,10 @@ const M = {
       s.rec.arrived = false;
       s.rec.reassign = this.crew.t;
       p.health = Math.max(p.health, p.maxHealth * 0.45);
+      const yardDuel = s.rec.yardDuel;
+      s.rec.yardDuel = false;
       if (res === 'win') {
+        if (yardDuel) this._wonYard(s.rec);
         game.wallet.add(s.bet * 2);
         this.addFriend(s.rec, 6);
         this.stats.respect += 3;
@@ -340,7 +353,7 @@ const M = {
       if (!n || n.isDead || g.noGuard || n.state === NPC_STATE.FIGHT) continue;
       const rec = this.crew.nearestInmate(n.position, 20, (r) => r.npc.state === NPC_STATE.FIGHT && !r.following);
       if (rec) n.aggro(rec.npc, 'Назад!');
-      else n.aggro(game.player);
+      else if (this.crew.guards.filter((o) => o.npc?.target === game.player && o.npc.state === NPC_STATE.FIGHT).length < 3) n.aggro(game.player);
     }
   },
 
@@ -371,7 +384,8 @@ const M = {
   guardMenu(g) {
     const opts = [{ id: 'time', label: 'Спросить, сколько мне ещё сидеть', sub: '' }];
     if (g.talk === 'intake') opts.push({ id: 'rules', label: 'Спросить про правила', sub: '' });
-    if (g.corrupt) opts.push({ id: 'bribe', label: 'Предложить взятку ($500)', sub: this.know.has('bribe') ? 'вы знаете, что он берёт' : 'вдруг получится', disabled: this.alert >= 2 });
+    if (g.corrupt) opts.push({ id: 'bribe', label: 'Предложить взятку ($300)', sub: this.know.has('bribe') ? 'вы знаете, что он берёт' : 'вдруг получится', disabled: this.alert >= 2 });
+    if (g.talk === 'warden' && this.pathTier('hero') >= 2) opts.push({ id: 'pardon', label: 'Просить помилования (Легенда «Редрока»)', sub: 'за добрые дела: освобождение без залога' });
     if (g.talk === 'warden') opts.push({ id: 'parole', label: 'Попросить досрочное освобождение', sub: 'раз в сутки; шанс растёт с уважением заключённых' });
     if (g.talk === 'medic') opts.push({ id: 'heal', label: 'Попросить помощь', sub: 'бесплатно' });
     else opts.push({ id: 'sick', label: 'Пожаловаться на здоровье', sub: 'охранник отведёт в лазарет' });
@@ -397,7 +411,7 @@ const M = {
       }
       case 'bribe': {
         if (this.alert >= 2) return { line: 'Не сейчас, дурак! Тревога!', kind: 'bad' };
-        if (!game.wallet.spend(500)) return { line: 'Пять сотен — и ни центом меньше. Нет денег — иди отсюда.', kind: 'bad' };
+        if (!game.wallet.spend(300)) return { line: 'Три сотни — и ни центом меньше. Нет денег — иди отсюда.', kind: 'bad' };
         this.bribe = 80;
         this.stats.bribed++;
         this.flags.walkout = true;
@@ -406,6 +420,11 @@ const M = {
         const txt = 'Я ничего не видел. У тебя минута с небольшим. Не тормози.';
         say(txt);
         return { line: txt, kind: 'good', close: true };
+      }
+      case 'pardon': {
+        if (this.pathTier('hero') < 2) return { line: 'Пока ваших добрых дел недостаточно.', kind: 'bad' };
+        setTimeout(() => this.release('pardon'), 800);
+        return { line: 'Я слышал, как вы заступались за людей. Хорошо. Подпишу бумаги — свободны.', kind: 'good', close: true };
       }
       case 'parole': {
         if (this.flags.paroleDay === this.crew.day) return { line: 'Я уже ответил на твою просьбу сегодня. Приходи завтра.', kind: 'bad' };

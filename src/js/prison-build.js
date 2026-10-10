@@ -270,10 +270,28 @@ export function buildPrison(world, block, { group, glowMat }) {
   // ================================================================ ПЕРИМЕТР
   const wallStyle = { out: ['px', 'nx', 'pz', 'nz'], ext: 'conc', extColor: '#cbc9c0', wall: '#b9b8b1', dado: '#b9b8b1', top: true, tile: 6 };
   // Бетонная стена по 4 сторонам; в передней — проём шлюза.
-  const perim = (x0, z0, x1, z1) => { wallBox(x0, z0, x1, z1, 0, WALL_H, wallStyle); solid(x0, z0, x1, z1, WALL_H); };
-  perim(-37.5, -37.5, 37.5, -36);                // север
-  perim(-37.5, -37.5, -36, 37.5);                // запад
-  perim(36, -37.5, 37.5, 37.5);                  // восток
+  // Четыре «заплатки» — свежая кладка в бетонной стене (слабые места): отдельные меши и коллайдеры, их можно взорвать/разбить.
+  const PATCH_DEFS = [
+    { id: 'E1', side: 'e', lo: -12, hi: -8 }, { id: 'E2', side: 'e', lo: 6, hi: 10 },
+    { id: 'N1', side: 'n', lo: 12, hi: 16 }, { id: 'W1', side: 'w', lo: 6, hi: 10 },
+  ];
+  const perim = (x0, z0, x1, z1, axis = null, cuts = []) => {
+    // axis 'z': стена идёт вдоль z, cuts — [[z0, z1]] вырезанных заплаток; 'x' — вдоль x.
+    const segs = [];
+    let cur = axis === 'z' ? z0 : x0;
+    const end = axis === 'z' ? z1 : x1;
+    for (const [a, b] of cuts) { segs.push([cur, a]); cur = b; }
+    segs.push([cur, end]);
+    for (const [a, b] of segs) {
+      const r = axis === 'z' ? [x0, a, x1, b] : axis === 'x' ? [a, z0, b, z1] : [x0, z0, x1, z1];
+      wallBox(r[0], r[1], r[2], r[3], 0, WALL_H, wallStyle);
+      solid(r[0], r[1], r[2], r[3], WALL_H);
+    }
+  };
+  const cutsOf = (side) => PATCH_DEFS.filter((d) => d.side === side).map((d) => [d.lo, d.hi]);
+  perim(-37.5, -37.5, 37.5, -36, 'x', cutsOf('n'));                // север
+  perim(-37.5, -37.5, -36, 37.5, 'z', cutsOf('w'));                // запад
+  perim(36, -37.5, 37.5, 37.5, 'z', cutsOf('e'));                  // восток
   perim(-37.5, 36, -2.5, 37.5);                  // юг слева от шлюза
   perim(2.5, 36, 37.5, 37.5);                    // юг справа
   wallBox(-2.5, 36, 2.5, 37.5, 4.6, WALL_H, wallStyle);   // перемычка над воротами
@@ -285,6 +303,55 @@ export function buildPrison(world, block, { group, glowMat }) {
   for (const r of [[-37.7, 35.8, -2.3, 37.7], [2.3, 35.8, 37.7, 37.7]]) {
     wallBox(r[0], r[1], r[2], r[3], 0, 0.5, { ...wallStyle, extColor: '#7d7d78' });
     wallBox(r[0], r[1], r[2], r[3], WALL_H - 0.3, WALL_H + 0.1, { ...wallStyle, extColor: '#82827d' });
+  }
+
+  // Заплатки: светлая кирпичная кладка между пилястрами; отдельные меши, коллайдеры и кучи щебня (появляются при обвале).
+  const patches = [];
+  {
+    const y0 = 0.5, y1 = WALL_H - 0.3;
+    const rubbleRng = createRng(7771);
+    for (const d of PATCH_DEFS) {
+      const b = new GeometryBuilder();
+      const pc = '#d4c0ae';
+      let rect, mid;
+      if (d.side === 'e' || d.side === 'w') {
+        const xi = d.side === 'e' ? 36 : -36, xo = d.side === 'e' ? 37.5 : -37.5;
+        fx(b, xi, d.lo, d.hi, y0, y1, d.side === 'e' ? -1 : 1, pc, 2);
+        fx(b, xo, d.lo, d.hi, y0, y1, d.side === 'e' ? 1 : -1, pc, 2);
+        rect = [Math.min(xi, xo), d.lo, Math.max(xi, xo), d.hi];
+        mid = [(xi + xo) / 2, (d.lo + d.hi) / 2];
+      } else {
+        const zi = -36, zo = -37.5;
+        fz(b, zi, d.lo, d.hi, y0, y1, 1, pc, 2);
+        fz(b, zo, d.lo, d.hi, y0, y1, -1, pc, 2);
+        rect = [d.lo, zo, d.hi, zi];
+        mid = [(d.lo + d.hi) / 2, (zi + zo) / 2];
+      }
+      const mesh = new THREE.Mesh(b.build(), M.brick);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.name = `prison-patch-${d.id}`;
+      group.add(mesh);
+      const collider = solid(rect[0], rect[1], rect[2], rect[3], WALL_H);
+      // Щебень: несколько кусков бетона и кирпича на месте стены.
+      const parts2 = [];
+      for (let k = 0; k < 16; k++) {
+        const w = 0.35 + rubbleRng.next() * 0.7, h = 0.2 + rubbleRng.next() * 0.45, dd = 0.3 + rubbleRng.next() * 0.6;
+        const g = new THREE.BoxGeometry(w, h, dd);
+        g.rotateY(rubbleRng.next() * Math.PI);
+        const along = (rubbleRng.next() - 0.5) * 3.6, across = (rubbleRng.next() - 0.5) * 2.6;
+        const lx = d.side === 'n' ? mid[0] + along : mid[0] + across, lz = d.side === 'n' ? mid[1] + across : mid[1] + along;
+        const [wx, wz] = toWorld(lx, lz);
+        g.translate(wx, H0 + h / 2, wz);
+        parts2.push({ geometry: g, color: ['#8a8a84', '#a09f98', '#9c5a46', '#7d7d78'][k % 4] });
+      }
+      const rubble = new THREE.Mesh(mergeColored(parts2), M.plain);
+      rubble.visible = false;
+      rubble.name = `prison-rubble-${d.id}`;
+      group.add(rubble);
+      const [cwx, cwz] = toWorld(mid[0], mid[1]);
+      patches.push({ id: d.id, side: d.side, mesh, rubble, collider, x: cwx, z: cwz, y: 3, r: 2.6, hp: 380, maxHp: 380, broken: false, local: mid });
+    }
   }
 
   // Колючая проволока на стене и сетке: тонкие плоскости с текстурой витков (пересечением двух).
@@ -323,9 +390,9 @@ export function buildPrison(world, block, { group, glowMat }) {
   const towers = [];
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     const tx = sx * 34, tz = sz * 34;
-    for (const [dx, dz] of [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]]) solid(tx + dx - 0.25, tz + dz - 0.25, tx + dx + 0.25, tz + dz + 0.25, 8.6);
-    // Часовой в кабине (модель без ИИ создаёт prison.js): точка и направление.
-    towers.push({ x: tx, z: tz, sx, sz, y: 8.9 });
+    const cols = [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]].map(([dx, dz]) => solid(tx + dx - 0.25, tz + dz - 0.25, tx + dx + 0.25, tz + dz + 0.25, 8.6));
+    // Часовой в кабине (модель без ИИ создаёт prison-extras.js): точка и направление.
+    towers.push({ x: tx, z: tz, sx, sz, y: 8.9, cols, hp: 520, dead: false });
   }
 
   // ================================================================ ЗДАНИЯ
@@ -759,7 +826,9 @@ export function buildPrison(world, block, { group, glowMat }) {
   }
 
   // ================================================================ ДЕТАЛИ (склеенные меши, таблички, разметка)
-  const dctx = { kit, lib, fur, cells, FLOOR, BUILD_H, WALL_H, H0, plates, paint, solid, seeSolid, rng: detailRng, fx, fz, up, down, B, M, group, buildings, towers, toWorld, dirW, P, K, world, glowMat, yardFeatures, hole, razor };
+  const breakables = [];     // телевизоры и телефоны: куски деталей, которые можно сломать (prison-wreck.js)
+  const looseProps = [];     // свободные предметы для chaos.js: бачки, ящики, конусы, скамьи, гидранты
+  const dctx = { brk: breakables, kit, lib, fur, cells, FLOOR, BUILD_H, WALL_H, H0, plates, paint, solid, seeSolid, rng: detailRng, fx, fz, up, down, B, M, group, buildings, towers, toWorld, dirW, P, K, world, glowMat, yardFeatures, hole, razor };
   detailCells(dctx);
   detailBlocks(dctx);
   detailCafe(dctx);
@@ -777,6 +846,16 @@ export function buildPrison(world, block, { group, glowMat }) {
   detailPerimeter(dctx);
   detailTowers(dctx);
   detailNightLights(dctx);
+  for (const b of breakables) { const [wx, wz] = toWorld(b.local[0], b.local[1]); b.x = wx; b.z = wz; b.maxHp = b.hp; }
+  {
+    const Y0 = H0 + 0.03;
+    const add = (type, lx, lz, h = 0) => { const [wx, wz] = toWorld(lx, lz); looseProps.push({ type, x: wx, y: Y0, z: wz, heading: h + [0, Math.PI / 2, Math.PI, -Math.PI / 2][K] }); };
+    for (const [x, z, h] of [[30.6, -15, -Math.PI / 2], [30.6, 5, -Math.PI / 2], [26, 16.4, Math.PI], [16, -19.2, 0]]) add('bench', x, z, h);
+    for (const [x, z] of [[7.5, -18.4], [8.3, -18.7], [31, 17.2], [30.1, 17.4], [7.4, 16.8], [25, 16.5], [-10, 19.2], [14, 19.2]]) add('crate', x, z, (x * 3.1) % 1);
+    for (const [x, z] of [[28, -18.5], [6.9, -0.6], [18, 17], [-20, 19.4]]) add('bin', x, z);
+    for (const [x, z] of [[12.2, -18.2], [27.8, -18.2], [12.2, -3.8], [27.8, -3.8], [20, -18.3], [20, -3.7]]) add('cone', x, z);
+    for (const [x, z] of [[31.1, -19], [31.1, 17.5]]) add('hydrant', x, z);
+  }
   const paintMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
   addBuilt(B.paint, paintMat, 'prison-paint', { cast: false });
   // Таблички-атлас: один меш на все вывески
@@ -839,6 +918,7 @@ export function buildPrison(world, block, { group, glowMat }) {
     weights: yardFeatures.weights,
     cards: yardFeatures.tables,
     laundry: P(-8, 9.5),
+    cart: [P(-5.4, 15), P(-5.4, 4)],
     uniform: P(-12.2, 16.2),
     library: P(1.4, 9.4),
     infirmary: P(24.5, 26),
@@ -907,7 +987,7 @@ export function buildPrison(world, block, { group, glowMat }) {
   const layout = {
     gate, K, center: { x: cx, z: cz }, toWorld, toLocal, P, dirW, headingW, zoneAt, inCompound,
     rooms, buildings, cells, hole, towers, beams, gates: { outer: outerGate, inner: innerGate, list: gates }, stations,
-    razorMeshes, signs, colliders, placeInfo, chunks: chunkList, detailStats,
+    razorMeshes, signs, colliders, placeInfo, chunks: chunkList, detailStats, patches, breakables, looseProps,
     yard: rooms.yard, perimeterHalf: 36, spots, posts, patrols, fenceSegs, holeCells: hole.cells,
     // Выход из туннеля: от камеры — наружу за стену, на тротуар.
     tunnelExit(cell) {
