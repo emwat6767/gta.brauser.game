@@ -254,7 +254,8 @@ const M = {
     const w = this.game.wallet;
     if (bet > w.money) return { error: 'Не хватает денег' };
     if (!rec.npc || rec.npc.isDead) return { error: 'Его нет рядом' };
-    this.spar = { rec, bet, t: 0 };
+    this.spar = { rec, bet, t: 0, baseDmg: rec.npc.melee.damage };
+    rec.npc.melee.damage = rec.npc.melee.damage * 0.4;      // спарринг, а не бой на смерть
     if (bet > 0) w.spend(bet);
     const p = this.game.player;
     p.health = Math.max(p.health, p.maxHealth * 0.7);
@@ -272,7 +273,7 @@ const M = {
     s.t += dt;
     const end = (res) => {
       this.spar = null;
-      if (n && !n.isDead) { n.dropTarget(); n.health = Math.max(n.health, n.maxHealth * 0.6); n._enter(NPC_STATE.IDLE); n.idleTime = 1e9; }
+      if (n && !n.isDead) { n.melee.damage = s.baseDmg; n.dropTarget(); n.health = Math.max(n.health, n.maxHealth * 0.6); n._enter(NPC_STATE.IDLE); n.idleTime = 1e9; }
       s.rec.arrived = false;
       s.rec.reassign = this.crew.t;
       p.health = Math.max(p.health, p.maxHealth * 0.45);
@@ -463,7 +464,7 @@ const M = {
   stealSheet() {
     if ((this.inv.sheet ?? 0) >= 3) { this.game.hud.toast('Хватит — больше трёх простыней не унести', 2); return; }
     this.ui.close();
-    this.startAction({ id: 'sheet', label: 'Прячете простыню', dur: 3, illegal: true, done: () => {
+    this.startAction({ id: 'sheet', label: 'Прячете простыню', dur: 3, illegal: true, rate: 0.5, done: () => {
       this.give('sheet');
       this.game.hud.toast('Простыня ваша. Три штуки — верёвка (меню вещей)', 3);
     } });
@@ -472,7 +473,7 @@ const M = {
   stealSpoon() {
     if (this.has('spoon')) { this.game.hud.toast('Ложка у вас уже есть', 2); return; }
     this.ui.close();
-    this.startAction({ id: 'spoon', label: 'Прячете ложку', dur: 3, illegal: true, done: () => {
+    this.startAction({ id: 'spoon', label: 'Прячете ложку', dur: 3, illegal: true, rate: 0.5, done: () => {
       this.give('spoon');
       this.game.hud.toast('Ложка спрятана в рукаве', 2.5);
     } });

@@ -95,6 +95,10 @@ export class PrisonCrew {
     this.inmates = [];
     this.guards = [];
     this._syncTimer = 0;
+    this._queue = [];
+    this._brawlT = 90;
+    this._chatT = 3;
+    this.brawl = null;
     this._makeRoster();
     this._makeGuards();
   }
@@ -102,7 +106,8 @@ export class PrisonCrew {
   // ------------------------------------------------------------------ состав
   _makeRoster() {
     const rng = this.rng;
-    const pool = FIGHTERS.filter((f) => !f.monster);
+    const taken = this.game.npcs.fighters.active;       // уже гуляют по городу — в тюрьму не берём, чтобы не было двойников
+    const pool = FIGHTERS.filter((f) => !f.monster && !taken.has(f.id));
     // Бойцы: перемешать, не больше двух чемпионов/легенд.
     const shuffled = [...pool].sort(() => rng.next() - 0.5);
     const chosen = [];
@@ -146,6 +151,7 @@ export class PrisonCrew {
       this.inmates.push(rec);
       idx++;
     };
+    for (const f of chosen) taken.add(f.id);          // бойцы тюрьмы навсегда закреплены за тюрьмой
     chosen.forEach((f, i) => {
       add({ id: `f-${f.id}`, kind: 'fighter', fighter: f, name: f.name, nick: f.nick, trait: fTraits[i] ?? 'friendly', look: jumpsuitLook(fighterLook(f), rng.int(0, 2) === 2 ? 1 : 0) });
     });
@@ -244,14 +250,23 @@ export class PrisonCrew {
     }
   }
 
+  // Тела появляются пачками по нескольку штук за кадр: без подвисания при подходе к тюрьме.
   _spawnAll() {
     this.spawned = true;
-    for (const rec of this.inmates) if (!rec.dead) this._spawnInmate(rec);
-    for (const g of this.guards) if (this._onDuty(g)) this._spawnGuard(g);
+    this._queue = [...this.guards.filter((g) => this._onDuty(g) && !g.npc).map((g) => ({ g })), ...this.inmates.filter((r) => !r.dead && !r.npc).map((rec) => ({ rec }))];
+  }
+
+  _drainQueue() {
+    for (let k = 0; k < 8 && this._queue.length; k++) {
+      const q = this._queue.shift();
+      if (q.rec && !q.rec.npc && !q.rec.dead) this._spawnInmate(q.rec);
+      else if (q.g && !q.g.npc && this._onDuty(q.g)) this._spawnGuard(q.g);
+    }
   }
 
   _despawnAll() {
     this.spawned = false;
+    this._queue.length = 0;
     for (const rec of this.inmates) this._removeInmate(rec);
     for (const g of this.guards) this._removeGuard(g);
     this.circles.length = 0;
@@ -585,8 +600,71 @@ export class PrisonCrew {
     this._syncTimer -= dt;
     if (this._syncTimer <= 0) { this._syncTimer = 1; this._sync(); }
     if (!this.spawned) return;
+    if (this._queue.length) this._drainQueue();
     for (const rec of this.inmates) this._tickInmate(rec, dt);
     for (const g of this.guards) this._tickGuard(g, dt);
+    this._ambient(dt);
+  }
+
+  // ------------------------------------------------------------------ жизнь вокруг: драки и реплики
+  _ambient(dt) {
+    const { game, prison } = this;
+    const p = game.player.position;
+    // Короткая драка двух заключённых: охрана разнимает.
+    if (this.brawl) {
+      const b = this.brawl;
+      b.t += dt;
+      const na = b.a.npc, nb = b.b.npc;
+      const done = !na || !nb || na.isDead || nb.isDead || b.t > 14 || na.health < na.maxHealth * 0.5 || nb.health < nb.maxHealth * 0.5;
+      if (done) this._endBrawl();
+      return;
+    }
+    this._brawlT -= dt;
+    const ph = this.phase?.id;
+    if (this._brawlT <= 0) {
+      this._brawlT = this.rng.range(110, 240);
+      if (!['yard', 'rec', 'work'].includes(ph) || this.lockdown || prison.alert > 0 || prison.state !== 'inside') return;
+      const cand = this.inmates.filter((r) => r.npc && !r.npc.isDead && r.arrived && !r.following && r.npc.state === NPC_STATE.IDLE &&
+        Math.hypot(r.npc.position.x - p.x, r.npc.position.z - p.z) < 45 && ['tough', 'boss', 'jokester', 'paranoid'].includes(r.trait));
+      if (cand.length < 2) return;
+      const a = this.rng.pick(cand);
+      const near = cand.filter((r) => r !== a && Math.hypot(r.npc.position.x - a.npc.position.x, r.npc.position.z - a.npc.position.z) < 9);
+      if (!near.length) return;
+      const b = this.rng.pick(near);
+      this.brawl = { a, b, t: 0 };
+      a.npc.aggro(b.npc, 'Ты что сказал?!');
+      b.npc.aggro(a.npc, 'Повтори!');
+      const g = this.nearestGuard(a.npc.position, 35, (x) => !x.noGuard && x.id !== 'clerk' && x.id !== 'medic');
+      if (g?.npc && !g.npc.isDead) { this.brawl.guard = g; g.npc.say('Драка! Разойтись!', true); }
+      prison.game.hud.news('Драка заключённых во дворе', '#ffcf5a');
+    }
+    // Реплики рядом с игроком.
+    this._chatT -= dt;
+    if (this._chatT <= 0) {
+      this._chatT = this.rng.range(4, 9);
+      const rec = this.nearestInmate(p, 5.5, (r) => r.npc.state === NPC_STATE.IDLE || r.npc.state === NPC_STATE.SIT);
+      if (rec && prison.state === 'inside' && this.rng.chance(0.5)) {
+        const lv = prison.friendLevelOf(rec);
+        const pool = lv >= 2 ? ['Эй, как жизнь?', 'Заходи, поболтаем!', 'Все нормально?', 'Видел сегодня охрану?'] : ['Чего уставился?', 'Новенький...', 'Не мешай.', 'Привет.', 'Тихо тут сегодня.'];
+        rec.npc.say(this.rng.pick(pool));
+      }
+    }
+  }
+
+  _endBrawl() {
+    const b = this.brawl;
+    this.brawl = null;
+    for (const r of [b.a, b.b]) {
+      const n = r.npc;
+      if (!n || n.isDead) continue;
+      n.dropTarget();
+      n.health = Math.max(n.health, n.maxHealth * 0.7);
+      n.say(this.rng.pick(['Ладно, хватит.', 'Ещё встретимся.', 'Забудем.']), true);
+      r.arrived = true;
+      r.reassign = this.t + 4;
+    }
+    const g = b.guard?.npc;
+    if (g && !g.isDead && g.state === NPC_STATE.FIGHT) g.dropTarget();
   }
 
   _onPhase(ph) {

@@ -117,6 +117,12 @@ export class CameraRig {
     const pos = this._desired.set(look.x + dirX * d, look.y + dirY * d, look.z + dirZ * d);
     const minY = world.getGroundHeight(pos.x, pos.z) + 0.35;
     if (pos.y < minY) pos.y = minY;
+    // Внутри тюремных зданий камера не поднимается выше потолка (иначе крыша закрывает обзор).
+    const ceil = this.game.prison?.ceilingAt(look.x, look.z);
+    if (ceil && pos.y > ceil) {
+      const t = clamp((ceil - look.y) / (pos.y - look.y), 0.12, 1);
+      pos.set(look.x + (pos.x - look.x) * t, ceil, look.z + (pos.z - look.z) * t);
+    }
 
     // Тряска: случайный сдвиг, быстро затухает.
     if (this.shake > 0.001) {

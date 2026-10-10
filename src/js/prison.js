@@ -31,7 +31,6 @@ const fmtHours = (h) => {
 };
 export const fmtClock = (h) => `${String(Math.floor(h) % 24).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}`;
 const RESTRICTED = new Set(['warden', 'armory', 'seg', 'gate', 'strip']);
-const MAJOR_ACTIONS = new Set(['dig', 'cut', 'climb', 'pick', 'uniform', 'keys']);
 
 export class PrisonSystem {
   constructor(game) {
@@ -328,7 +327,7 @@ export class PrisonSystem {
     return this.layout.zoneAt(p.x, p.z);
   }
 
-  _canSee(g, npc, pp, night, noisy) {
+  _canSee(g, npc, pp, night, noise) {
     const dx = pp.x - npc.position.x, dz = pp.z - npc.position.z;
     const d = Math.hypot(dx, dz);
     const p = this.game.player;
@@ -336,7 +335,7 @@ export class PrisonSystem {
     const sp = p.horizontalSpeed;
     R *= sp > 4.5 ? 1.25 : sp < 0.5 ? 0.6 : 1;
     if (this.wearing === 'uniform') R *= 0.4;
-    if (noisy && d < 6.5) return true;
+    if (noise && d < noise) return true;
     if (d > R) return false;
     if (this.alert < 2 && d > 2.5) {
       const dot = (dx * Math.sin(npc.heading) + dz * Math.cos(npc.heading)) / d;
@@ -369,8 +368,8 @@ export class PrisonSystem {
     const inCell = this._inOwnCell();
     const outside = !this.layout.inCompound(pp.x, pp.z);
     const a = this.action;
-    let rate = 0, major = false, reason = '', noisy = false;
-    if (a?.illegal) { rate = 1.1; major = MAJOR_ACTIONS.has(a.id); reason = a.label; noisy = !!a.noisy; }
+    let rate = 0, major = false, reason = '', noise = 0;
+    if (a?.illegal) { rate = a.rate ?? 0.6; major = !!a.major; reason = a.label; noise = a.noise ?? 0; }
     else if (this.wearing === 'uniform') {
       if (!this.has('idcard')) { rate = 0.2; reason = 'нет пропуска'; }
     } else {
@@ -391,7 +390,7 @@ export class PrisonSystem {
         const n = g.npc;
         if (!n || n.isDead || g.noGuard || n.state === NPC_STATE.FIGHT) continue;
         if (g.id === 'clerk' || g.id === 'medic') continue;
-        if (this._canSee(g, n, pp, night, noisy)) { seen = true; seer = g; break; }
+        if (this._canSee(g, n, pp, night, noise)) { seen = true; seer = g; break; }
       }
       if (!seen && (zone?.id === 'strip' || this._wallZone(pp) || a?.id === 'climb')) {
         for (const t of this.layout.towers) {
@@ -412,6 +411,7 @@ export class PrisonSystem {
         this.sus = 0.45;
         this.warned = false;
         if (major || this.alert >= 2) this.startAlarm(reason || 'Побег!', true);
+        else if (a?.illegal) this._caughtRedHanded(a);
         else this.punish('hole', 6, GUARD_CAUGHT[(Math.random() * GUARD_CAUGHT.length) | 0]);
       }
     } else {
@@ -419,6 +419,14 @@ export class PrisonSystem {
       this.sus = Math.max(0, this.sus - dt * 0.14);
       if (this.sus < 0.2) this.warned = false;
     }
+  }
+
+  // Поймали за контрабандой или подкопом: всё отобрали, подкоп засыпали, карцер.
+  _caughtRedHanded(a) {
+    this._cancelAction(true);
+    for (const k of Object.keys(this.inv)) if (ITEMS[k]?.illegal) delete this.inv[k];
+    if (a.id === 'dig' && this.dig > 0) { this.dig = Math.max(0, this.dig - 0.45); this.game.hud.toast('Подкоп частично засыпали', 3); }
+    this.punish('hole', 8, 'Вас поймали с поличным: контрабанда отобрана');
   }
 
   // ---------------------------------------------------------------- тревога, наказания
@@ -460,34 +468,50 @@ export class PrisonSystem {
     await this.punish('hole', 8, message);
   }
 
+  // Затемнение с работой в темноте: что бы ни случилось внутри, экран вернётся.
+  async _blackout(text, work, hold = 900) {
+    const { ui } = this;
+    await ui.dark(text);
+    try {
+      await work();
+      await ui.wait(hold);
+    } catch (e) {
+      console.error(e);
+    }
+    await ui.light();
+  }
+
   // Наказание: карцер (перемотка времени) + добавка к сроку.
   async punish(kind, hours, message) {
     if (this.busy || !this.inCustody) return;
     this.busy = true;
     this._cancelAction(true);
     const { game, ui } = this;
-    await ui.dark(`${message}\n\nКАРЦЕР · ${hours} ч в тишине`);
-    this._endAlarm(true);
-    const L = this.layout;
-    const h = L.holeCells[Math.floor(Math.random() * L.holeCells.length)];
-    this._setDoor(h, false, true);
-    const pin = h.inside;
-    game.player.position.set(pin.x, game.world.getGroundHeight(pin.x, pin.z), pin.z);
-    game.player.velocity.set(0, 0, 0);
-    this._advance(hours, { silent: true });
-    this.total += Math.round(hours / 2);
-    this.sus = 0;
-    this.warned = false;
-    game.player.health = Math.min(game.player.maxHealth, game.player.health + 25);
-    if (this.wearing) this._takeOffUniform(true);
-    await ui.wait(1500);
-    this._setDoor(h, true);
-    const out = h.outside;
-    game.player.position.set(out.x, game.world.getGroundHeight(out.x, out.z), out.z);
-    game.cameraRig.initialized = false;
-    await ui.light();
-    game.hud.toast(`Карцер окончен. Срок +${Math.round(hours / 2)} ч`, 3.5);
-    this.busy = false;
+    try {
+      await this._blackout(`${message}\n\nКАРЦЕР · ${hours} ч в тишине`, async () => {
+        this._endAlarm(true);
+        const L = this.layout;
+        const h = L.holeCells[Math.floor(Math.random() * L.holeCells.length)];
+        this._setDoor(h, false, true);
+        const pin = h.inside;
+        game.player.position.set(pin.x, game.world.getGroundHeight(pin.x, pin.z), pin.z);
+        game.player.velocity.set(0, 0, 0);
+        this._advance(hours, { silent: true });
+        this.total += Math.round(hours / 2);
+        this.sus = 0;
+        this.warned = false;
+        game.player.health = Math.min(game.player.maxHealth, game.player.health + 25);
+        if (this.wearing) this._takeOffUniform(true);
+        await ui.wait(1500);
+        this._setDoor(h, true);
+        const out = h.outside;
+        game.player.position.set(out.x, game.world.getGroundHeight(out.x, out.z), out.z);
+        game.cameraRig.initialized = false;
+      }, 200);
+      game.hud.toast(`Карцер окончен. Срок +${Math.round(hours / 2)} ч`, 3.5);
+    } finally {
+      this.busy = false;
+    }
   }
 
   // ---------------------------------------------------------------- время
@@ -707,6 +731,7 @@ export class PrisonSystem {
     const singles = this.crew.singleCells.length ? this.crew.singleCells : this.crew.emptyCells;
     this.cellIdx = singles[Math.floor(Math.random() * singles.length)] ?? 0;
     this.crew.setLockdown(false);
+    this.crew._syncTimer = 0;
     this.crew.snapAll();
     this._syncDoors(true);
     this.lastHour = this.hour;
@@ -714,12 +739,20 @@ export class PrisonSystem {
     this.dayPlan = { day: this.crew.day, search: Math.random() < 0.4, patdown: Math.random() < 0.4, patAt: 12.7 + Math.random() * 2.8, done: {} };
     game.save?.markDirty();
     this.ui.openIntake({ hours, fine, level: info.level, wasFugitive: info.wasFugitive, cell: this.cell.id });
+    const officer = this.crew.guards.find((g) => g.id === 'intake');
+    const block = this.cell.block === 'A' ? 'A (у западной стены)' : 'B (у северной стены)';
+    this.ui.screen.onClose = () => {
+      officer?.npc?.say(`Новенький! Камера ${this.cell.id}, блок ${block}. Подъём в шесть, отбой в полдесятого.`, true);
+      game.hud.news(`Ваша камера ${this.cell.id} в блоке ${this.cell.block} — отмечена «К» на миникарте`, '#ffd166');
+    };
     if (info.wasFugitive) this.flags.holeOnStart = true;
   }
 
   // Погиб в тюрьме: лазарет, добавка к сроку.
   onDiedInside() {
     this.total += 6;
+    this.game.player.arsenal.reset({});
+    this.game.player.model.setWeapon(null);
     this.alert = 0;
     this.sus = 0;
     this.crew.setLockdown(false);
@@ -734,31 +767,35 @@ export class PrisonSystem {
     if (!this.inCustody || this.busy) return;
     this.busy = true;
     this._cancelAction(true);
-    const { game, ui } = this;
+    const { game } = this;
     const msg = { served: 'Срок отбыт. Вы свободны!', bail: 'Залог внесён. Вы свободны!', lawyer: 'Адвокат добился освобождения. Вы свободны!' }[reason] ?? 'Вы свободны!';
-    await ui.dark(msg);
-    this.state = 'free';
-    this._endAlarm(true);
-    for (const k of Object.keys(this.inv)) if (ITEMS[k]?.illegal) delete this.inv[k];
-    this.wearing = null;
-    const p = game.player;
-    const out = this.layout.stations.outside;
-    p.respawn({ x: out.x, z: out.z, heading: this.layout.headingW(0) });
-    if (this.prevLook) p.model.setLook(this.prevLook);
-    p.melee.damage = CONFIG.player.punchDamage;
-    game.wanted.frozen = false;
-    game.wanted.clear();
-    game.wallet.add(60);
-    this.setGate(this.layout.gates.inner, false);
-    this.setGate(this.layout.gates.outer, false);
-    this.crew.setLockdown(false);
-    game.cameraRig.yaw = this.layout.headingW(0);
-    game.cameraRig.initialized = false;
-    game.hud.setObjective('');
-    game.hud.news(`${msg} На выходе выдали $60`, '#9aff9a');
-    game.save?.markDirty();
-    await ui.light();
-    this.busy = false;
+    try {
+      await this._blackout(msg, () => {
+        this.state = 'free';
+        this._endAlarm(true);
+        for (const k of Object.keys(this.inv)) if (ITEMS[k]?.illegal) delete this.inv[k];
+        this.wearing = null;
+        this._releaseAllies();
+        const p = game.player;
+        const out = this.layout.stations.outside;
+        p.respawn({ x: out.x, z: out.z, heading: this.layout.headingW(0) });
+        if (this.prevLook) p.model.setLook(this.prevLook);
+        p.melee.damage = CONFIG.player.punchDamage;
+        game.wanted.frozen = false;
+        game.wanted.clear();
+        game.wallet.add(60);
+        this.setGate(this.layout.gates.inner, false);
+        this.setGate(this.layout.gates.outer, false);
+        this.crew.setLockdown(false);
+        game.cameraRig.yaw = this.layout.headingW(0);
+        game.cameraRig.initialized = false;
+        game.hud.setObjective('');
+        game.hud.news(`${msg} На выходе выдали $60`, '#9aff9a');
+        game.save?.markDirty();
+      }, 400);
+    } finally {
+      this.busy = false;
+    }
   }
 
   bailCost() { return Math.round(BAIL_BASE + this.left * BAIL_PER_HOUR); }
@@ -768,6 +805,7 @@ export class PrisonSystem {
     if (this.state !== 'inside') return;
     const { game } = this;
     this.state = 'fugitive';
+    this._releaseAllies();
     this.stats.escapes++;
     this.fugitive = { timer: 7, hunt: 55, disguised: false, method };
     this._cancelAction(true);
@@ -786,6 +824,10 @@ export class PrisonSystem {
     this.sus = 0;
     if (this.flags.getaway) this._spawnGetaway();
     game.save?.markDirty();
+  }
+
+  _releaseAllies() {
+    for (const r of [...this.allies]) this.setFollow(r, false);
   }
 
   _spawnGetaway() {
@@ -919,11 +961,8 @@ export class PrisonSystem {
     add('gateouter', S.gatePanelOuter, 2.3, () => this.gateStation());
     add('warden', L.posts.warden, 2.2, () => this.wardenStation());
     add('armory', L.posts.armory, 2.4, () => this.armoryStation());
-    // Своя камера.
-    add('bunk', () => this.cell.w.bed, 1.7, () => ({ label: 'Койка', run: () => this.ui.openSleep() }));
-    add('poster', () => this.cell.w.poster, 1.7, () => this.posterStation());
-    add('locker', () => this.cell.w.locker, 1.6, () => ({ label: 'Тумбочка и тайник', run: () => this.ui.openStash() }));
-    add('celldoor', () => this.cell.w.door, 1.5, () => this.cellDoorStation());
+    // Своя камера: койка, тумбочка, постер (подкоп), замок.
+    add('cell', () => this.cell.w.inside, 2.3, () => ({ label: `Своя камера ${this.cell.id}`, run: () => this.openCellMenu() }));
     // Секции сетки.
     L.fenceSegs.forEach((seg) => add(`fence${seg.index}`, () => seg.point, 1.8, () => this.fenceStation(seg)));
     add('wall', () => this._wallSpot(), 2.0, () => this.wallStation());
@@ -953,12 +992,12 @@ export class PrisonSystem {
     if (rec) {
       const d = Math.hypot(rec.npc.position.x - pp.x, rec.npc.position.z - pp.z);
       const lv = this.friendLevelOf(rec);
-      consider(d / 2.5 * 0.9, { kind: 'inmate', rec, label: `Поговорить: ${rec.name} (${this.friendName(lv)})`, run: () => this.ui.openTalk(rec) });
+      consider(d / 2.5 * 0.9 + 0.3, { kind: 'inmate', rec, label: `Поговорить: ${rec.name} (${this.friendName(lv)})`, run: () => this.ui.openTalk(rec) });
     }
     const g = this.crew.nearestGuard(pp, 2.3, (x) => x.npc.state !== NPC_STATE.FIGHT);
     if (g) {
       const d = Math.hypot(g.npc.position.x - pp.x, g.npc.position.z - pp.z);
-      consider(d / 2.3 * 0.9, { kind: 'guard', g, label: `Обратиться: ${g.name}`, run: () => this.ui.openGuard(g) });
+      consider(d / 2.3 * 0.9 + 0.3, { kind: 'guard', g, label: `Обратиться: ${g.name}`, run: () => this.ui.openGuard(g) });
     }
     // Места.
     for (const st of this.stationList) {
@@ -986,7 +1025,7 @@ export class PrisonSystem {
   touchLabel() {
     const t = this.target;
     if (!t) return '';
-    return t.cancel ? 'ПРЕРВАТЬ' : t.run ? 'E' : '';
+    return t.cancel ? 'ПРЕРВАТЬ' : t.run ? (t.kind === 'inmate' || t.kind === 'guard' ? 'ГОВОРИТЬ' : 'ДЕЙСТВИЕ') : '';
   }
 
   interact() {
@@ -1026,41 +1065,44 @@ export class PrisonSystem {
 
   rummageUniform() {
     if (this.has('uniform')) { this.game.hud.toast('У вас уже есть форма', 2); return; }
-    this.startAction({ id: 'uniform', label: 'Перебираете форму охраны', dur: 5, illegal: true, done: () => {
+    this.startAction({ id: 'uniform', label: 'Перебираете форму охраны', dur: 5, illegal: true, rate: 0.55, done: () => {
       this.give('uniform');
       this.know.add('uniform');
       this.game.hud.toast('Вы стащили форму охранника! Спрячьте её. Для побега нужен ещё пропуск', 4);
     } });
   }
 
-  cellDoorStation() {
+  openCellMenu() {
     const cell = this.cell;
-    if (!cell.colOn) return null;       // открыта
-    if (this.has('lockpick')) {
-      return { label: 'Вскрыть замок отмычкой', run: () => this.startAction({ id: 'pick', label: 'Вскрываете замок', dur: 4, illegal: true, noisy: true, done: () => {
-        cell.forceOpen = true;
-        this._setDoor(cell, true);
-        this.game.hud.toast('Замок поддался. Дверь открыта', 2.5);
-      } }) };
+    const options = [
+      { label: 'Койка: спать и перематывать время', sub: 'ночью проверки в 1:00 и 4:00', run: () => this.ui.openSleep() },
+      { label: 'Тумбочка и тайник', sub: 'спрятать контрабанду от обысков', run: () => this.ui.openStash() },
+    ];
+    if (this.tunnel) {
+      options.push({ label: 'Ползти по подкопу на волю', sub: 'выход за стеной тюрьмы', run: () => { this.ui.close(); this.crawl(); } });
+    } else if (this.has('spoon')) {
+      options.push({ label: `Рыть подкоп за постером (${Math.round(this.dig * 100)}%)`, sub: 'шумно и подозрительно: охрана слышит рядом, ночью надёжнее', run: () => { this.ui.close(); this.digStep(cell); } });
+    } else {
+      options.push({ label: 'Постер на стене', sub: this.know.has('tunnel') ? 'за ним можно копать, но нужна ложка (столовая, кухня, Скиппи)' : 'обычный постер… или нет?', disabled: true });
     }
-    return { label: 'Дверь заперта', run: null };
+    if (cell.colOn && this.has('lockpick')) {
+      options.push({ label: 'Вскрыть замок двери отмычкой', sub: 'шумно: ночью надёжнее', run: () => { this.ui.close(); this.pickLock(cell); } });
+    } else if (cell.colOn) {
+      options.push({ label: 'Дверь заперта', sub: 'до подъёма в 6:00 (нужна отмычка)', disabled: true });
+    }
+    this.ui.openMenu({ title: `КАМЕРА ${cell.id}`, text: `Тесная камера на двоих: койка, унитаз, тумбочка, постер.${this.dig > 0 && !this.tunnel ? ` Подкоп: ${Math.round(this.dig * 100)}%.` : ''}`, options });
   }
 
-  posterStation() {
-    const cell = this.cell;
-    if (this.tunnel) {
-      return { label: 'Ползти по подкопу на волю', run: () => this.crawl() };
-    }
-    if (!this.has('spoon')) {
-      return { label: this.know.has('tunnel') ? 'Постер (за ним можно копать — нужна ложка)' : 'Постер на стене', run: null };
-    }
-    const pct = Math.round(this.dig * 100);
-    return { label: `Рыть подкоп за постером (${pct}%)`, run: () => this.digStep(cell) };
+  pickLock(cell) {
+    this.startAction({ id: 'pick', label: 'Вскрываете замок', dur: 4, illegal: true, rate: 0.6, noise: 3.5, done: () => {
+      this._setDoor(cell, true);
+      this.game.hud.toast('Замок поддался. Дверь открыта', 2.5);
+    } });
   }
 
   digStep(cell) {
     const fast = this.has('map') ? 2 : 1;
-    this.startAction({ id: 'dig', label: 'Копаете подкоп', dur: 6, illegal: true, noisy: true, done: () => {
+    this.startAction({ id: 'dig', label: 'Копаете подкоп', dur: 6, illegal: true, rate: 0.5, noise: 3.5, done: () => {
       this.dig = Math.min(1, this.dig + 6 * fast / 54);
       cell.posterMesh.rotation.z = 0.12;
       cell.dirtMesh.visible = true;
@@ -1077,23 +1119,25 @@ export class PrisonSystem {
   async crawl() {
     if (this.busy) return;
     this.busy = true;
-    const { game, ui } = this;
-    await ui.dark('Вы ползёте по сырому подкопу...');
-    const out = this.layout.tunnelExit(this.cell);
-    game.player.position.set(out.x, game.world.getGroundHeight(out.x, out.z), out.z);
-    game.player.velocity.set(0, 0, 0);
-    game.cameraRig.initialized = false;
-    this._onEscaped('tunnel');
-    this.tunnel = false;
-    await ui.wait(1100);
-    await ui.light();
-    this.busy = false;
+    const { game } = this;
+    try {
+      await this._blackout('Вы ползёте по сырому подкопу...', () => {
+        const out = this.layout.tunnelExit(this.cell);
+        game.player.position.set(out.x, game.world.getGroundHeight(out.x, out.z), out.z);
+        game.player.velocity.set(0, 0, 0);
+        game.cameraRig.initialized = false;
+        this._onEscaped('tunnel');
+        this.tunnel = false;
+      }, 1100);
+    } finally {
+      this.busy = false;
+    }
   }
 
   fenceStation(seg) {
     if (seg.cut) return null;
     if (!this.has('cutters')) return this.know.has('fence') ? { label: 'Ржавая сетка (нужны кусачки)', run: null } : null;
-    return { label: 'Перекусить сетку', run: () => this.startAction({ id: 'cut', label: 'Перекусываете сетку', dur: 7, illegal: true, noisy: true, done: () => this._cutFence(seg) }) };
+    return { label: 'Перекусить сетку', run: () => this.startAction({ id: 'cut', label: 'Перекусываете сетку', dur: 7, illegal: true, major: true, rate: 0.8, noise: 9, done: () => this._cutFence(seg) }) };
   }
 
   _cutFence(seg) {
@@ -1112,30 +1156,32 @@ export class PrisonSystem {
   wallStation() {
     if (!this._wallSpot()) return null;
     if (!this.has('rope')) return { label: 'Стена 6,5 м — нужна верёвка с крюком', run: null };
-    return { label: 'Забросить верёвку и перелезть через стену', run: () => this.startAction({ id: 'climb', label: 'Лезете через стену', dur: 6, illegal: true, noisy: true, done: () => this.climbOver() }) };
+    return { label: 'Забросить верёвку и перелезть через стену', run: () => this.startAction({ id: 'climb', label: 'Лезете через стену', dur: 6, illegal: true, major: true, rate: 0.9, noise: 9, done: () => this.climbOver() }) };
   }
 
   async climbOver() {
     if (this.busy) return;
     this.busy = true;
-    const { game, ui } = this;
-    const L = this.layout, p = game.player;
-    const [lx, lz] = L.toLocal(p.position.x, p.position.z);
-    const east = Math.abs(lx) >= Math.abs(lz);
-    const outLocal = east ? [Math.sign(lx) * 41, lz] : [lx, Math.sign(lz) * 41];
-    const o = L.P(outLocal[0], outLocal[1]);
-    await ui.dark('Вы перемахнули через колючую проволоку...');
-    p.position.set(o.x, game.world.getGroundHeight(o.x, o.z), o.z);
-    p.velocity.set(0, 0, 0);
-    if (!this.has('gloves')) {
-      p.takeDamage(16, null, 0, 0, 'wire');
-      game.hud.toast('Колючка порезала руки (перчатки бы помогли)', 3);
+    const { game } = this;
+    try {
+      await this._blackout('Вы перемахнули через колючую проволоку...', () => {
+        const L = this.layout, p = game.player;
+        const [lx, lz] = L.toLocal(p.position.x, p.position.z);
+        const east = Math.abs(lx) >= Math.abs(lz);
+        const outLocal = east ? [Math.sign(lx) * 41, lz] : [lx, Math.sign(lz) * 41];
+        const o = L.P(outLocal[0], outLocal[1]);
+        p.position.set(o.x, game.world.getGroundHeight(o.x, o.z), o.z);
+        p.velocity.set(0, 0, 0);
+        if (!this.has('gloves')) {
+          p.takeDamage(16, null, 0, 0, 'wire');
+          game.hud.toast('Колючка порезала руки (перчатки бы помогли)', 3);
+        }
+        game.cameraRig.initialized = false;
+        this._onEscaped('wall');
+      }, 900);
+    } finally {
+      this.busy = false;
     }
-    game.cameraRig.initialized = false;
-    this._onEscaped('wall');
-    await ui.wait(900);
-    await ui.light();
-    this.busy = false;
   }
 
   gateStation() {
@@ -1164,7 +1210,7 @@ export class PrisonSystem {
   wardenStation() {
     if (!(this.alert >= 2 || this.crew.riot || this.isNight)) return null;
     if (this.has('keys')) return null;
-    return { label: 'Обыскать стол начальника (ключи)', run: () => this.startAction({ id: 'keys', label: 'Ищете ключи', dur: 5, illegal: true, done: () => {
+    return { label: 'Обыскать стол начальника (ключи)', run: () => this.startAction({ id: 'keys', label: 'Ищете ключи', dur: 5, illegal: true, major: true, rate: 0.7, noise: 5, done: () => {
       this.give('keys');
       this.game.hud.toast('Ключи начальника у вас! Они открывают ворота и оружейную', 4);
     } }) };
@@ -1180,24 +1226,24 @@ export class PrisonSystem {
     if (this.busy || this.alert >= 2) return;
     this.busy = true;
     this._cancelAction(true);
-    const { game, ui } = this;
+    const { game } = this;
     const cur = this.hour;
     let dh = (hourTarget - cur + 24) % 24;
     if (dh < 0.05) dh = 24;
-    await ui.dark(label);
-    const p = game.player;
-    this._advance(dh);
-    p.health = Math.min(p.maxHealth, p.health + dh * (this.has('pillow') ? 7 : 4));
-    this.sus = 0;
-    if (this.inCustody && !this.busyDone) {
-      // Если игрока застигла ночь вне камеры — отвести.
-      if (this.isNight && !this._inOwnCell()) this._lockIn();
+    try {
+      await this._blackout(label, () => {
+        const p = game.player;
+        this._advance(dh);
+        p.health = Math.min(p.maxHealth, p.health + dh * (this.has('pillow') ? 7 : 4));
+        this.sus = 0;
+        // Если ночь застигла игрока вне камеры — охрана отводит его.
+        if (this.inCustody && this.isNight && !this._inOwnCell()) this._lockIn();
+      }, 900);
+      game.hud.toast(`${fmtClock(this.hour)} · ${this.phase.label}`, 2.5);
+    } finally {
+      this.busy = false;
     }
-    await ui.wait(900);
-    await ui.light();
-    game.hud.toast(`${fmtClock(this.hour)} · ${this.phase.label}`, 2.5);
-    this.busy = false;
-    if (this.served >= this.total) this.release('served');
+    if (this.inCustody && this.served >= this.total) this.release('served');
   }
 
   async waitUntilNextPhase() {
@@ -1331,6 +1377,32 @@ export class PrisonSystem {
     this._objKey = 'inside';
     hud.setObjective(html);
     this.ui.setSus(this.sus);
+  }
+
+  // Потолок здания под точкой (для камеры): внутри тюремных корпусов камера ниже потолка.
+  ceilingAt(x, z) {
+    if (!this.ready) return 0;
+    const L = this.layout;
+    if (Math.abs(x - L.center.x) > 40 || Math.abs(z - L.center.z) > 40) return 0;
+    const [lx, lz] = L.toLocal(x, z);
+    for (const b of L.buildings) if (lx > b.x0 && lx < b.x1 && lz > b.z0 && lz < b.z1) return b.h - 0.5;
+    return 0;
+  }
+
+  // Метки на миникарте: тюрьма (всегда), в заключении — своя камера, лавка, телефон, свидания.
+  minimapMarks() {
+    if (!this.ready) return [];
+    const L = this.layout;
+    const marks = [{ x: L.center.x, z: L.center.z, txt: 'Т', color: '#9b2d2d', pin: this.state !== 'inside', big: true }];
+    if (this.inCustody) {
+      const c = this.cell.w.door;
+      marks.push({ x: c.x, z: c.z, txt: 'К', color: '#c9a227', big: true });
+      const S = L.stations;
+      marks.push({ x: S.commissary.x, z: S.commissary.z, txt: '$', color: '#1f9a3e' });
+      marks.push({ x: S.visit.x, z: S.visit.z, txt: 'А', color: '#2d6fb3' });
+      for (const ph of S.phones) marks.push({ x: ph.x, z: ph.z, txt: 'Т', color: '#5d6b7a' });
+    }
+    return marks;
   }
 
   // ---------------------------------------------------------------- сохранение

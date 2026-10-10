@@ -207,6 +207,27 @@ export class Minimap {
       ctx.fillText('$', x, y + 0.5 * d);
     }
 
+    // Метки тюрьмы: здание «Т» (всегда, прижато к краю), в заключении — своя камера, лавка, телефон.
+    for (const m of this.game.prison?.minimapMarks?.() ?? []) {
+      let [x, y] = this.toScreen(m.x, m.z);
+      const dx = x - R, dy = y - R, dist = Math.hypot(dx, dy), edge = R - 11 * d;
+      if (dist > edge) {
+        if (!m.pin) continue;
+        x = R + (dx / dist) * edge;
+        y = R + (dy / dist) * edge;
+      }
+      const s = (m.big ? 6.5 : 5) * d;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(x - s - d, y - s - d, (s + d) * 2, (s + d) * 2);
+      ctx.fillStyle = m.color;
+      ctx.fillRect(x - s, y - s, s * 2, s * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `900 ${Math.round((m.big ? 10 : 8) * d)}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(m.txt, x, y + 0.5 * d);
+    }
+
     // NPC: прохожие — светлые точки, бандиты — цвет банды, полиция мигает, погибшие — серые.
     for (const npc of npcs.list) {
       if (npc.vehicle) continue;
@@ -219,6 +240,8 @@ export class Minimap {
       else if (npc.follower) { color = gangColor(npc.gang); r = 3.6; ring = '#ffffff'; } // боец отряда
       else if (npc.marked) { color = '#ff2e2e'; r = 3.6; ring = '#ffffff'; }            // цель задания/войны
       else if (npc.role === 'gang') { color = gangColor(npc.gang); r = 3.2; }
+      else if (npc.prisonGuard) { color = '#8aa08c'; r = 3; }                           // охрана тюрьмы
+      else if (npc.role === 'inmate') { color = '#e2670a'; r = 2.6; }                   // заключённый
       else if (npc.role === 'police') { color = flash ? '#3d7cff' : '#ff3b3b'; r = 3.4; }
       else if (npc.fighter) { color = '#ffd45a'; r = 3; }                                // боец из ростера
       ctx.fillStyle = ring;

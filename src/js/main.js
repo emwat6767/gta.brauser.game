@@ -289,17 +289,20 @@ class Game {
 
     if (input.wasPressed('toggleHelp')) this.hud.toggleHelp();
     if (input.wasPressed('mute')) this.hud.toast(this.audio.toggleMute() ? 'Звук выключен' : 'Звук включён', 1.2);
-    if (input.wasPressed('jobs') && !this.paused && !this.prison.ui?.isOpen) this.gangMenu.toggle();
+    if (input.wasPressed('jobs') && !this.paused && !this.prison.ui?.isOpen) {
+      if (this.prison.inCustody) this.hud.toast('В тюрьме не до заданий банды: I — вещи и план', 2);
+      else this.gangMenu.toggle();
+    }
     if (!this.paused && !this.menuOpen) {
       this.cameraRig.handleInput(frameTime);
       if (input.wasPressed('interact') && !this.prison.interact()) this._toggleVehicle();
       if (input.wasPressed('inventory') && this.prison.inCustody && !this.downState) this.prison.ui.openStatus();
-      if (input.wasPressed('squad')) this.squad.toggle();
+      if (input.wasPressed('squad') && !this.prison.inCustody) this.squad.toggle();
       if (input.wasPressed('power')) this.powers.cycle();
       if (input.wasPressed('powerPrev')) this.powers.cycle(-1);
       if (input.wasPressed('duel') && !this.player.isDead && !this.downState && !this.prison.inCustody) this.duel.toggle();
       if (input.wasPressed('timeOfDay')) this.daynight.nextPhase();
-      if (input.wasPressed('outfit') && !this.player.isDead && !this.downState) this.player.changeOutfit();
+      if (input.wasPressed('outfit') && !this.player.isDead && !this.downState && !this.prison.inCustody) this.player.changeOutfit();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
       const dt = frameTime / steps;
       for (let i = 0; i < steps; i++) this._simulate(dt);

@@ -923,7 +923,7 @@ export function buildPrison(world, block, { group, glowMat }) {
   const stations = {
     intake: P(-27, 22.6),
     release: P(0, 24.5),
-    outside: P(0, 43.2),
+    outside: P(0, 41.2),
     gatePanelOuter: P(0, 34.4),
     gatePanelInner: P(0, 25.6),
     commissary: P(15, -17.4),
