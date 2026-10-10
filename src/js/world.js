@@ -128,6 +128,7 @@ export class World {
 
   // Высота поверхности в точке: на тротуаре/в квартале — высота бордюра, иначе 0.
   getGroundHeight(x, z) {
+    if (this.flat) return 0;   // поле боя войны стран — ровная земля
     const b = this.blockSize;
     const lx = x - this.gridMin, lz = z - this.gridMin;
     if (lx < 0 || lz < 0) return 0;
@@ -156,11 +157,13 @@ export class World {
         out.nz += tmp.nz;
       }
     }
-    const lim = this.half - 0.7 - radius;
-    if (pos.x < -lim) { pos.x = -lim; out.nx += 1; hit = true; }
-    if (pos.x > lim) { pos.x = lim; out.nx -= 1; hit = true; }
-    if (pos.z < -lim) { pos.z = -lim; out.nz += 1; hit = true; }
-    if (pos.z > lim) { pos.z = lim; out.nz -= 1; hit = true; }
+    const B = this.bounds, m = 0.7 + radius;
+    const x0 = B ? B.minX + m : -this.half + m, x1 = B ? B.maxX - m : this.half - m;
+    const z0 = B ? B.minZ + m : -this.half + m, z1 = B ? B.maxZ - m : this.half - m;
+    if (pos.x < x0) { pos.x = x0; out.nx += 1; hit = true; }
+    if (pos.x > x1) { pos.x = x1; out.nx -= 1; hit = true; }
+    if (pos.z < z0) { pos.z = z0; out.nz += 1; hit = true; }
+    if (pos.z > z1) { pos.z = z1; out.nz -= 1; hit = true; }
     if (hit) {
       const l = Math.hypot(out.nx, out.nz) || 1;
       out.nx /= l;
@@ -171,8 +174,8 @@ export class World {
 
   // Свободна ли точка (для высадки из машины, спавна).
   isCircleFree(x, z, radius) {
-    const lim = this.half - 0.7 - radius;
-    if (Math.abs(x) > lim || Math.abs(z) > lim) return false;
+    const B = this.bounds, m = 0.7 + radius;
+    if (B ? x < B.minX + m || x > B.maxX - m || z < B.minZ + m || z > B.maxZ - m : Math.abs(x) > this.half - m || Math.abs(z) > this.half - m) return false;
     const list = this.colliders.query(x - radius, z - radius, x + radius, z + radius);
     for (let i = 0; i < list.length; i++) if (circleOverlapsBox(x, z, radius, list[i])) return false;
     return true;
@@ -195,6 +198,42 @@ export class World {
     const j = Math.floor((z - this.gridMin) / this.blockSize);
     if (i < 0 || j < 0 || i >= this.blocksPerAxis || j >= this.blocksPerAxis) return null;
     return this.blocks[j * this.blocksPerAxis + i];
+  }
+
+  // Зажать точку в границах мира (в войне стран — границы поля боя).
+  clampToBounds(p, margin = 0.8) {
+    const B = this.bounds;
+    const x0 = B ? B.minX + margin : -this.half + margin, x1 = B ? B.maxX - margin : this.half - margin;
+    const z0 = B ? B.minZ + margin : -this.half + margin, z1 = B ? B.maxZ - margin : this.half - margin;
+    p.x = Math.max(x0, Math.min(x1, p.x));
+    p.z = Math.max(z0, Math.min(z1, p.z));
+  }
+
+  // Поле боя войны стран (war-arena.js) подменяет сетку улиц, коллизии, деревья и границы мира; город спит, пока идёт война.
+  // Всё, что ходит по улицам (Navigator, AIDriver), берёт данные у world — поэтому достаточно подмены полей.
+  enterArena(a) {
+    if (this._city) return;
+    this._city = {
+      colliders: this.colliders, blocks: this.blocks, buildings: this.buildings, trees: this.trees, treeMeshes: this.treeMeshes, lamps: this.lamps,
+      roadLines: this.roadLines, gridMin: this.gridMin, gridMax: this.gridMax, blockSize: this.blockSize, roadHalf: this.roadHalf,
+      sidewalk: this.sidewalk, blocksPerAxis: this.blocksPerAxis, bounds: this.bounds, flat: this.flat,
+    };
+    Object.assign(this, {
+      colliders: a.colliders, blocks: a.blocks, buildings: a.buildings, trees: a.trees, treeMeshes: a.treeMeshes, lamps: [],
+      roadLines: a.roadLines, gridMin: a.gridMin, gridMax: a.gridMax, blockSize: a.blockSize, roadHalf: a.roadHalf, sidewalk: a.sidewalk,
+      blocksPerAxis: a.blocksPerAxis, bounds: a.bounds, flat: true,
+    });
+    // город не рисуем (остаётся только земля)
+    this._hidden = [];
+    for (const c of this.group.children) if (c.name !== 'ground' && c.visible) { c.visible = false; this._hidden.push(c); }
+  }
+
+  leaveArena() {
+    if (!this._city) return;
+    Object.assign(this, this._city);
+    this._city = null;
+    for (const c of this._hidden ?? []) c.visible = true;
+    this._hidden = null;
   }
 
   // Район в точке: 'downtown' | 'park' | 'port' | 'suburb' | 'city' (на проезжей части и за городом — null).
@@ -284,8 +323,8 @@ export class World {
     // Большая плоскость травы — выходит за границы мира, чтобы горизонт не обрывался.
     // Разбита на клетки ~50 м: огромные треугольники дают ошибки глубины у камеры
     // (трава "просвечивает" сквозь дорогу).
-    const size = this.size * 3;
-    const geo = new THREE.PlaneGeometry(size, size, 60, 60);
+    const size = this.size * 8;   // огромная: на её краю, далеко за городом, лежит поле боя войны стран (war-arena.js)
+    const geo = new THREE.PlaneGeometry(size, size, 160, 160);
     geo.rotateX(-Math.PI / 2);
     const uv = geo.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (size / 8), uv.getY(i) * (size / 8));

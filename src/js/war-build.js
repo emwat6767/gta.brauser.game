@@ -146,9 +146,11 @@ export class Structure {
 }
 
 export class WarBuilder {
-  constructor(game) {
+  // opts.y0 — высота пола постройки (на поле боя земля ровная — 0, в городе — высота бордюра)
+  constructor(game, { y0 = game.world.curbHeight } = {}) {
     this.game = game;
-    this.y0 = game.world.curbHeight;
+    this.y0 = y0;
+    this.reserved = [];   // места, где деревья не нужны (выезды техники и т.п.): читает Arena.plantTrees
     this.group = new THREE.Group();
     this.group.name = 'war-structures';
     game.scene.add(this.group);
@@ -158,7 +160,6 @@ export class WarBuilder {
     this.pickups = [];
     this.decals = [];
     this.rng = createRng(90210);
-    this.clearedTrees = [];
   }
 
   dispose() {
@@ -179,18 +180,15 @@ export class WarBuilder {
       }
     });
     this.group.removeFromParent();
-    world.restoreTrees?.(this.clearedTrees);
     this.structures = [];
     this.covers = [];
     this.flags = [];
-    this.clearedTrees = [];
+    this.reserved = [];
   }
 
-  // Убрать парковые деревья под постройкой (вернутся после войны).
+  // Зарезервировать место (деревья на поле боя сажаются потом и обходят его).
   clearTrees(f, margin = 1.8) {
-    const world = this.game.world;
-    const list = world.clearTreesIn?.(f.minX - margin, f.maxX + margin, f.minZ - margin, f.maxZ + margin) ?? [];
-    this.clearedTrees.push(...list);
+    this.reserved.push({ minX: f.minX - margin, maxX: f.maxX + margin, minZ: f.minZ - margin, maxZ: f.maxZ + margin });
   }
 
   // ------------------------------------------------------------ дома
@@ -521,6 +519,52 @@ export class WarBuilder {
     s.part(box(0.1, 4.5, 0.1, x, s.y0 + 2.5, z + 1.4), '#4a3a28');
     for (const dx of [-1.2, 1.2]) s.collide(x + dx - 0.15, x + dx + 0.15, z - 1.35, z - 1.05, s.y0 + hh, 'building');
     for (const dx of [-1.2, 1.2]) s.collide(x + dx - 0.15, x + dx + 0.15, z + 1.05, z + 1.35, s.y0 + hh, 'building');
+    return s.finish();
+  }
+
+  // Валун: природное укрытие в поле (пули не берут, пешком не перелезть).
+  boulder(x, z, r = 1.4) {
+    const s = new Structure(this, 'boulder', x, z);
+    const rng = this.rng;
+    const g = new THREE.IcosahedronGeometry(r, 1);
+    g.scale(rng.range(1.0, 1.4), rng.range(0.7, 1.0), rng.range(0.9, 1.3));
+    g.rotateY(rng.range(0, 3));
+    g.translate(x, s.y0 + r * 0.55, z);
+    s.part(g, rng.pick(['#8a8780', '#7d7a73', '#948f84']));
+    const k = r * 1.05;
+    s.collide(x - k, x + k, z - k, z + k, s.y0 + r * 1.2, 'barrier');
+    s.cover.push({ x, z, face: rng.range(-3, 3), kind: 'rock', taken: null, owner: s });
+    return s.finish();
+  }
+
+  // Каменная стенка (граница поля): 1,3 м — прикрывает почти в рост.
+  stoneWall(x, z, len = 12, along = 'x') {
+    const s = new Structure(this, 'wall', x, z);
+    const rng = this.rng;
+    const n = Math.round(len / 1.1);
+    for (let i = 0; i < n; i++) {
+      const o = (i - (n - 1) / 2) * (len / n);
+      for (let k = 0; k < 3; k++) {
+        const w = len / n + 0.05, h = 0.42 + rng.range(0, 0.1);
+        const g = along === 'x' ? box(w, h, 0.55 - k * 0.04, x + o, s.y0 + 0.22 + k * 0.43, z) : box(0.55 - k * 0.04, h, w, x, s.y0 + 0.22 + k * 0.43, z + o);
+        s.part(g, rng.pick(['#8a8780', '#7d7a73', '#9a968a']));
+      }
+    }
+    if (along === 'x') s.collide(x - len / 2, x + len / 2, z - 0.3, z + 0.3, s.y0 + 1.3, 'barrier');
+    else s.collide(x - 0.3, x + 0.3, z - len / 2, z + len / 2, s.y0 + 1.3, 'barrier');
+    s.cover.push({ x: x + (along === 'x' ? 0 : 0.9), z: z + (along === 'x' ? 0.9 : 0), face: along === 'x' ? 0 : Math.PI / 2, kind: 'wall', taken: null, owner: s });
+    s.cover.push({ x: x - (along === 'x' ? 0 : 0.9), z: z - (along === 'x' ? 0.9 : 0), face: along === 'x' ? Math.PI : -Math.PI / 2, kind: 'wall', taken: null, owner: s });
+    return s.finish();
+  }
+
+  // Стог сена / тюки: невысокое укрытие и деталь фермы.
+  haystack(x, z, n = 3) {
+    const s = new Structure(this, 'haystack', x, z);
+    for (let i = 0; i < n; i++) {
+      const bx = x + (i % 2) * 2.3 - 1, bz = z + Math.floor(i / 2) * 2.1;
+      s.part(new THREE.CylinderGeometry(1.0, 1.0, 1.5, 12).rotateZ(Math.PI / 2).translate(bx, s.y0 + 1.0, bz), i % 2 ? '#c2a74e' : '#b89a45');
+      s.collide(bx - 0.9, bx + 0.9, bz - 1.0, bz + 1.0, s.y0 + 1.9, 'barrier');
+    }
     return s.finish();
   }
 

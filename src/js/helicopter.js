@@ -188,6 +188,7 @@ export class Helicopter extends Vehicle {
         }
       }
     }
+    this.game.world.clampToBounds(this.position, this.radius + 1);   // над краем поля боя не улететь
     this.updateCircles();
   }
 }

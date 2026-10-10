@@ -28,6 +28,23 @@ export class Minimap {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.map = this._renderStatic();
+    const w = this.game.world;
+    this.mapRect = { x: -w.half, z: -w.half, w: w.size, h: w.size };   // какой кусок мира покрывает map
+    this._cityMap = null;
+  }
+
+  // Поле боя войны стран: своя карта (рисует war-arena.js), город — после войны.
+  setMap(canvas, rect) {
+    this._cityMap ??= { map: this.map, rect: this.mapRect };
+    this.map = canvas;
+    this.mapRect = rect;
+  }
+
+  resetMap() {
+    if (!this._cityMap) return;
+    this.map = this._cityMap.map;
+    this.mapRect = this._cityMap.rect;
+    this._cityMap = null;
   }
 
   // Размер берётся из CSS (на телефоне миникарта меньше).
@@ -88,7 +105,7 @@ export class Minimap {
   }
 
   update(dt) {
-    const { player, cameraRig, world } = this.game;
+    const { player, cameraRig } = this.game;
     const ctx = this.ctx;
     const W = this.canvas.width;
     const R = W / 2;
@@ -119,7 +136,8 @@ export class Minimap {
     ctx.translate(-cx, -cz);
     ctx.fillStyle = COLORS.background;
     ctx.fillRect(cx - this.radiusMeters * 1.5, cz - this.radiusMeters * 1.5, this.radiusMeters * 3, this.radiusMeters * 3);
-    ctx.drawImage(this.map, -world.half, -world.half, world.size, world.size);
+    const mr = this.mapRect;
+    ctx.drawImage(this.map, mr.x, mr.z, mr.w, mr.h);
     // Территории банд — полупрозрачные кварталы цвета банды.
     for (const gang of this.game.gangs?.gangs ?? []) {
       ctx.fillStyle = gang.color;

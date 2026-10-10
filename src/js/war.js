@@ -3,26 +3,29 @@ import { CONFIG } from './config.js';
 import { NPC, NPC_STATE } from './npc.js';
 import { Vehicle } from './vehicle.js';
 import { Helicopter } from './helicopter.js';
-import { AIDriver } from './traffic.js';
+import { AIDriver, RoadNetwork } from './traffic.js';
 import { lineOfSight, teamOf } from './ballistics.js';
 import { createRng } from './utils.js';
 import { COUNTRIES, countryById, DIFFICULTY, ROLES, ORDERS, UNIT_CLASSES, WAR_CONFIG as WC, soldierLook, presidentLook, playerWarLook, rankFor } from './war-data.js';
 import { WarBuilder } from './war-build.js';
-import { layoutBase, layoutCapital, layoutVillage, layoutPoint } from './war-layout.js';
+import { layoutBase, layoutTown, layoutVillage, layoutCountry, layoutPoint, layoutHamlet } from './war-layout.js';
+import { Arena } from './war-arena.js';
 import { Navigator, WarBrain, attachDriver, HeliPilot } from './war-ai.js';
 import { WarUI } from './war-ui.js';
 
-// «Война стран»: выбираешь страну и роль (президент или солдат) — и воюешь с другими странами за город.
+// «Война стран»: выбираешь страну и роль (президент или солдат) — и воюешь с другими странами. Война идёт НЕ в городе, а на отдельном поле боя
+// далеко за его границами (war-arena.js): так не страдают прохожие. Начало — телепорт на базу своей страны, конец — возврат туда, откуда ушёл.
 //
-//   Страны: у каждой база в парке города (штаб-бункер президента, казармы, ангар техники, вертолётная площадка, мешки, дот),
+//   Страны: у каждой база в углу поля боя (штаб-бункер президента, казармы, ангар техники, вертолётная площадка, мешки, дот),
 //           армия из пехоты (стрелки, штурмовики, гранатомётчики, снайперы) и техники (джип, БТР, грузовик, танк, вертолёт).
-//   Цель:   билеты. Погиб солдат — минус билет, уничтожена техника — минус 4; пункты захвата (площадь и четыре перекрёстка)
+//   Цель:   билеты. Погиб солдат — минус билет, уничтожена техника — минус 4; пункты захвата (городок в центре и четыре хутора на перекрёстках)
 //           отнимают билеты у отстающих. У кого билеты кончились — капитулирует; убили президента — страна сдаётся сразу.
 //   Роли:   президент — командует (U: атака / оборона / за мной / танк / БТР / вертолёт / авиаудар), его охраняют;
 //           солдат — растёт в званиях за убитых, садится в любую технику (угнанная воюет за вас).
-//   Всё остальное в городе на время войны затихает: прохожие, банды, полиция, трафик и происшествия отключены.
+//   Пока идёт война, город спит: прохожие убраны, банды, полиция, трафик и происшествия отключены.
 //
-// Подсистемы: war-data (страны, звания), war-build (постройки), war-layout (базы), war-ai (маршруты и мозг солдат), war-ui (меню и HUD).
+// Подсистемы: war-data (страны, звания), war-arena (поле боя), war-build (постройки), war-layout (базы и деревни),
+// war-ai (маршруты и мозг солдат), war-ui (меню и HUD).
 
 const TEAM_COLORS = (id) => countryById(id)?.color ?? '#ffffff';
 const _v = new THREE.Vector3();
@@ -83,26 +86,38 @@ export class WarSystem {
     const rivals = rivalPool.slice(0, Math.max(1, Math.min(3, opts.rivals ?? 3)));
     const countries = [mine, ...rivals];
 
-    // Парки-базы: свою берём ближайшую к игроку, остальные — случайно; свободные станут деревнями.
-    const parks = CONFIG.world.parks.filter(([i, j]) => !(i === 4 && j === 4)).map(([i, j]) => world.blocks[j * world.blocksPerAxis + i]);
-    const pp = g.player.position;
-    parks.sort((a, b) => Math.hypot(a.cx - pp.x, a.cz - pp.z) - Math.hypot(b.cx - pp.x, b.cz - pp.z));
-    const myBlock = parks.shift();
-    for (let i = parks.length - 1; i > 0; i--) { const j = Math.floor(this.rng.next() * (i + 1)); [parks[i], parks[j]] = [parks[j], parks[i]]; }
-    const blocks = [myBlock, ...parks];
-
+    // Город остаётся спать, а война идёт на отдельном поле боя далеко за ним: ни прохожих, ни домов города, некому погибнуть зря.
     this._saveCity();
     this._purgeCity();
-    this.builder = new WarBuilder(g);
-    this.teams = countries.map((c, i) => ({
-      id: c.id, country: c, isPlayer: i === 0, tickets: diff.tickets, maxTickets: diff.tickets, alive: true, block: blocks[i],
-      base: layoutBase(this.builder, blocks[i], c), soldiers: [], vehicles: [], president: null, guards: [], waveTimer: 2 + i, vehTimer: 40 + i * 9,
-      mode: 'attack', kills: 0, lost: 0, points: 0, score: 0, vehCount: 0, heliOut: false,
-    }));
-    for (const b of blocks.slice(countries.length)) layoutVillage(this.builder, b);
-    const cap = layoutCapital(this.builder, world.blocks[4 * world.blocksPerAxis + 4]);
-    this._makePoints(cap);
-    // Если пустует парк, у отсутствующей страны нет базы — это просто деревня. Бункеры штабов — укрытия для всех.
+    this.arena = new Arena(g, Math.floor(this.rng.next() * 1e6));
+    world.enterArena(this.arena);
+    this._oldRoads = g.roads;
+    g.roads = new RoadNetwork(world);
+    this.nav = new Navigator(g);
+    this._fogSwap();
+    const arena = this.arena;
+    // Угловые клетки — базы (своя — случайная), остальные углы станут деревнями.
+    const corners = [...arena.corners];
+    for (let i = corners.length - 1; i > 0; i--) { const j = Math.floor(this.rng.next() * (i + 1)); [corners[i], corners[j]] = [corners[j], corners[i]]; }
+    for (const c of arena.centerCells) c.kind = 'village';
+    ['forest', 'farm', 'farm', 'forest', 'forest', 'farm', 'farm', 'forest'].forEach((k, i) => { arena.edgeCells[i].kind = k; });
+    this.builder = new WarBuilder(g, { y0: 0 });
+    const town = layoutTown(this.builder, arena);
+    this.teams = countries.map((c, i) => {
+      corners[i].kind = 'base';
+      return {
+        id: c.id, country: c, isPlayer: i === 0, tickets: diff.tickets, maxTickets: diff.tickets, alive: true, block: corners[i],
+        base: layoutBase(this.builder, corners[i], c), soldiers: [], vehicles: [], president: null, guards: [], waveTimer: 2 + i, vehTimer: 40 + i * 9,
+        mode: 'attack', kills: 0, lost: 0, points: 0, score: 0, vehCount: 0, heliOut: false,
+      };
+    });
+    for (const b of corners.slice(countries.length)) { b.kind = 'village'; layoutVillage(this.builder, b); }
+    this._makePoints(town);
+    for (const b of arena.edgeCells) layoutCountry(this.builder, arena, b);
+    arena.finishFields();
+    arena.plantTrees(this.builder.reserved, this.builder.structures);
+    const mm = arena.minimapCanvas(this.builder.structures);
+    g.minimap.setMap(mm.canvas, mm.rect);
 
     // Города и мир затихают.
     this.active = true;
@@ -157,6 +172,7 @@ export class WarSystem {
     this.builder?.dispose();
     this.builder = null;
     this.points = [];
+    this._leaveArena();
     this._restoreCity();
     this._restorePlayer();
     for (const b of g.bosses?.list ?? []) b.unsuspend();
@@ -179,11 +195,31 @@ export class WarSystem {
   }
 
   _saveCity() {
-    const world = this.game.world;
     this._savedLook = { ...this.player.model.look };
     this._savedPos = this.player.position.clone();
-    this._lampsBefore = new Set(world.lamps.filter((l) => l.broken));
-    this._treesBefore = new Set(world.trees.filter((t) => t.broken));
+    this._savedHeading = this.player.heading;
+    this._savedYaw = this.game.cameraRig.yaw;
+  }
+
+  // Над полем боя туман ближе: города не видно.
+  _fogSwap() {
+    const f = this.game.scene.fog;
+    if (!f) return;
+    this._fog = { near: f.near, far: f.far };
+    f.near = Math.min(f.near, 150);
+    f.far = Math.min(f.far, 620);
+  }
+
+  _leaveArena() {
+    const g = this.game;
+    const f = g.scene.fog;
+    if (f && this._fog) { f.near = this._fog.near; f.far = this._fog.far; }
+    g.minimap.resetMap();
+    g.world.leaveArena();
+    if (this._oldRoads) g.roads = this._oldRoads;
+    this.arena?.dispose();
+    this.arena = null;
+    this.nav = new Navigator(g);
   }
 
   _purgeCity() {
@@ -204,11 +240,11 @@ export class WarSystem {
   }
 
   _restoreCity() {
-    const world = this.game.world;
-    // фонари и деревья, которые на войне раздавили танки, возвращаем
-    for (const l of world.lamps) if (l.broken && !this._lampsBefore?.has(l)) world.restoreLamp(l);
-    world.restoreTrees(world.trees.filter((t) => t.broken && !this._treesBefore?.has(t)));
+    const g = this.game;
     const N = CONFIG.npc;
+    // прохожие возвращаются сразу, а не по одному в секунду
+    const p = this._savedPos ?? g.player.position;
+    for (let k = 0; k < 70; k++) g.npcs._spawnSpread?.(p, 30, 150);
     if (this._saved) { N.visibleDistance = this._saved.vis; N.lodDistance = this._saved.lod; N.freezeDistance = this._saved.freeze; }
   }
 
@@ -219,8 +255,9 @@ export class WarSystem {
     const L = world.roadLines;
     const nodes = [
       { name: 'Столица', x: cap.x, z: cap.z, weight: 3, capital: true, flag: cap.flag },
-      { name: 'Альфа', x: L[3], z: L[3] }, { name: 'Браво', x: L[3], z: L[6] }, { name: 'Чарли', x: L[6], z: L[6] }, { name: 'Дельта', x: L[6], z: L[3] },
+      { name: 'Альфа', x: L[2], z: L[1] }, { name: 'Браво', x: L[1], z: L[2] }, { name: 'Чарли', x: L[2], z: L[3] }, { name: 'Дельта', x: L[3], z: L[2] },
     ];
+    for (const n of nodes) if (!n.capital) layoutHamlet(this.builder, n);
     this.points = nodes.map((n, i) => {
       let flag;
       if (n.capital) flag = this.builder.flagpole(n.flag.x, n.flag.z, null, { height: 12 });
@@ -645,9 +682,10 @@ export class WarSystem {
     p.isPresident = false;
     p.maxHealth = CONFIG.player.health;
     if (this._savedLook) p.model.setLook(this._savedLook);
-    const spawn = CONFIG.player.spawn;
-    p.respawn({ x: spawn.x, z: spawn.z, heading: spawn.heading ?? 0 });
-    g.cameraRig.yaw = spawn.heading ?? 0;
+    // Возвращаемся в город туда, откуда ушли на войну.
+    const back = this._savedPos ?? CONFIG.player.spawn;
+    p.respawn({ x: back.x, z: back.z, heading: this._savedHeading ?? 0 });
+    g.cameraRig.yaw = this._savedYaw ?? 0;
     g.cameraRig.initialized = false;
   }
 

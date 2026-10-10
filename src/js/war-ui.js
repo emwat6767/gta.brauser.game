@@ -108,7 +108,7 @@ export class WarUI {
     const T = g.stats.total;
     const block = war.blocker();
     this.body.innerHTML = `
-      <section><p class="wm-intro">Выбери страну и роль — вокруг начнётся война. Армии дерутся за площадь и четыре перекрёстка, на базах — дома, бункеры и мешки с песком, чтобы прятаться. Билеты армии кончились — страна сдаётся; убьёшь президента врага — сдастся сразу.</p>
+      <section><p class="wm-intro">Выбери страну и роль. Война идёт на отдельном поле боя далеко за городом — поля, леса, деревни и грунтовые дороги: ни прохожих, ни городских домов, никто невинный не пострадает, а город пока спит. Армии дерутся за городок в центре и четыре хутора, на базах — дома, бункеры и мешки с песком, чтобы прятаться. Билеты армии кончились — страна сдаётся; убьёшь президента врага — сдастся сразу. После войны вернёшься в город на то же место.</p>
         <p class="wm-stat">Убито людей: <b>${T.kills}</b> · солдат на войне: <b>${T.soldiers}</b> · войн: <b>${T.wars}</b> · побед: <b>${T.wins}</b> · рекорд серии: <b>${T.bestStreak}</b></p></section>
       <section><h3>Твоя страна</h3><div class="wm-countries">
         ${COUNTRIES.map((c) => `<button type="button" class="wm-country${S.country === c.id ? ' sel' : ''}" data-country="${c.id}" style="--c:${c.color}"><canvas width="96" height="64" data-flag="${c.id}"></canvas><b>${c.name}</b><small>${c.army}</small></button>`).join('')}
@@ -178,7 +178,7 @@ export class WarUI {
     document.body.classList.add('war');
     this._sig = '';
     if (this.war.role === 'president') this.game.hud.toast('U — приказы армии · пока идёт бой, вас охраняют', 4);
-    else this.game.hud.toast('Захватывайте пункты, прячьтесь в домах и бункерах · K — состояние войны', 4);
+    else this.game.hud.toast('Поле боя вне города: захватывайте пункты, прячьтесь в домах и бункерах · K — состояние войны', 4);
   }
 
   onEnd() {

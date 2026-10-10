@@ -158,9 +158,7 @@ export class Ragdoll {
       for (let i = 0; i < list.length; i++) {
         if (p.y < list[i].height) pushCircleOutOfBox(p, j.r, list[i], _tmpHit);
       }
-      const lim = world.half - 0.8;
-      p.x = Math.max(-lim, Math.min(lim, p.x));
-      p.z = Math.max(-lim, Math.min(lim, p.z));
+      world.clampToBounds(p, 0.8);
     }
     this._collideVehicles();
   }

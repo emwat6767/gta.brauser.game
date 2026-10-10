@@ -1,23 +1,22 @@
 import { createRng } from './utils.js';
 
-// Раскладка построек войны: база страны в парке, площадь-«столица», нейтральная деревня в свободном парке, пункт захвата на перекрёстке.
-// Шаблон базы описан для «заднего» угла (+, +) квартала и зеркалится по знаку центра квартала: задний угол — подальше от центра карты,
-// передний (−, −) смотрит на центр. Стороны построек: 'N' (+Z), 'S' (−Z), 'E' (+X), 'W' (−X).
-// Размещение проверяет пруд парка, крестовые дорожки (по ним ходят ворота), уже поставленные постройки.
-
-const POND = { dx: 14, dz: -14, r: 8.5 + 1.5 };   // landmarks.js: пруд в парках [7,7], [6,1], [1,6]
+// Раскладка построек войны на поле боя (war-arena.js): база страны в угловой клетке, «столица» в центральном перекрёстке,
+// нейтральные деревни, хутора у пунктов, фермы и леса в боковых клетках, пункт захвата на перекрёстке.
+// Шаблон базы описан для «заднего» угла (+, +) клетки и зеркалится по block.orient (знак смещения клетки от центра поля):
+// задний угол — подальше от центра карты, передний (−, −) смотрит на центр. Стороны построек: 'N' (+Z), 'S' (−Z), 'E' (+X), 'W' (−X).
+// Размещение проверяет дорожки-ворота (крест через центр базы), границы клетки и уже поставленные постройки.
 
 class Placer {
-  constructor(builder, block, { pond = true, paths = true } = {}) {
+  // block — клетка арены (или похожий объект с lot, cx, cz); corridor — полуширина крестовой полосы, которую не застраиваем (0 — нет)
+  constructor(builder, block, { corridor = 3 } = {}) {
     this.b = builder;
     this.block = block;
     this.cx = block.cx;
     this.cz = block.cz;
-    this.placed = [];
-    this.hx = Math.sign(block.cx) || 1;
-    this.hz = Math.sign(block.cz) || 1;
-    this.pond = pond && ['7,7', '6,1', '1,6'].includes(`${block.i},${block.j}`);
-    this.paths = paths;
+    this.placed = builder.placed ??= [];   // занятые места общие для всех раскладок поля боя
+    this.hx = block.orient?.hx ?? (Math.sign(block.cx) || 1);
+    this.hz = block.orient?.hz ?? (Math.sign(block.cz) || 1);
+    this.corridor = corridor;
   }
 
   // локальные (a, b) -> мир
@@ -36,12 +35,8 @@ class Placer {
     const r = { minX: x - w / 2 - margin, maxX: x + w / 2 + margin, minZ: z - d / 2 - margin, maxZ: z + d / 2 + margin };
     const lot = this.block.lot;
     if (r.minX < lot.minX + 1 || r.maxX > lot.maxX - 1 || r.minZ < lot.minZ + 1 || r.maxZ > lot.maxZ - 1) return false;
-    if (this.paths && ((r.minX < this.cx + 3 && r.maxX > this.cx - 3) || (r.minZ < this.cz + 3 && r.maxZ > this.cz - 3))) return false;
-    if (this.pond) {
-      const px = this.cx + POND.dx, pz = this.cz + POND.dz;
-      const nx = Math.max(r.minX, Math.min(px, r.maxX)), nz = Math.max(r.minZ, Math.min(pz, r.maxZ));
-      if ((nx - px) ** 2 + (nz - pz) ** 2 < POND.r ** 2) return false;
-    }
+    const c = this.corridor;
+    if (c > 0 && ((r.minX < this.cx + c && r.maxX > this.cx - c) || (r.minZ < this.cz + c && r.maxZ > this.cz - c))) return false;
     for (const p of this.placed) if (r.minX < p.maxX && r.maxX > p.minX && r.minZ < p.maxZ && r.maxZ > p.minZ) return false;
     return true;
   }
@@ -64,7 +59,8 @@ class Placer {
 // ---------------------------------------------------------------- база страны
 
 export function layoutBase(builder, block, country) {
-  const P = new Placer(builder, block);
+  const bl = { ...block, lot: { minX: block.cx - 38, maxX: block.cx + 38, minZ: block.cz - 38, maxZ: block.cz + 38 } };   // сама база — 76 × 76 м в середине клетки
+  const P = new Placer(builder, bl);
   const rng = createRng(block.i * 31 + block.j * 7 + 5);
   const base = { block, cx: block.cx, cz: block.cz, country: country.id, spawn: [], yard: [], crates: [], hq: null, pad: null, flag: null, front: P.side('bM') };
 
@@ -93,7 +89,7 @@ export function layoutBase(builder, block, country) {
   const open = P.heading('aP');
   if (shed) {
     // Выезд из ангара на улицу: расчищаем деревья и резервируем полосу, чтобы туда ничего не поставили.
-    const ex = block.cx + P.hx * 44;
+    const ex = block.cx + P.hx * 71;
     const lane = { minX: Math.min(shed.x, ex), maxX: Math.max(shed.x, ex), minZ: shed.z - 10, maxZ: shed.z + 10 };
     builder.clearTrees(lane, 0);
     P.placed.push(lane);
@@ -133,53 +129,109 @@ export function layoutBase(builder, block, country) {
   return base;
 }
 
-// ---------------------------------------------------------------- «столица» — центральная площадь
+// ---------------------------------------------------------------- «столица» — городок в центральном перекрёстке
 
-export function layoutCapital(builder, block) {
-  const P = new Placer(builder, block, { pond: false, paths: true });
-  P.hx = P.hz = 1;
-  const cx = block.cx, cz = block.cz;
-  for (const [i, [a, b, w, d, door]] of [[-27, -26, 10, 8, 'N'], [27, -26, 8, 10, 'W'], [-27, 26, 9, 9, 'E'], [27, 26, 10, 7, 'S']].entries()) {
-    P.put([[a, b], [a * 0.9, b * 0.9]], w, d, (x, z) => builder.house(x, z, { w, d, door, ruin: true, windows: [1, 1, 1, 1], seed: 20 + i }));
+// Городок вокруг центра поля боя: дома разных размеров (часть — руины), контейнеры, мешки; дороги и перекрёсток свободны.
+export function layoutTown(builder, arena) {
+  const C = arena.center.x;
+  const block = { i: 'c', j: 'c', cx: C, cz: C, orient: { hx: 1, hz: 1 }, lot: { minX: C - 100, maxX: C + 100, minZ: C - 100, maxZ: C + 100 } };
+  const P = new Placer(builder, block, { corridor: 9 });
+  const rng = createRng(4242);
+  const spots = [];
+  for (const a of [-16, -36, -56, -76, -96]) for (const b of [-16, -36, -56, -76, -96]) for (const sx of [-1, 1]) for (const sz of [-1, 1]) spots.push([a * sx, b * sz]);
+  // перемешиваем и ставим дома разных размеров, ближе к центру — плотнее
+  for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(rng.next() * (i + 1)); [spots[i], spots[j]] = [spots[j], spots[i]]; }
+  let k = 0, placed = 0;
+  for (const [a, b] of spots) {
+    if (placed >= 36) break;
+    const w = rng.pick([7, 8, 9, 10, 12]), d = rng.pick([6, 7, 8, 9]);
+    const ruin = rng.chance(0.3);
+    const door = Math.abs(a) < Math.abs(b) ? (b > 0 ? 'S' : 'N') : (a > 0 ? 'W' : 'E');
+    const ok = P.put([[a, b], [a + 4, b - 3]], w, d, (x, z) => builder.house(x, z, { w, d, door, ruin, windows: [1, 1, 1, 1], floors: 1, seed: 60 + k }), 1.0);
+    k++;
+    if (ok) placed++;
   }
-  P.put([[20, 10], [22, 12]], 3, 6, (x, z) => builder.sandbags(x, z, { facing: 'E', len: 5.4, wing: 2.4 }));
-  P.put([[-20, -10], [-22, -12]], 3, 6, (x, z) => builder.sandbags(x, z, { facing: 'W', len: 5.4, wing: 2.4 }));
-  P.put([[-10, 20], [-12, 22]], 6, 3, (x, z) => builder.sandbags(x, z, { facing: 'N', len: 5.4, wing: 2.4 }));
-  P.put([[10, -20], [12, -22]], 6, 3, (x, z) => builder.sandbags(x, z, { facing: 'S', len: 5.4, wing: 2.4 }));
-  P.put([[8, -33], [10, -34]], 6, 3, (x, z) => builder.container(x, z, { along: 'x', stack: 1 }));
-  P.put([[-8, 33], [-10, 34]], 6, 3, (x, z) => builder.container(x, z, { along: 'x', stack: 2 }));
-  P.put([[33, 8], [34, 10]], 3, 6, (x, z) => builder.container(x, z, { along: 'z', stack: 1 }));
-  P.put([[-33, -8], [-34, -10]], 3, 6, (x, z) => builder.container(x, z, { along: 'z', stack: 1 }));
-  P.put([[-20, 30], [20, -30], [30, 20]], 5, 5, (x, z) => builder.barrier(x, z, { along: 'x', n: 3 }), 0.8);
-  return { x: cx, z: cz, flag: { x: cx + 7, z: cz - 19 } };
+  // баррикады: мешки и контейнеры по краям, бетонные блоки у выездов
+  for (const [a, b, f] of [[18, 12, 'E'], [-18, -12, 'W'], [12, -18, 'S'], [-12, 18, 'N'], [26, -26, 'S'], [-26, 26, 'N']]) {
+    const horizontal = f === 'N' || f === 'S';
+    P.put([[a, b]], horizontal ? 6 : 3, horizontal ? 3 : 6, (x, z) => builder.sandbags(x, z, { facing: f, len: 5.4, wing: 2.4 }));
+  }
+  P.put([[40, 12], [42, 14]], 6, 3, (x, z) => builder.container(x, z, { along: 'x', stack: 1 }));
+  P.put([[-40, -12], [-42, -14]], 6, 3, (x, z) => builder.container(x, z, { along: 'x', stack: 2 }));
+  P.put([[12, 40], [14, 42]], 3, 6, (x, z) => builder.container(x, z, { along: 'z', stack: 1 }));
+  P.put([[-12, -40], [-14, -42]], 3, 6, (x, z) => builder.container(x, z, { along: 'z', stack: 1 }));
+  P.put([[22, 22], [-22, -22]], 5, 5, (x, z) => builder.bunker(x, z, { w: 7, d: 5, front: 'S', slits: 2 }), 1.2);
+  return { x: C, z: C, flag: { x: C + 10, z: C + 10 } };
 }
 
-// ---------------------------------------------------------------- нейтральная деревня в свободном парке
+// ---------------------------------------------------------------- нейтральная деревня (угловая клетка без страны или центральная)
 
 export function layoutVillage(builder, block) {
-  const P = new Placer(builder, block);
-  const sizes = [[10, 8], [8, 6.5], [9, 7], [7, 6], [11, 8], [8, 8]];
-  const spots = [[-26, -26], [-26, 24], [24, -26], [26, 26], [-12, 12], [12, -12], [-28, 4], [30, 8]];
+  const P = new Placer(builder, { ...block, lot: { minX: block.cx - 62, maxX: block.cx + 62, minZ: block.cz - 62, maxZ: block.cz + 62 } }, { corridor: 0 });
+  const rng = createRng(block.i * 53 + block.j * 11 + 3);
+  const sizes = [[10, 8], [8, 6.5], [9, 7], [7, 6], [11, 8], [8, 8], [12, 9]];
+  const spots = [[-48, -48], [-48, 44], [44, -48], [48, 48], [-20, 20], [20, -20], [-50, 4], [52, 8], [4, 52], [-6, -52], [-24, -24], [24, 24], [-30, 46], [30, -46]];
   let k = 0;
   for (const [a, b] of spots) {
     const [w, d] = sizes[k % sizes.length];
     const ruin = k % 4 === 1;
-    P.put([[a, b], [a * 0.85, b * 0.85]], w, d, (x, z) => builder.house(x, z, { w, d, door: ['S', 'N', 'E', 'W'][k % 4], ruin, windows: [1, 1, 1, 1], seed: 40 + k }));
+    P.put([[a, b], [a * 0.85, b * 0.85]], w, d, (x, z) => builder.house(x, z, { w, d, door: ['S', 'N', 'E', 'W'][k % 4], ruin, windows: [1, 1, 1, 1], seed: 40 + k + block.i }));
     k++;
   }
-  P.put([[12, 24], [14, 22]], 8, 6, (x, z) => builder.bunker(x, z, { w: 8, d: 5.5, front: 'S', slits: 2 }), 1.2);
-  P.put([[-12, -22], [-14, -20]], 8, 6, (x, z) => builder.bunker(x, z, { w: 8, d: 5.5, front: 'N', slits: 2 }), 1.2);
-  P.put([[0, 34], [6, 34]], 6, 3, (x, z) => builder.sandbags(x, z, { facing: 'S', len: 5.4, wing: 2.4 }));
-  P.put([[34, 0], [34, -8]], 3, 6, (x, z) => builder.sandbags(x, z, { facing: 'W', len: 5.4, wing: 2.4 }));
-  P.put([[-34, -4], [-34, 6]], 3, 6, (x, z) => builder.container(x, z, { along: 'z', stack: 1 }));
-  P.put([[4, -34], [-4, -35]], 6, 3, (x, z) => builder.container(x, z, { along: 'x', stack: 2 }));
+  P.put([[28, 52], [30, 50]], 8, 6, (x, z) => builder.bunker(x, z, { w: 8, d: 5.5, front: 'S', slits: 2 }), 1.2);
+  P.put([[-28, -54], [-30, -50]], 8, 6, (x, z) => builder.bunker(x, z, { w: 8, d: 5.5, front: 'N', slits: 2 }), 1.2);
+  for (const [a, b, f] of [[0, 56, 'S'], [56, 0, 'W'], [-56, -6, 'E'], [6, -56, 'N']]) {
+    const horizontal = f === 'N' || f === 'S';
+    P.put([[a, b]], horizontal ? 6 : 3, horizontal ? 3 : 6, (x, z) => builder.sandbags(x, z, { facing: f, len: 5.4, wing: 2.4 }));
+  }
+  P.put([[-58, 20], [-58, 30]], 3, 6, (x, z) => builder.container(x, z, { along: 'z', stack: 1 }));
+  P.put([[14, -58], [4, -58]], 6, 3, (x, z) => builder.container(x, z, { along: 'x', stack: 2 }));
+  void rng;
+}
+
+// ---------------------------------------------------------------- боковые клетки: ферма или лес
+
+export function layoutCountry(builder, arena, block) {
+  const lot = { minX: block.cx - 62, maxX: block.cx + 62, minZ: block.cz - 62, maxZ: block.cz + 62 };
+  const P = new Placer(builder, { ...block, lot }, { corridor: 0 });
+  const rng = createRng(block.i * 71 + block.j * 19 + 7);
+  const o = (a, b) => ({ x: block.cx + a, z: block.cz + b });
+  if (block.kind === 'farm') {
+    // поля и усадьба
+    const fieldKinds = ['wheat', 'green', 'plowed', 'wheat', 'hay'];
+    const rects = [[-40, -38, 52, 40], [38, -34, 48, 44], [-38, 40, 56, 36], [40, 42, 44, 34]];
+    rects.forEach(([a, b, w, d], i) => {
+      const p = o(a, b);
+      arena.field(p.x, p.z, w, d, fieldKinds[(i + block.i + block.j) % fieldKinds.length]);
+      builder.reserved.push({ minX: p.x - w / 2, maxX: p.x + w / 2, minZ: p.z - d / 2, maxZ: p.z + d / 2 });
+    });
+    P.put([[0, 0], [3, 3]], 11, 8, (x, z) => builder.house(x, z, { w: 11, d: 8, door: rng.pick(['S', 'N', 'E', 'W']), windows: [2, 2, 1, 1], seed: 90 + block.i }));
+    P.put([[18, -6], [20, -10]], 9, 14, (x, z) => builder.shed(x, z, { w: 9, d: 14, open: rng.pick(['N', 'S']), color: '#7a5a3a' }));
+    P.put([[-16, 6], [-18, 8]], 7, 6, (x, z) => builder.house(x, z, { w: 7, d: 6, door: 'S', windows: [1, 1, 1, 1], ruin: rng.chance(0.4), seed: 95 + block.j }));
+    P.put([[-24, -14], [-26, -16]], 6, 6, (x, z) => builder.haystack(x, z, 4));
+    P.put([[28, 20], [30, 22]], 6, 6, (x, z) => builder.haystack(x, z, 3));
+    for (const [a, b, len, al] of [[-60, 0, 30, 'z'], [60, 4, 26, 'z'], [0, -60, 28, 'x'], [6, 60, 30, 'x']]) {
+      P.put([[a, b]], al === 'x' ? len : 1.5, al === 'x' ? 1.5 : len, (x, z) => builder.stoneWall(x, z, len, al), 0.3);
+    }
+    P.put([[-36, 30], [-38, 32]], 6, 3, (x, z) => builder.sandbags(x, z, { facing: 'N', len: 5.4, wing: 2.4 }));
+  } else {
+    // лес: охотничий домик, мешки на опушке, валуны
+    P.put([[0, 0], [6, -6]], 8, 7, (x, z) => builder.house(x, z, { w: 8, d: 7, door: rng.pick(['S', 'N', 'E', 'W']), windows: [1, 1, 1, 1], ruin: rng.chance(0.5), seed: 120 + block.j }));
+    P.put([[-36, 12], [-38, 16]], 6, 3, (x, z) => builder.sandbags(x, z, { facing: 'W', len: 5.4, wing: 2.4 }));
+    P.put([[34, -20], [36, -22]], 3, 6, (x, z) => builder.sandbags(x, z, { facing: 'E', len: 5.4, wing: 2.4 }));
+    P.put([[10, 40], [12, 42]], 8, 6, (x, z) => builder.bunker(x, z, { w: 7, d: 5, front: 'N', slits: 2 }), 1.2);
+  }
+  for (let i = 0; i < 9; i++) {
+    const a = rng.range(-58, 58), b = rng.range(-58, 58);
+    P.put([[a, b]], 3.4, 3.4, (x, z) => builder.boulder(x, z, rng.range(1.0, 1.9)), 0.5);
+  }
 }
 
 // ---------------------------------------------------------------- пункт захвата на перекрёстке
 
 export function layoutPoint(builder, node) {
   const { x, z } = node;
-  // Мешки по углам перекрёстка (на тротуаре), флагшток на четвёртом углу.
+  // Мешки по углам перекрёстка, «ежи» на въездах, флагшток на четвёртом углу.
   builder.sandbags(x - 9.6, z + 9.6, { facing: 'E', len: 3.4, wing: 1.6 });
   builder.sandbags(x + 9.6, z - 9.6, { facing: 'W', len: 3.4, wing: 1.6 });
   builder.sandbags(x - 9.6, z - 9.6, { facing: 'N', len: 3.4, wing: 1.6 });
@@ -187,4 +239,21 @@ export function layoutPoint(builder, node) {
   builder.hedgehog(x + 3.5, z - 3.5);
   const flag = builder.flagpole(x + 9.6, z + 9.6, null, { height: 10 });
   return { x, z, flag };
+}
+
+// Хутор у пункта: несколько домов и мешки вокруг перекрёстка (между дорогами).
+export function layoutHamlet(builder, node) {
+  const block = { i: node.x | 0, j: node.z | 0, cx: node.x, cz: node.z, orient: { hx: 1, hz: 1 }, lot: { minX: node.x - 50, maxX: node.x + 50, minZ: node.z - 50, maxZ: node.z + 50 } };
+  const P = new Placer(builder, block, { corridor: 8 });
+  const rng = createRng(Math.round(node.x * 3 + node.z * 7));
+  const sizes = [[9, 7], [8, 7], [10, 8], [7, 6]];
+  let k = 0;
+  for (const [a, b] of [[-26, -26], [26, 26], [-26, 26], [26, -26], [-44, 18], [44, -18], [18, 44], [-18, -44]]) {
+    const [w, d] = sizes[k % sizes.length];
+    P.put([[a, b], [a * 0.9, b * 0.9]], w, d, (x, z) => builder.house(x, z, { w, d, door: ['S', 'N', 'E', 'W'][(k + 1) % 4], ruin: k % 3 === 2, windows: [1, 1, 1, 1], seed: 150 + k }), 1.0);
+    k++;
+  }
+  P.put([[16, 30], [18, 32]], 6, 3, (x, z) => builder.sandbags(x, z, { facing: 'S', len: 5.4, wing: 2.4 }));
+  P.put([[-30, -16], [-32, -18]], 3, 6, (x, z) => builder.container(x, z, { along: 'z', stack: 1 }));
+  void rng;
 }
