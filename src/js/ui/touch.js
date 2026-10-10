@@ -251,6 +251,8 @@ export class TouchControls {
         : this.game.vehicles.some((c) => !c.carried && c.distanceToPoint(p.position.x, p.position.z) < 3.2) ? 'ПОДНЯТЬ' : '';
       interact = car || (bank ? 'ГРАБИТЬ' : '');
     }
+    interact = this.game.prison?.touchLabel() || interact;
     this._setLabel('interact', interact);
+    this._setLabel('prison', this.game.prison?.inCustody ? 'ВЕЩИ' : '');
   }
 }

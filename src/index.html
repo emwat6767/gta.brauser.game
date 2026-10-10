@@ -38,6 +38,7 @@
         <tr><td>B</td><td>дуэль героя и злодея: за злодея → за героя → выкл. Убей прохожего — прилетит соперник, начнётся стрим</td></tr>
         <tr><td>N</td><td>время суток: к следующей фазе</td></tr>
         <tr><td>O</td><td>сменить одежду</td></tr>
+        <tr><td>I</td><td>в тюрьме: вещи, друзья, план побега, перемотка времени</td></tr>
         <tr><td>M</td><td>звук вкл/выкл</td></tr>
         <tr><td>Esc</td><td>пауза</td></tr>
       </table>
@@ -78,6 +79,8 @@
     <div id="big-message" class="hidden"></div>
     <div id="speedometer" class="hidden"><span id="speed-value">0</span><small>км/ч</small></div>
     <div id="prompt" class="hidden"></div>
+    <div id="prison-sus" class="hidden"><span>ВНИМАНИЕ ОХРАНЫ</span><div class="ps-bar"><i></i></div></div>
+    <div id="prison-alarm" class="hidden"></div>
     <div id="bubbles"></div>
     <div id="news"></div>
     <div id="top-center">
@@ -103,6 +106,7 @@
     <button type="button" class="tbtn tbtn-duel" data-id="duel" data-action="duel">ДУЭЛЬ</button>
     <button type="button" class="tbtn tbtn-time" data-id="time" data-action="timeOfDay">ВРЕМЯ</button>
     <button type="button" class="tbtn tbtn-outfit" data-id="outfit" data-action="outfit">ОБРАЗ</button>
+    <button type="button" class="tbtn tbtn-prison" data-id="prison" data-action="inventory" hidden>ВЕЩИ</button>
     <button type="button" class="tbtn tbtn-descend" data-id="descend" data-action="descend" hidden>ВНИЗ</button>
     <button type="button" class="tbtn tbtn-pause" data-id="pause" data-action="pause" aria-label="Пауза">II</button>
   </div>
@@ -115,10 +119,19 @@
     </div>
   </div>
 
+  <!-- Тюрьма «Редрок»: окна разговоров, лавки, вещей (js/prison-ui.js) и затемнение между сценами -->
+  <div id="prison-ui" class="hidden">
+    <div class="pu-panel">
+      <div class="pu-head"><div id="pu-title">ТЮРЬМА</div><button type="button" id="pu-close">Закрыть</button></div>
+      <div id="pu-body"></div>
+    </div>
+  </div>
+  <div id="prison-fade" class="hidden"><div id="pf-text"></div></div>
+
   <div id="overlay">
     <div class="panel">
       <h1>OPEN CITY</h1>
-      <p class="subtitle">живой город: банды делят районы, полиция, погони, ограбления, злодей и герой, режимы силы и дуэль со стримом</p>
+      <p class="subtitle">живой город: банды делят районы, полиция, погони, ограбления, злодей и герой, режимы силы, дуэль со стримом и тюрьма «Редрок»</p>
       <table class="controls controls-desktop">
         <tr><td>W A S D</td><td>движение, в машине — газ / тормоз / руль</td></tr>
         <tr><td>Мышь</td><td>обзор, колесо — приблизить / отдалить</td></tr>
@@ -134,6 +147,7 @@
         <tr><td>B</td><td>дуэль героя и злодея: играй за любого, убей прохожего — прилетит соперник, а весь город смотрит стрим</td></tr>
         <tr><td>N</td><td>время суток: утро, день, вечер, ночь</td></tr>
         <tr><td>O</td><td>сменить одежду (образы горожан)</td></tr>
+        <tr><td>Тюрьма «Редрок»</td><td>арестовали — сидишь: E — говорить с заключёнными (дружба, шутки, карты), лавка, работа, спортзал; I — вещи; побег: подкоп, сетка и стена, форма, взятка, бунт. Беглеца полиция ловит — и возвращает</td></tr>
         <tr><td>H / Esc</td><td>подсказка / пауза</td></tr>
       </table>
       <table class="controls controls-touch">

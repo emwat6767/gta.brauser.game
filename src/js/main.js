@@ -34,6 +34,7 @@ import { EliteVFX } from './vfx.js';
 import { BossSystem } from './bosses.js';
 import { WorkLife } from './worklife.js';
 import { DuelSystem } from './duel.js';
+import { PrisonSystem } from './prison.js';
 import { ChaosSystem } from './chaos.js';
 import { DayNight, createSky } from './daynight.js';
 import { Places } from './places.js';
@@ -101,6 +102,7 @@ class Game {
     this.powers = new PowerSystem(this);
     this.chaos = new ChaosSystem(this);
     this.bosses = new BossSystem(this);   // злодей и герой города
+    this.prison = new PrisonSystem(this); // тюрьма «Редрок»: арест, срок, друзья, побег (prison.js)
     this.pickups = new PickupSystem(this);
     this.wallet = new Wallet(this);
     this.save = new SaveSystem(this);
@@ -222,13 +224,26 @@ class Game {
 
   _respawn() {
     const P = CONFIG.player;
-    const point = this.downState.kind === 'wasted' ? P.hospital : P.policeStation;
+    const kind = this.downState.kind;
+    let point = kind === 'wasted' ? P.hospital : P.policeStation;
+    // Арестованного отправляют в тюрьму «Редрок» (prison.js); погибшего заключённого — в тюремный лазарет.
+    const prison = this.prison.ready ? this.prison : null;
+    let arrest = null, diedInside = false;
+    if (prison && kind === 'busted') {
+      arrest = prison.beginArrest();
+      point = arrest.point;
+    } else if (prison?.inCustody) {
+      point = prison.infirmaryPoint();
+      diedInside = true;
+    }
     this.downState = null;
     this.wanted.clear();
     this.player.respawn(point);
     this.cameraRig.yaw = point.heading;
     this.cameraRig.initialized = false;
     this.hud.hideBigMessage();
+    if (arrest) prison.completeArrest(arrest);
+    else if (diedInside) prison.onDiedInside();
     this.events.emit('player:respawn', { point });
   }
 
@@ -274,14 +289,15 @@ class Game {
 
     if (input.wasPressed('toggleHelp')) this.hud.toggleHelp();
     if (input.wasPressed('mute')) this.hud.toast(this.audio.toggleMute() ? 'Звук выключен' : 'Звук включён', 1.2);
-    if (input.wasPressed('jobs') && !this.paused) this.gangMenu.toggle();
+    if (input.wasPressed('jobs') && !this.paused && !this.prison.ui?.isOpen) this.gangMenu.toggle();
     if (!this.paused && !this.menuOpen) {
       this.cameraRig.handleInput(frameTime);
-      if (input.wasPressed('interact')) this._toggleVehicle();
+      if (input.wasPressed('interact') && !this.prison.interact()) this._toggleVehicle();
+      if (input.wasPressed('inventory') && this.prison.inCustody && !this.downState) this.prison.ui.openStatus();
       if (input.wasPressed('squad')) this.squad.toggle();
       if (input.wasPressed('power')) this.powers.cycle();
       if (input.wasPressed('powerPrev')) this.powers.cycle(-1);
-      if (input.wasPressed('duel') && !this.player.isDead && !this.downState) this.duel.toggle();
+      if (input.wasPressed('duel') && !this.player.isDead && !this.downState && !this.prison.inCustody) this.duel.toggle();
       if (input.wasPressed('timeOfDay')) this.daynight.nextPhase();
       if (input.wasPressed('outfit') && !this.player.isDead && !this.downState) this.player.changeOutfit();
       const steps = Math.max(1, Math.ceil(frameTime / CONFIG.physics.fixedStep - 0.01));
@@ -295,6 +311,7 @@ class Game {
       this.daynight.update(frameTime);
       this.places.update(frameTime);
       this.worklife.update(frameTime);
+      this.prison.update(frameTime);
       this.duel.update(frameTime);
       this.missions.update(frameTime);
       this.effects.update(frameTime);
@@ -322,6 +339,7 @@ class Game {
   }
 
   start() {
+    this.prison.restore();   // если игра была закрыта в тюрьме — продолжаем срок
     this.cameraRig.update(0);
     this.renderer.setAnimationLoop(() => this._frame());
   }
@@ -380,7 +398,9 @@ try {
     else if (hadLock && !game.paused && !game.menuOpen) game.pause();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && game.menuOpen) {
+    if (e.code === 'Escape' && game.prison.ui?.isOpen && !game.prison.ui.screen?.locked) {
+      game.prison.ui.close(); // Esc закрывает окно тюрьмы
+    } else if (e.code === 'Escape' && game.menuOpen) {
       game.gangMenu.toggle(false); // Esc сначала закрывает меню банды
     } else if (e.code === 'Escape' && !game.paused) {
       document.exitPointerLock?.();

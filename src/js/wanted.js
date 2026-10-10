@@ -207,7 +207,8 @@ export class WantedSystem {
         grab = cop;
       }
     }
-    if (grab && this.level < W.policeDamageFrom && !player.vehicle) {
+    // Беглец из тюрьмы: арестовывает тот, кто поймал, на любом уровне розыска (prison.js).
+    if (grab && (this.level < W.policeDamageFrom || game.prison?.state === 'fugitive') && !player.vehicle) {
       this.bustTimer += dt;
       if (this.bustTimer > W.bustTime) {
         this.bustTimer = 0;

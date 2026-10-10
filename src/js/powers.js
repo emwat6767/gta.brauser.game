@@ -187,6 +187,10 @@ export class PowerSystem {
     const { game } = this;
     const p = game.player;
     if (mode === this.mode || p.isDead) return;
+    if (mode !== 'normal' && game.prison?.inCustody) {
+      game.hud.toast('В тюрьме силы подавлены', 2);
+      return;
+    }
     if (this.carried) this._drop();
     if ((mode === 'colossus' || mode === 'titan') && p.vehicle) p.exitVehicle();
     if (this.mode === 'boss') this.retireAll();

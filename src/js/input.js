@@ -35,6 +35,7 @@ export const BINDINGS = {
   mute: ['KeyM'],
   timeOfDay: ['KeyN'],                // перевести время суток к следующей фазе
   outfit: ['KeyO'],                   // сменить одежду игрока
+  inventory: ['KeyI'],                // тюрьма: вещи, друзья, план побега, перемотка времени
   toggleHelp: ['KeyH'],
 };
 

@@ -806,6 +806,7 @@ export class NPC {
     }
     if (this.role === 'police') this.aggro(who, this.rng.pick(LINES.police));
     if (this.role === 'boss') this.boss?.onAttacked(who);
+    if (this.role === 'inmate') this.game.prison?.onInmateAttacked(this, who);
   }
 
   _die(attacker, dirX, dirZ, kind, info) {

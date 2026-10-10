@@ -271,7 +271,7 @@ export class World {
         };
         // Район: порт на юго-западе, окраины-пригород по краю, даунтаун в центре.
         const port = (i <= 1 && j <= 1) || (i === 2 && j <= 1);
-        block.district = block.type === 'park' ? 'park' : port ? 'port'
+        block.district = block.type === 'park' ? 'park' : block.type === 'prison' ? 'prison' : port ? 'port'
           : i === 0 || j === 0 || i === this.blocksPerAxis - 1 || j === this.blocksPerAxis - 1 ? 'suburb'
             : Math.hypot((x0 + x1) / 2, (z0 + z1) / 2) < 260 ? 'downtown' : 'city';
         block.lot = { minX: block.minX + sw, maxX: block.maxX - sw, minZ: block.minZ + sw, maxZ: block.maxZ - sw };

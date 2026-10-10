@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { GeometryBuilder, mergeColored } from './geometry.js';
+import { buildPrison } from './prison-build.js';
 
 // Достопримечательности и уличный декор (world.js вызывает buildLandmarks после зданий):
 //   Площадь Чемпионов в центральном парке — фонтан, золотая статуя бойца с поясом, клумбы, скамейки, фонари;
@@ -99,6 +100,7 @@ export function buildLandmarks(world) {
   buildArena(world, block('arena'), { group, plain, addMesh, glowMat, collide });
   buildShowroom(world, block('showroom'), { group, plain, addMesh, glowMat, collide });
   buildTower(world, block('tower'), { group, plain, addMesh, glowMat, collide });
+  buildPrison(world, block('prison'), { group, glowMat });
   buildPonds(world, { plain, addMesh, collide });
   buildPortCranes(world, { plain, addMesh, collide });
   buildBeacons(world, { group });

@@ -16,7 +16,7 @@ export const CONFIG = {
     // Кварталы-парки (индексы [i, j] квартала по X и Z) — в них нет зданий.
     parks: [[4, 4], [1, 6], [6, 1], [7, 7], [2, 2]],
     // Достопримечательности: кварталы под арену, автосалон и небоскрёб-символ (см. landmarks.js).
-    landmarkBlocks: { arena: [3, 3], showroom: [3, 4], tower: [5, 3] },
+    landmarkBlocks: { arena: [3, 3], showroom: [3, 4], tower: [5, 3], prison: [8, 0] },
     cranes: [[-400, -400], [-300, -300]],   // портовые краны (в блоках порта)
     streetTreeScale: 1,     // доля уличных деревьев (на телефоне меньше)
     outskirtsTrees: 170,    // деревья на окраине за внешними улицами
@@ -108,6 +108,7 @@ export const CONFIG = {
       gang: { health: 60, damage: 8, cooldown: 0.35, weapons: { pistol: 0.55, smg: 0.2, shotgun: 0.1 } },
       police: { health: 70, damage: 9, cooldown: 0.4, weapons: { pistol: 1 } },
       boss: { health: 1600, damage: 26, cooldown: 0.75, weapons: {} },   // злодей и герой города (bosses.js)
+      inmate: { health: 70, damage: 10, cooldown: 0.5, weapons: {} },    // заключённый (prison.js)
     },
     // Стрельба NPC: разброс умножается, урон по игроку уменьшается (иначе слишком жёстко).
     gunSpreadScale: 4,

@@ -316,6 +316,8 @@ export class HUD {
       if (v) prompt = v.driver ? '<b>E</b> — угнать машину' : '<b>E</b> — сесть в машину';
       else prompt = this.game.heists?.prompt() ?? '';
     }
+    const prisonPrompt = this.game.prison?.prompt();
+    if (prisonPrompt) prompt = prisonPrompt;   // в тюрьме: разговор, лавка, подкоп...
     if (prompt !== this._prompt) {
       this._prompt = prompt;
       this.promptEl.innerHTML = prompt;

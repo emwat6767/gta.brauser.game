@@ -164,6 +164,10 @@ export class DayNight {
 
   // Следующая фаза суток (клавиша N).
   nextPhase() {
+    if (this.game.prison?.inCustody) {
+      this.game.hud.toast('В тюрьме время идёт по распорядку (I → перемотка)', 2);
+      return;
+    }
     let next = PHASES.find(([h]) => h > this.hour + 0.2);
     let label;
     if (next) [this.hour, label] = next;

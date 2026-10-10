@@ -111,7 +111,7 @@ export class Nameplates {
     if (s.npc !== n) {
       s.npc = n;
       s.name.textContent = n.name;
-      const sub = n.boss ? n.boss.title : n.role === 'police' ? 'Полиция' : n.role === 'gang' ? 'Бандит' : n.job ? JOBS[n.job]?.label : 'Прохожий';
+      const sub = n.tagline ?? (n.boss ? n.boss.title : n.role === 'police' ? 'Полиция' : n.role === 'gang' ? 'Бандит' : n.job ? JOBS[n.job]?.label : 'Прохожий');
       s.sub.textContent = sub;
       s.el.classList.toggle('gold', !!n.boss);
     }
