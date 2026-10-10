@@ -1,7 +1,7 @@
 import { fighterTag } from './fighters.js';
 import { formatMoney } from './ui/hud.js';
 import {
-  ITEMS, SHOP_COMMISSARY, SHOP_BLACK, TRAITS, FRIEND_LEVELS, PRANKS, RUMORS, JOBS, SCHEDULE, LAWYER, PHONE_ACTIONS,
+  ITEMS, SHOP_COMMISSARY, SHOP_BLACK, TRAITS, FRIEND_LEVELS, PRANKS, RUMORS, JOBS, SCHEDULE, LAWYER,
 } from './prison-data.js';
 
 // Окна тюремной жизни (поверх игры, пока открыто — симуляция стоит): приём, разговор, лавка, телефон, визиты,
@@ -466,4 +466,4 @@ function pickLine(a) { return a[(Math.random() * a.length) | 0]; }
 function cardName(n) { return { 11: 'В', 12: 'Д', 13: 'К', 14: 'Т' }[n] ?? String(n); }
 function greetShort(rec) { return ['Ну?', 'Слушаю.', 'Что хотел?', 'Говори.'][rec.idx % 4]; }
 
-export { fmtH, PHONE_ACTIONS };
+export { fmtH };

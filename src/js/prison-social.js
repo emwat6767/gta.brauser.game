@@ -552,8 +552,6 @@ const M = {
   },
 
   phoneActions() {
-    const phoneOk = this.know.has('getaway') || true;
-    void phoneOk;
     return [
       { id: 'lawyer', label: 'Позвонить адвокату', sub: `−$${LAWYER.price}: срок −${LAWYER.cut} ч, шанс ${Math.round(LAWYER.chance * 100)}%` },
       { id: 'friend', label: 'Позвонить другу на волю', sub: 'бесплатно: пришлёт немного денег (раз в сутки)' },

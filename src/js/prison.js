@@ -30,6 +30,7 @@ const fmtHours = (h) => {
   return d ? `${d} д ${r} ч` : `${r} ч`;
 };
 export const fmtClock = (h) => `${String(Math.floor(h) % 24).padStart(2, '0')}:${String(Math.floor((h % 1) * 60)).padStart(2, '0')}`;
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const RESTRICTED = new Set(['warden', 'armory', 'seg', 'gate', 'strip']);
 
 export class PrisonSystem {
@@ -714,6 +715,7 @@ export class PrisonSystem {
     this.dummyReady = false;
     this.bribe = 0;
     this.lawyerVisits = 0;
+    this.flags.hazed = false;
     this.fugitive = { timer: 0, hunt: 0, disguised: false };
     for (const seg of this.layout.fenceSegs) if (seg.cut) this._mend(seg);
     // Старые вещи: контрабанду забирают, остальное лежит в камере.
@@ -1287,13 +1289,6 @@ export class PrisonSystem {
     if (!silent) this.game.hud.toast('Форма снята: снова роба', 2);
   }
 
-  async callAction(id) {
-    const { game } = this;
-    const a = { lawyer: this.callLawyer, friend: this.callFriend, getaway: this.orderGetaway }[id];
-    a?.call(this);
-    void game;
-  }
-
   // ---------------------------------------------------------------- проверка кадра
   update(dt) {
     if (!this.ready) return;
@@ -1349,11 +1344,52 @@ export class PrisonSystem {
     if (this.served >= this.total && !this.busy) this.release('served');
     // Спарринг.
     if (this.spar) this.sparTick(dt);
+    // Первая встреча во дворе: «крепыш» берёт плату за место.
+    if (!this.flags.hazed && !this.busy && !this.ui.isOpen && !this.action && this.alert === 0 && ['yard', 'rec', 'work'].includes(this.phase.id) && this._zone()?.id === 'yard') {
+      const rec = this.crew.nearestInmate(p.position, 10, (r) => (r.trait === 'tough' || r.trait === 'boss') && !r.following && r.npc.state !== NPC_STATE.FIGHT);
+      if (rec) this._hazing(rec);
+    }
     // Ушёл слишком далеко от приёма в начале — ничего.
     if (!this.busy && this.flags.holeOnStart && !this.ui.isOpen) {
       this.flags.holeOnStart = false;
       this.punish('hole', 12, 'Побег пойман: карцер перед отбыванием срока');
     }
+  }
+
+  // Новичка во дворе останавливает авторитетный заключённый: двор платный.
+  _hazing(rec) {
+    this.flags.hazed = true;
+    const n = rec.npc;
+    const p = this.game.player.position;
+    n.heading = Math.atan2(p.x - n.position.x, p.z - n.position.z);
+    n.say('Эй, новенький! Стоять!', true);
+    this.crew.hold(rec, 9999);
+    const done = (fn) => () => { fn(); this.ui.close(); };
+    const options = [
+      { label: 'Заплатить $25', sub: 'спокойная жизнь во дворе', disabled: !this.game.wallet.canAfford(25), run: done(() => {
+        this.game.wallet.spend(25);
+        this.addFriend(rec, 4);
+        this.stats.respect += 1;
+        n.say('Разумный парень. Двор твой.', true);
+      }) },
+      { label: 'Отдать пачку сигарет', sub: 'ценится больше денег', disabled: !this.has('cigs'), run: done(() => {
+        this.take('cigs');
+        this.addFriend(rec, 7);
+        this.stats.respect += 1.5;
+        n.say('О, вот это по-нашему. Будем друзьями.', true);
+      }) },
+      { label: 'Отшутиться', sub: 'рискованно: он может засмеяться, а может и ударить', run: done(() => {
+        if (Math.random() < 0.45) { this.addFriend(rec, 3); n.say('Ха! Наглый, мне нравится.', true); this.stats.respect += 1; }
+        else { this.addFriend(rec, -3); n.aggro(this.game.player, 'Ты что, самый умный?!'); }
+      }) },
+      { label: 'Послать и драться', sub: 'уважение растёт, если выстоишь', run: done(() => {
+        this.addFriend(rec, -4);
+        this.stats.respect += 1;
+        n.aggro(this.game.player, 'Ну всё, ты доигрался!');
+      }) },
+    ];
+    this.ui.openMenu({ title: 'ВСТРЕЧА ВО ДВОРЕ', text: `${esc(rec.name)} загородил вам дорогу: «Новенький? Двор у нас платный. Двадцать пять баксов или пачка сигарет — и никто тебя не тронет».`, options });
+    this.ui.screen.onClose = () => { if (rec.hold > this.crew.t + 100) rec.hold = 0; };
   }
 
   _hud(dt) {
