@@ -268,7 +268,7 @@ export function buildPrison(world, block, { group, glowMat }) {
   up(B.conc, -3, 20, 3, 37.5, H0 + 0.035, '#9b9b96', 6);               // шлюз
 
   // ================================================================ ПЕРИМЕТР
-  const wallStyle = { out: ['px', 'nx', 'pz', 'nz'], ext: 'conc', extColor: '#bdbbb2', wall: '#b4b3ac', dado: '#b4b3ac', top: true, tile: 6 };
+  const wallStyle = { out: ['px', 'nx', 'pz', 'nz'], ext: 'conc', extColor: '#cbc9c0', wall: '#b9b8b1', dado: '#b9b8b1', top: true, tile: 6 };
   // Бетонная стена по 4 сторонам; в передней — проём шлюза.
   const perim = (x0, z0, x1, z1) => { wallBox(x0, z0, x1, z1, 0, WALL_H, wallStyle); solid(x0, z0, x1, z1, WALL_H); };
   perim(-37.5, -37.5, 37.5, -36);                // север
