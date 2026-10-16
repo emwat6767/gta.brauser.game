@@ -41,23 +41,30 @@ const lvlOf = (g) => M.clamp((g.opts && g.opts.difficulty) | 0, 0, 3);
 // every opponent remembers what you threw; the champion adapts to it the most
 let READ = {};
 J.readReset = () => { READ = {}; };
+// a familiar opponent remembers half of what you threw at him last time
+J.readSeed = (m) => { for (const k of Object.keys(m || {})) READ[k] = Math.floor(m[k] / 2); };
 J.onAttempt = (f, id) => { if (f.isPlayer) READ[id] = (READ[id] || 0) + 1; };
+// in a career the reading grows with the level: a novice does not notice anything, the elite reads you after two tries
 J.readMod = function (f, o, T) {
   if (!f.isPlayer || !o || o.isPlayer) return 1;
-  const n = READ[T.id] || 0, ty = GW.typeOf(o), P = GW.TYPES[ty];
+  const n = READ[T.id] || 0, ty = GW.typeOf(o), P = GW.TYPES[ty], rt = o.cfg.gwRead;
   let k = 1;
-  if (P && P.brace && !o.offBal) k *= P.brace;   // the counter man and the champion are hard to catch flat-footed
-  if (n >= 2) {
-    const read = ty === 'champion' ? 0.7 : 0.9;
+  if (P && P.brace && !o.offBal && !(rt != null && rt <= 1)) k *= P.brace;   // the counter man and the champion are hard to catch flat-footed
+  let need = 2, read = ty === 'champion' ? 0.7 : 0.9;
+  if (rt != null) {
+    if (rt <= 2) return k;
+    if (rt <= 4) { need = 3; read = ty === 'champion' ? 0.8 : 0.9; } else { need = 2; read = ty === 'champion' ? 0.7 : 0.85; }
+  }
+  if (n >= need) {
     k *= read;
-    if (ty === 'champion' && n === 2 && !o._readSaid) { o._readSaid = true; const g = o.game; g.ui.hitMarker(o.cfg.short + ' читает ваш «' + T.name + '»', 1); }
+    if ((ty === 'champion' || rt != null) && n === need && !o['_read_' + T.id]) { o['_read_' + T.id] = true; const g = o.game; g.ui.hitMarker(o.cfg.short + ' ЧИТАЕТ ВАШ «' + T.name + '»', 1); if (GW.log) GW.log.readMe = (GW.log.readMe || 0) + 1; }
   }
   return k;
 };
 // the counter after a stopped attempt: the counter man lives for it
 J.counterChance = function (o, f, lvl) {
   const P = GW.TYPES[GW.typeOf(o)];
-  return cl(LV.counter[lvl] * (P ? P.counter : 1) * ((o.grip || 0) > 0 ? 1.25 : 0.6), 0, 0.75);
+  return cl(LV.counter[lvl] * (P ? P.counter : 1) * ((o.grip || 0) > 0 ? 1.25 : 0.6) + (o.cfg && o.cfg.gwStrong === 'back' ? 0.06 : 0), 0, 0.75);
 };
 
 // ---------------------------------------------------------------- the opponent's brain
@@ -67,6 +74,7 @@ J.aiUpdate = function (ai, dt) {
   if (GW.drill && GW.drill.ai) { GW.drill.ai(ai, dt); return; }
   if (g.phase !== 'fight' || J.paused(g) || f.state !== 'fight' || !o || o.state !== 'fight') { it.mx = it.mz = 0; f._gwGuardWant = false; return; }
   const lvl = lvlOf(g), ty = GW.typeOf(f), P = GW.TYPES[ty];
+  f._ai = ai;
   ai.jt = (ai.jt || 0) + dt;
   if (ai.jphase == null) { ai.jphase = Math.random() * 6; ai.jcd = rnd(P.gap[0], P.gap[1]) * 0.8; ai.gcd = rnd(0.4, 1); ai.bcd = 0; ai.react = null; ai.saveT = 0; ai.swT = rnd(6, 12); }
   const dist = Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z);
@@ -105,16 +113,25 @@ J.aiUpdate = function (ai, dt) {
   if ((ty === 'counter' || ty === 'tactician') && hisG >= 2 && f.offBal && lvl >= 1) f._gwGuardWant = Math.random() < 0.7;
   if (f._judoCool || myS < 12 || saving) return;
   // which throw: the favourites first, then by the style, then by the direction he is off balance
-  const fav = f.cfg.fav;
+  const fav = f.cfg.fav, kn = f.cfg.known;
   const list = J.STYLE_TECHS[f.cfg.style] || J.STYLE_TECHS.boxer;
   const pick = (filter) => {
     if (fav && Math.random() < 0.65) { const F = fav.filter((t) => J.TECHS[t] && (!filter || filter(J.TECHS[t]))); if (F.length) return F[(Math.random() * F.length) | 0]; }
-    const L = list.filter(([t]) => J.TECHS[t] && (!filter || filter(J.TECHS[t])));
+    const L = list.filter(([t]) => J.TECHS[t] && (!kn || kn.includes(t)) && (!filter || filter(J.TECHS[t])));
     if (!L.length) return null;
     let sum = 0; for (const [, w] of L) sum += w;
     let r = Math.random() * sum; for (const [t, w] of L) { r -= w; if (r <= 0) return t; }
     return L[0][0];
   };
+  // the combination: his first throw was stopped, the second goes the other way at once
+  if (ai.comboT != null) {
+    ai.comboT -= dt;
+    if (ai.comboT <= 0) {
+      const d0 = ai.comboDir; ai.comboT = null;
+      const id = myG > 0 && dist < 1.5 ? pick((T) => (d0 === 'b' ? T.fall === 'forward' || T.fall === 'side' : T.fall === 'backward' || T.fall === 'back')) : null;
+      if (id) { J.tryThrow(f, id); ai.jcd = rnd(P.gap[0], P.gap[1]) * 0.8; return; }
+    }
+  }
   // he sees the moment: you are off balance, or spent
   const ob = o.offBal, tired = hisS < 30;
   const winRate = LV.window[lvl] * P.window * (tired ? 1.4 : 1);

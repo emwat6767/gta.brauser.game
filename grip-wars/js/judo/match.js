@@ -129,7 +129,7 @@ J.subTry = function (g, f) {
   ne.subCd = 1.6; f.stamina = Math.max(0, f.stamina - 4);
   const u = ne.uke, T = J.NE_TECH[ne.hold ? (Math.random() < 0.5 ? 0 : 1) : (Math.random() < 0.5 ? 0 : 2)];
   const p = cl(0.12 + (neSkill(f) - neSkill(u)) * 0.9 + (ne.hold ? 0.05 : 0) + 0.12 * (1 - cl(u.stamina / 100)), 0.04, 0.42) * (f.isPlayer ? 1 : 0.5);   // the opponent's choke is no lottery ticket
-  if (Math.random() < p) { g.ui.callout('СДАЛСЯ!', T.name + ' · ' + T.jp, 'ko', 2.4); return J.ippon(g, f, T, 'Сдался · ' + T.name); }
+  if (Math.random() < p) { g.ui.callout('СДАЛСЯ!', T.name + ' · ' + T.jp, 'ko', 2.4); return J.ippon(g, f, T, 'Сдался'); }
   ne.esc += 0.22; mark2(g, f, 'ЗАЩИТИЛСЯ ОТ: ' + T.name.toUpperCase());
 };
 J.escTry = function (g, f) {

@@ -1,7 +1,8 @@
 //# sourceURL=judo/gw_drills.js
 // GRIP WARS: the training on the mat. Short drills in the real engine, each one gives a multiplier to the gains:
 // the grip fight (30 s, only the grips count), the timing of a throw (8 entries: throw at the moment he loses his
-// balance, in the right direction), ne-waza (hold him 10 s, then get out from under him) and a sparring bout.
+// balance, in the right direction), the defence (stand up to 6 of his attacks: L1 at the start of his throw,
+// or hold the defensive posture), ne-waza (hold him 10 s, then get out from under him) and a sparring bout.
 (function () {
 'use strict';
 const UFC = window.UFC;
@@ -28,15 +29,15 @@ function board(html) {
 D.board = board;
 
 // start a drill: the two bodies, the rules, and where to go when it is over
-function begin(d, pcfg, ocfg, lvl, len) {
+function begin(d, pcfg, ocfg, lvl, len, o) {
   const g = window.__UFC__;
-  J.setVenue('europe');
+  J.setVenue((o && o.venue) || 'dojo');
   J.opt.gi = d.gi || 'white'; J.opt.name = (pcfg.short || pcfg.name || '').toUpperCase();
   GW.drill = d;
   d.t = 0; d.done = false;
   g.onResultContinue = () => g.quitToMenu();
   g.onQuit = () => { const x = GW.drill; GW.drill = null; J.noPartial = false; board(''); if (x && x.finishCb) x.finishCb(x.result || D.result(x)); };
-  g.startQuickFight(pcfg, ocfg, Object.assign({}, g.ui.settings, { difficulty: lvl, forceLen: len || 30 }), { gw: true, drill: d.kind, presentation: 'off' });
+  g.startQuickFight(pcfg, ocfg, Object.assign({}, g.ui.settings, { difficulty: lvl, forceLen: len || 30 }), { gw: true, drill: d.kind, presentation: 'off', gwCareer: !!(o && o.career) });
   if (g.p1 && d.after) d.after(g);
 }
 D.end = function (d) {
@@ -47,12 +48,12 @@ D.end = function (d) {
 };
 D.result = function (d) {
   const mult = cl(d.mult ? d.mult() : 1, 0.5, 1.8);
-  return { kind: d.kind, mult, text: d.summary ? d.summary() : '', score: d.score || 0 };
+  return { kind: d.kind, mult, text: d.summary ? d.summary() : '', score: d.score || 0, hits: d.hits || 0, stood: d.stood || 0, held: d.held || 0 };
 };
 const stand = (ai) => { const it = ai.f.intent; it.mx = it.mz = 0; it.strike = null; };
 
 // ---------------------------------------------------------------- 1. the grip fight
-D.grip = function (pcfg, ocfg, lvl, cb) {
+D.grip = function (pcfg, ocfg, lvl, cb, o) {
   const d = { kind: 'grip', title: 'Борьба за захват', finishCb: cb, score: 0, noThrows: 'НА ЭТОЙ ТРЕНИРОВКЕ — ТОЛЬКО ЗАХВАТ', noNe: true };
   d.ai = function (ai, dt) {
     const g = ai.game, f = ai.f, o = f.opponent, it = f.intent;
@@ -68,20 +69,27 @@ D.grip = function (pcfg, ocfg, lvl, cb) {
     d.t += dt;
     const a = g.p1.grip || 0, b = g.p2.grip || 0;
     d.score += dt * (a - b + (a >= 2 && b === 0 ? 0.5 : 0));
-    board('<b>ЗАХВАТЫ</b> · ' + Math.max(0, 30 - d.t).toFixed(0) + ' с<br>Счёт ' + d.score.toFixed(0) + ' · вы ' + '●'.repeat(a) + '○'.repeat(2 - a) + ' · он ' + '●'.repeat(b) + '○'.repeat(2 - b) + '<i><u style="width:' + cl(d.score / 30 * 100, 0, 100) + '%"></u></i>');
+    const hint = b > 0 && a < 2 ? 'он держит — L1, сбросьте' : a === 0 ? 'подойдите и L2 — рукав' : a === 1 ? 'L2 ещё раз — отворот' : 'держите! он будет сбрасывать';
+    board('<b>ЗАХВАТЫ</b> · ' + Math.max(0, 30 - d.t).toFixed(0) + ' с<br>Счёт ' + d.score.toFixed(0) + ' · вы ' + '●'.repeat(a) + '○'.repeat(2 - a) + ' · он ' + '●'.repeat(b) + '○'.repeat(2 - b) + '<br><small>' + hint + '</small><i><u style="width:' + cl(d.score / 30 * 100, 0, 100) + '%"></u></i>');
     if (d.t >= 30) D.end(d);
   };
   d.onTime = () => D.end(d);
   d.mult = () => 0.6 + d.score / 25;
   d.summary = () => 'Счёт ' + d.score.toFixed(0) + ' → рост ×' + cl(0.6 + d.score / 25, 0.5, 1.8).toFixed(2);
-  begin(d, pcfg, ocfg, lvl, 60);
+  begin(d, pcfg, ocfg, lvl, 60, o);
 };
 
 // ---------------------------------------------------------------- 2. the timing of a throw (uchikomi with a resisting partner)
 const dirOk = (T, dir) => (dir === 'back' ? T.fall === 'backward' || T.fall === 'back' : T.fall === 'forward' || T.fall === 'side');
-D.uchikomi = function (pcfg, ocfg, lvl, tech, cb) {
+D.uchikomi = function (pcfg, ocfg, lvl, tech, cb, o) {
   const d = { kind: 'uchikomi', title: 'Тайминг броска', finishCb: cb, tech, tries: 0, hits: 0, max: 8, cue: null, cueT: rnd(1.4, 2.4), noTwist: true, noNe: true };
-  d.ai = function (ai) { stand(ai); const f = ai.f; f.grip = 0; ai.f.intent.mx = Math.sin(ai.game.clock * 0.9) * 0.25; };
+  d.ai = function (ai) {
+    stand(ai); const f = ai.f, o = f.opponent; f.grip = 0;
+    // the partner holds the grip distance himself: you hold him, he moves with you
+    const dist = o ? Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z) : 1;
+    f.intent.mz = dist > 0.95 ? 0.7 : dist < 0.7 ? -0.5 : 0;
+    f.intent.mx = Math.sin(ai.game.clock * 0.9) * 0.25;
+  };
   d.chance = function (f, o, T) {
     if (f !== f.game.p1) return 0;
     const good = !!(o.offBal && o.offBal.gw && dirOk(T, o.offBal.dir));
@@ -106,18 +114,73 @@ D.uchikomi = function (pcfg, ocfg, lvl, tech, cb) {
       if (d.cue && !g.p2.offBal) { d.cue = null; d.cueT = rnd(1.4, 2.4); }
     }
     const T = J.TECHS[d.tech];
+    // which of your buttons fits the moment
+    const k = d.cue ? J.loadout.findIndex((id) => J.TECHS[id] && dirOk(J.TECHS[id], d.cue) && (!GW.known || GW.known.includes(id))) : -1;
+    const btn = k >= 0 ? ' · ' + ['□', '△', '✕', '○', 'R2'][k] + ' ' + J.TECHS[J.loadout[k]].name : '';
     board('<b>ТАЙМИНГ</b> · попытка ' + Math.min(d.max, d.tries + 1) + '/' + d.max + ' · точных ' + d.hits +
-      (d.cue ? '<span class="cue' + (d.cue === 'back' ? ' back' : '') + '">' + (d.cue === 'back' ? 'НА ПЯТКАХ — БРОСОК НАЗАД' : 'ПОДАЛСЯ — БРОСОК ВПЕРЁД') + '</span>' : '<br><small>ждите момента · ваш приём: ' + (T ? T.name : '') + '</small>'));
+      (d.cue ? '<span class="cue' + (d.cue === 'back' ? ' back' : '') + '">' + (d.cue === 'back' ? 'НА ПЯТКАХ — НАЗАД' : 'ПОДАЛСЯ — ВПЕРЁД') + btn + '</span>' : '<br><small>ждите момента: бросок вперёд или назад — туда, куда он качнётся</small>'));
   };
   d.onTime = () => D.end(d);
   d.mult = () => 0.5 + (d.hits / d.max) * 1.3;
   d.summary = () => 'Точных бросков ' + d.hits + ' из ' + d.max + ' → рост ×' + cl(0.5 + (d.hits / d.max) * 1.3, 0.5, 1.8).toFixed(2);
   J.noPartial = true;
-  begin(d, pcfg, ocfg, lvl, 120);
+  begin(d, pcfg, ocfg, lvl, 120, o);
 };
 
-// ---------------------------------------------------------------- 3. ne-waza: hold him, then get out
-D.newaza = function (pcfg, ocfg, lvl, cb) {
+// ---------------------------------------------------------------- 3. the defence: stand up to his attacks
+D.defense = function (pcfg, ocfg, lvl, cb, o) {
+  const d = { kind: 'defense', title: 'Устоять', finishCb: cb, n: 0, stood: 0, max: 6, cd: 2.4, warn: false, noNe: true, noThrows: 'ЗДЕСЬ ТОЛЬКО ЗАЩИТА: L1 В НАЧАЛЕ ЕГО БРОСКА', last: '' };
+  const pickId = (f) => { const k = (f.cfg.known && f.cfg.known.length ? f.cfg.known : ['podsechka', 'otkhvat', 'bedro']); return k[(Math.random() * k.length) | 0]; };
+  d.ai = function (ai, dt) {
+    const g = ai.game, f = ai.f, o2 = f.opponent, it = f.intent;
+    stand(ai);
+    if (g.phase !== 'fight' || d.done || f.state !== 'fight' || !o2) return;
+    const dist = Math.hypot(o2.pos.x - f.pos.x, o2.pos.z - f.pos.z);
+    it.mz = dist > 1.0 ? 0.7 : dist < 0.7 ? -0.5 : 0;
+    if (g.judoRun || g.judoMatte || J.paused(g)) return;
+    f.grip = 2; f._judoCool = 0; f.stamina = Math.max(f.stamina, 70);
+    d.cd -= dt;
+    d.warn = d.cd < 0.75 && d.n < d.max;
+    if (d.cd <= 0 && d.n < d.max && dist < 1.4) { d.cd = rnd(2.6, 3.6) - lvl * 0.25; J.tryThrow(f, pickId(f)); }
+  };
+  d.chance = function (f, o2) { if (f === f.game.p1) return 0; return o2._gwGuard ? 0.45 : 0.92; };
+  d.resist = function (g, run, f) {
+    if (run.uke !== f) return;
+    if (run.stage === 'drive') { const r = run.twistTry(); g.ui.hitMarker(r === 'full' ? 'ВЫКРУТИЛСЯ!' : r === 'half' ? 'НА БОК' : 'ПОЗДНО', 0); return; }
+    if (run.resistTried || run.fail) return;
+    run.resistTried = true;
+    const early = Math.max(0, 1 - run.t / Math.max(0.2, run.drive.t0));
+    const p = cl(0.3 + early * 0.7 + (lvl === 0 ? 0.1 : 0), 0.1, 0.95);
+    if (Math.random() < p && run.resist()) g.ui.hitMarker('УСТОЯЛ!', 0); else g.ui.hitMarker('ПОЗДНО', 0);
+  };
+  d.onAttempt = function (f) { if (!f.isPlayer) { d.n++; d.warn = false; } };
+  d.onDone = function (g, run) {
+    g.judoRun = null;
+    if (run.tori === g.p2) {
+      const ok = run.fail || !run.result || run.result.score === 'none';
+      if (ok) d.stood++;
+      d.last = ok ? 'устояли' : 'бросил';
+      g.ui.callout(ok ? 'УСТОЯЛ' : 'БРОСИЛ', ok ? (run.resisted ? 'L1 вовремя' : 'не дал оценки') : 'L1 в самом начале его броска, или держите ЗАЩИТУ', 'round', 1.1);
+    }
+    J.matte(g, run.fail ? null : run.uke);
+    if (d.n >= d.max) setTimeout(() => D.end(d), 1600);
+    return false;
+  };
+  d.tick = function (g, dt) {
+    if (g.phase !== 'fight' || d.done) return;
+    d.t += dt;
+    const run = g.judoRun, attack = run && run.tori === g.p2 && run.stage === 'entry' && !run.fail;
+    board('<b>УСТОЯТЬ</b> · атака ' + Math.min(d.max, d.n + (attack ? 0 : 1)) + '/' + d.max + ' · устояли ' + d.stood +
+      (attack ? '<span class="cue back">L1 — УСТОЯТЬ!</span>' : d.warn ? '<span class="cue">ГОТОВЬСЯ…</span>' : '<br><small>жмите L1 в начале его броска · ЗАЩИТА (держать) — бросить труднее</small>'));
+  };
+  d.onTime = () => D.end(d);
+  d.mult = () => 0.5 + (d.stood / d.max) * 1.3;
+  d.summary = () => 'Устояли ' + d.stood + ' из ' + d.max + ' → рост ×' + cl(0.5 + (d.stood / d.max) * 1.3, 0.5, 1.8).toFixed(2);
+  begin(d, pcfg, ocfg, lvl, 120, o);
+};
+
+// ---------------------------------------------------------------- 4. ne-waza: hold him, then get out
+D.newaza = function (pcfg, ocfg, lvl, cb, o) {
   const d = { kind: 'newaza', title: 'Партер', finishCb: cb, phase: 'top', held: 0, esc: false, escT: 0, sub: false, noTwist: true, wait: 1.2 };
   d.ai = function (ai) { stand(ai); };
   d.chance = () => 1.6;
@@ -142,7 +205,8 @@ D.newaza = function (pcfg, ocfg, lvl, cb) {
     const ne = g.judoNe;
     if (!ne && !g.judoRun && !g.judoMatte) { d.wait -= dt; if (d.wait <= 0) { d.wait = 99; startPhase(g); } }
     if (ne && d.phase === 'top' && ne.tori === g.p1) {
-      // the partner tries to get out; the harder level, the faster
+      // the partner tries to get out; in training he gives you a chance, more so on the low levels
+      ne.esc = Math.max(0, ne.esc - dt * [0.045, 0.035, 0.022, 0.01][lvl]);
       d.held = ne.held;
       if (ne.held >= 10) { g.judoNe = null; J.matte(g, ne.uke); d.phase = 'bottom'; d.wait = 2.6; g.ui.callout('ДЕРЖАЛИ 10 С', 'теперь выходите снизу: жмите L1', 'round', 1.6); }
     }
@@ -158,7 +222,7 @@ D.newaza = function (pcfg, ocfg, lvl, cb) {
   d.onTime = () => D.end(d);
   d.mult = () => 0.5 + cl(d.held / 10) * 0.6 + (d.sub ? 0.2 : 0) + (d.esc ? 0.4 + 0.3 * (1 - cl(d.escT / 10)) : 0);
   d.summary = () => 'Удержание ' + Math.min(10, d.held).toFixed(0) + ' с' + (d.sub ? ' + сдача' : '') + ' · ' + (d.esc ? 'вышли снизу за ' + d.escT.toFixed(1) + ' с' : 'выйти не удалось') + ' → рост ×' + cl(d.mult(), 0.5, 1.8).toFixed(2);
-  begin(d, pcfg, ocfg, lvl, 120);
+  begin(d, pcfg, ocfg, lvl, 120, o);
 };
 // no ne-waza after the throws of the grip and timing drills
 const origNe = J.neStart;
