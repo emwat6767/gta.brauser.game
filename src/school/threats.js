@@ -204,6 +204,7 @@ export class Intruder extends Agent {
       default: { // patrol
         this.aimT = 0;
         this.aim = null;
+        if (Math.random() < 0.004) this.say(['Где вы прячетесь?', 'Я слышу вас...', 'Выходите!'][Math.floor(Math.random() * 3)], 2);
         if (this.investigate && g.time - this.investigate.t < 8) {
           const v = this.investigate;
           this.investigate = null;

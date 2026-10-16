@@ -114,7 +114,7 @@ export class NPC extends Agent {
       const d = Math.hypot(n.x - this.pos.x, n.z - this.pos.z) + Math.abs(n.y - this.pos.y) * 3;
       if (d > n.r) continue;
       if (n.kind === 'shot' || n.kind === 'scream' && n.src?.kind === 'zombie') { this.becomeAware(); this.fear = Math.min(1, this.fear + 0.25 * (1 - d / n.r) + 0.1); }
-      if (n.kind === 'alarm') this.becomeAware();
+      if (n.kind === 'alarm' && !this.headphones) this.becomeAware();
     }
     // Огонь и дым рядом.
     const fire = g.fire;
@@ -165,7 +165,7 @@ export class NPC extends Agent {
       g.scenario.at(3 + Math.random() * 3, () => g.scenario.raiseAlarm('fire', 'staff'));
     }
     // До объявления тревоги действуют те, кто сам увидел/услышал беду.
-    const type = g.alarm.type ?? (this.aware && g.scenario.started ? g.scenario.type : null);
+    const type = this.aware ? (g.alarm.type ?? (g.scenario.started ? g.scenario.type : null)) : null;
     if (!type) { this.thinkDaily(); return; }
     // Добрались до места сбора / в автобус — просто стоим.
     if (this.saved) { if (!this.task || this.task.type !== 'assembled') this.setTask({ type: 'assembled' }); return; }
@@ -189,6 +189,7 @@ export class NPC extends Agent {
   // --- обычный день
   thinkDaily() {
     const g = this.game;
+    if (this.headphones && this.task?.type === 'hide') return;   // сидит в туалете в наушниках
     const phase = g.scenario.phase;
     if (this.staff) {
       if (this.staff === 'cleaner') { if (this.task?.type !== 'wander') this.setTask({ type: 'wander', floor: 0, corridor: true }); return; }
@@ -509,6 +510,17 @@ export class NPC extends Agent {
       }
       case 'assembled': {
         this.stop();
+        if (this.isTeacher && this.cls && !t.rollT) t.rollT = g.time + 5;
+        if (this.isTeacher && t.rollT && g.time > t.rollT && !t.rolled) {
+          t.rolled = true;
+          const missing = g.npcs.filter((n) => n.cls === this.cls && n.role === 'student' && n.alive && !n.saved && !n.turned && !n.inBus);
+          const pl = this.cls.player && !g.player.saved;
+          const names = missing.map((n) => n.short);
+          if (pl) names.unshift('нашего новенького');
+          const text = names.length ? `${this.cls.name}: нет ${names.slice(0, 3).join(', ')}!` : `${this.cls.name}: все на месте.`;
+          this.speak(text, true, 4);
+          if (names.length && missing.length && g.player.saved) g.hud.flash(`${this.short}: в школе остались ${missing.map((n) => n.short).join(', ')}`, 4);
+        }
         if (!t.spot) {
           const c = g.alarm.type === 'zombie' && g.scenario.rescueHere ? SCHOOL.bus : SCHOOL.assembly;
           const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (c.r - 2);

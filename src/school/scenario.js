@@ -152,6 +152,20 @@ export class Scenario {
     const spot = f.pick(f.z ?? g.school.zoneById.get(f.zone));
     g.fire.start(spot.x, spot.z, f.z.floor, 1.0);
     this.fireName = f.name;
+    // Двое «в наушниках» ушли в туалет и не услышат сирену — их можно найти и вывести.
+    const cands = g.npcs.filter((n) => n.alive && n.role === 'student' && !n.cls?.player && n.cls?.room !== 'gym');
+    const wcs = g.school.zones.filter((z) => z.type === 'wc' && z.floor !== f.z.floor);
+    for (let i = 0; i < 2 && cands.length && wcs.length; i++) {
+      const n = cands.splice(Math.floor(Math.random() * cands.length), 1)[0];
+      const z = wcs[Math.floor(Math.random() * wcs.length)];
+      n.headphones = true;
+      n.truant = true;
+      n.model.setLook({ ...n.look, headphones: '#1a1a1a' });
+      n.look = n.model.look;
+      if (n.sitting) n.leaveSeat();
+      const spot = z.hideSpots.find((s) => s.type === 'stall' && !s.occupant) ?? z.hideSpots[0];
+      if (spot) n.setTask({ type: 'hide', spot, until: 1e9 });
+    }
     // Датчик дыма — через несколько секунд, если раньше никто не нажал кнопку.
     this.at(SCHOOL.fire.detector + Math.random() * 6, () => this.raiseAlarm('fire', 'detector'));
   }
@@ -229,7 +243,7 @@ export class Scenario {
       this.helpName = 'Автобус МЧС';
     }
     g.noise(g.player.pos, 999, 'alarm', null);
-    for (const n of g.npcs) if (n.alive) n.becomeAware();
+    for (const n of g.npcs) if (n.alive && !n.headphones) n.becomeAware();
   }
 
   // --- помощь -----------------------------------------------------------------------------------
@@ -306,7 +320,8 @@ export class Scenario {
         g.hud.banner('Ты на месте сбора! Учителя проводят перекличку', 'calm', 5);
         this.rollCallAt = this.t + 25;
       }
-      if (p.saved && this.rollCallAt && this.t >= this.rollCallAt) this.finish(true, 'Ты эвакуировался');
+      // Перекличка — когда игрок стоит на месте сбора (можно вернуться за кем-то и прийти снова).
+      if (p.saved && this.rollCallAt && this.t >= this.rollCallAt && g.atAssembly(p)) this.finish(true, 'Ты эвакуировался');
       else if (p.saved && g.fire.out) this.finish(true, 'Пожар потушен, ты в безопасности');
     } else if (g.alarm.type === 'attack') {
       const free = this.intruders.some((i) => !i.neutralized);

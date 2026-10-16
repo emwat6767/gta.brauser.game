@@ -65,6 +65,10 @@ export function bindMenus(game) {
   return {
     togglePause() {
       if (!game.running) return;
+      // Esc одновременно снимает захват мыши — второй переключатель в ту же секунду игнорируем.
+      const now = performance.now();
+      if (now - (this.lastToggle ?? 0) < 350) return;
+      this.lastToggle = now;
       if (game.paused) resume();
       else {
         game.paused = true;

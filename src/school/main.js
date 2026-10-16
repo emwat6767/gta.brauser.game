@@ -112,6 +112,12 @@ class Game {
     this.difficulty = 1;
     this.settings = { type: 'random', difficulty: 1, alarmMode: 'random', fem: Math.random() < 0.5 };
     this.menu = bindMenus(this);
+    // Мышь отпустили (Esc) во время игры — пауза.
+    document.addEventListener('pointerlockchange', () => {
+      const locked = document.pointerLockElement === this.renderer.domElement;
+      if (!locked && this.wasLocked && this.running && !this.paused && !this.input.touch) this.menu.togglePause();
+      this.wasLocked = locked;
+    });
     this.clock = new THREE.Clock();
     this.idleYaw = 0;
     this.frame = this.frame.bind(this);
