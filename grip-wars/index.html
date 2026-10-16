@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#070708">
+<title>GRIP WARS: Road to Legend</title>
+<link rel="stylesheet" href="css/game.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud" class="hidden">
+  <div class="hud-top">
+    <div class="hf" id="hf0">
+      <div class="hname"><b id="hn0"></b><span id="hk0"></span><em class="hpn" id="hpn0"></em></div>
+      <div class="bar hp"><i id="hh0"></i></div>
+      <div class="bar st"><i id="hs0"></i><u id="hc0"></u></div>
+      <div class="bar hd" id="hdb0" title="Урон голове"><i id="hd0"></i><u id="hdf0"></u></div>
+      <div class="fuel" id="fuel0"><div class="fr"><span>ГЛИКОГЕН</span><b id="fgt"></b><i><u id="fgb"></u></i></div><div class="fr ac"><span>КИСЛОТА</span><b id="fat"></b><i><u id="fab"></u></i></div></div>
+      <div class="mcgtag" id="mcgtag"></div>
+      <div class="bar fl"><i id="hfl0"></i></div>
+      <div class="zones"><svg class="bodyfig" viewBox="0 0 40 80"><circle id="zh0" cx="20" cy="9" r="7"/><rect id="zb0" x="11" y="18" width="18" height="24" rx="5"/><rect id="zv0" x="12" y="31" width="7" height="9" rx="2"/><rect id="zl0" x="11" y="44" width="18" height="33" rx="4"/></svg><div class="zlist"><span>ГОЛОВА <i id="zth0"></i></span><span>КОРПУС <i id="ztb0"></i></span><span>ПЕЧЕНЬ <i id="ztv0"></i></span><span>НОГИ <i id="ztl0"></i></span></div></div>
+    </div>
+    <div class="hclock"><div id="hround">РАУНД 1</div><div id="htime">2:00</div></div>
+    <div class="hf right" id="hf1">
+      <div class="hname"><b id="hn1"></b><span id="hk1"></span><em class="hpn" id="hpn1"></em></div>
+      <div class="bar hp"><i id="hh1"></i></div>
+      <div class="bar st"><i id="hs1"></i><u id="hc1"></u></div>
+      <div class="bar hd" id="hdb1" title="Урон голове"><i id="hd1"></i><u id="hdf1"></u></div>
+      <div class="bar fl"><i id="hfl1"></i></div>
+      <div class="zones"><div class="zlist"><span>ГОЛОВА <i id="zth1"></i></span><span>КОРПУС <i id="ztb1"></i></span><span>ПЕЧЕНЬ <i id="ztv1"></i></span><span>НОГИ <i id="ztl1"></i></span></div><svg class="bodyfig" viewBox="0 0 40 80"><circle id="zh1" cx="20" cy="9" r="7"/><rect id="zb1" x="11" y="18" width="18" height="24" rx="5"/><rect id="zv1" x="21" y="31" width="7" height="9" rx="2"/><rect id="zl1" x="11" y="44" width="18" height="33" rx="4"/></svg></div>
+    </div>
+  </div>
+  <div id="hitlog"></div>
+</div>
+<div id="callout" class="callout"></div>
+<div id="lower3"></div>
+<div id="announce"></div>
+<button id="skiphint" onclick="window.__UFC__ && (window.__UFC__._skipClicked = true)">Пропустить ›</button>
+<div id="lbTop" class="lb"></div><div id="lbBot" class="lb"></div>
+<div id="hitflash"></div>
+<div id="eyeblind"></div>
+<div id="vignette"></div>
+<div id="flowglow"></div>
+<div id="counterfx"><b>КОНТРА!</b><i></i></div><button id="t-counter" class="hidden">КОНТРА</button>
+<div id="prompt"></div>
+<div id="gattempt"></div>
+<div id="subbars"><div id="sb-name"></div><div class="sbrow"><span id="sb-att-n"></span><i><b id="sb-att"></b></i></div><div class="sbrow def"><span id="sb-def-n"></span><i><b id="sb-def"></b></i></div></div>
+<div id="touch" class="hidden">
+  <div id="t-move"></div>
+  <div id="t-swipe"></div>
+  <div id="t-swipefx"></div>
+  <div id="t-swipehint"></div>
+  <div id="t-home"><i></i><b>ХОД</b></div>
+  <div id="t-stick"><div id="t-knob"></div></div>
+  <div class="t-sh left">
+    <button id="t-l2" class="psl">L2<b>УКЛОН</b></button>
+    <button id="t-l1" class="psl">L1<b>ХУК</b></button>
+  </div>
+  <div class="t-sh right">
+    <button id="t-r1" class="psl">R1<b>АППЕР</b></button>
+    <button id="t-r2" class="psl">R2<b>БЛОК</b></button>
+  </div>
+  <div class="t-face">
+    <button id="t-rh" class="psb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M12 4 21 20H3Z"/></svg><b>ПР. РУКА</b></button>
+    <button id="t-lh" class="psb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg><b>ЛЕВ. РУКА</b></button>
+    <button id="t-rk" class="psb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="7.5"/></svg><b>ПР. НОГА</b></button>
+    <button id="t-lk" class="psb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6 18 18M18 6 6 18"/></svg><b>ЛЕВ. НОГА</b></button>
+  </div>
+  <div id="t-slip">R · УКЛОН</div>
+  <div id="t-acts">
+    <button id="t-grap" class="pill">КЛИНЧ</button>
+    <button id="t-td" class="pill">ТЕЙК</button>
+    <button id="t-sub" class="pill hidden">САБ</button>
+    <button id="t-gnp" class="pill hidden">ДОБИТЬ</button>
+    <button id="t-flow" class="pill flow hidden">FLOW</button>
+    <button id="t-commit" class="pill commit hidden">ВЛОЖИТЬСЯ</button>
+  </div>
+  <button id="t-pause">OPTIONS</button>
+</div>
+<div id="ui"></div>
+<div id="boot"><div class="logo"><span>GRIP WARS</span></div><p>Загрузка…</p><noscript><p>Для игры нужен включённый JavaScript. Откройте файл в Chrome, Edge или Firefox.</p></noscript></div>
+<div id="notice" class="hidden"></div>
+<script src="js/engine/watchdog.js"></script>
+<div class="rotate-hint">Поверните телефон горизонтально для лучшего обзора</div>
+<script src="js/vendor/three.min.js"></script>
+<script src="js/engine/core.js"></script>
+<script src="js/engine/roster.js"></script>
+<script src="js/engine/league.js"></script>
+<script src="js/engine/career.js"></script>
+<script src="js/engine/art.js"></script>
+<script src="js/engine/body.js"></script>
+<script src="js/engine/ragdoll.js"></script>
+<script src="js/engine/arena.js"></script>
+<script src="js/engine/fighter.js"></script>
+<script src="js/engine/face.js"></script>
+<script src="js/engine/downed.js"></script>
+<script src="js/engine/gnp.js"></script>
+<script src="js/engine/actor.js"></script>
+<script src="js/engine/grapple.js"></script>
+<script src="js/engine/combat.js"></script>
+<script src="js/engine/ai.js"></script>
+<script src="js/engine/audio.js"></script>
+<script src="js/engine/voice.js"></script>
+<script src="js/engine/neonfx.js"></script>
+<script src="js/engine/commentary.js"></script>
+<script src="js/engine/fx.js"></script>
+<script src="js/engine/replay.js"></script>
+<script src="js/engine/ceremony.js"></script>
+<script src="js/engine/ui.js"></script>
+<script src="js/engine/careerui.js"></script>
+<script src="js/engine/careerui2.js"></script>
+<script src="js/engine/medical.js"></script>
+<script src="js/engine/game.js"></script>
+
+<script src="js/judo/venues.js"></script>
+<script src="js/judo/gi.js"></script>
+<script src="js/judo/throws.js"></script>
+<script src="js/judo/run.js"></script>
+<script src="js/judo/match.js"></script>
+<script src="js/judo/grips.js"></script>
+<script src="js/judo/ui.js"></script>
+<script src="js/judo/career.js"></script>
+<script src="js/gw/gw_fight.js"></script>
+<script src="js/gw/gw_ai.js"></script>
+<script src="js/gw/gw_data.js"></script>
+<script src="js/gw/gw_career.js"></script>
+<script src="js/gw/gw_drills.js"></script>
+<script src="js/gw/gw_ui.js"></script>
+<script>if (/^https?:/.test(location.protocol) && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});</script>
+</body>
+</html>
