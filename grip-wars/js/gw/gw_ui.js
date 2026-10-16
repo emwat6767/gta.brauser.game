@@ -157,16 +157,16 @@ function taskCard(c, t) {
     btn = '<div class="dim">' + (e ? 'Ближайший: «' + esc(e.name) + '» ' + (e.inWeeks ? 'через ' + e.inWeeks + ' нед.' : '— на этой неделе, кнопка ниже') : 'Турнир скоро появится в календаре.') + '</div>';
   }
   const pr = C.taskProgress(c, t);
-  return '<div class="task"><h4>Задание тренера: ' + esc(t.name) + '</h4><q>' + esc(t.coach) + '</q><div class="goal"><b>Цель:</b> ' + esc(t.goal) + (pr ? ' · ' + pr : '') + '</div><div class="rw">Награда: ' + reward(t.reward) + (t.unlock ? ' · откроет тренировку «' + esc(GW.SESSIONS[t.unlock].name) + '»' : '') + '</div>' + btn + '</div>';
+  return '<div class="task"><h4>Задание тренера: ' + esc(t.name) + '</h4><q>' + esc(C.loc(t.coach, c)) + '</q><div class="goal"><b>Цель:</b> ' + esc(C.loc(t.goal, c)) + (pr ? ' · ' + pr : '') + '</div><div class="rw">Награда: ' + reward(t.reward) + (t.unlock ? ' · откроет тренировку «' + esc(GW.SESSIONS[t.unlock].name) + '»' : '') + '</div>' + btn + '</div>';
 }
 function renderHub() {
   const p = screen('scr-gw'), c = GW.c || C.load();   // the live career; the save is only read once
   if (!c) return renderCreate(p);
   if (c.retired) return renderLegacy(p, c);
-  const T = GW.TIERS[c.tier], next = GW.TIERS[c.tier + 1];
+  const T = GW.TIERS[c.tier], next = GW.TIERS[c.tier + 1], L = (s) => C.loc(s, c);
   const ladder = GW.TIERS.map((t, i) => '<div class="' + (i < c.tier ? 'done' : i === c.tier ? 'now' : '') + '">' + beltDot(i) + esc(t.name) + '</div>').join('');
   const evs = C.eventsAround(c), now = evs.filter((e) => e.inWeeks === 0), later = evs.filter((e) => e.inWeeks > 0);
-  const evRow = (e) => '<div class="ev"><div><b>' + esc(e.name) + '</b>' + (e.invite ? ' <span class="tp">ПРИГЛАШЕНИЕ</span>' : '') + '<small>' + GW.TIERS[e.tier].name + ' · ' + (e.single ? 'одна схватка с тем, кто выше вас в рейтинге: ' + esc((C.npcById(C.rankRival(c)) || {}).name || '—') : e.size === 2 ? 'две схватки со старшими' : 'сетка на ' + e.size) + (e.fee ? ' · взнос ' + money(e.fee) : '') + (GW.TIERS[e.tier].prize && !e.single ? ' · за золото ' + money(GW.TIERS[e.tier].prize * (e.size >= 16 ? 1.3 : 1)) : '') + (e.title ? ' · титул «' + e.title + '»' : '') + '</small></div>' +
+  const evRow = (e) => '<div class="ev"><div><b>' + esc(e.name) + '</b>' + (e.invite ? ' <span class="tp">ПРИГЛАШЕНИЕ</span>' : '') + '<small>' + (e.catName && e.tier >= 2 ? esc(e.catName) + ' · ' : '') + (e.noteL ? esc(e.noteL) + ' · ' : '') + GW.TIERS[e.tier].name + ' · ' + (e.single ? 'одна схватка с тем, кто выше вас в рейтинге: ' + esc((C.npcById(C.rankRival(c)) || {}).name || '—') : e.size === 2 ? 'две схватки со старшими' : 'сетка на ' + e.size) + (e.fee ? ' · взнос ' + money(e.fee) : '') + (GW.TIERS[e.tier].prize && !e.single ? ' · за золото ' + money(GW.TIERS[e.tier].prize * (e.size >= 16 ? 1.3 : 1)) : '') + (e.tname ? ' · титул «' + esc(e.tname) + '»' : '') + '</small></div>' +
     (e.inWeeks === 0 ? (c.wk ? '<span class="dim">идёт неделя тренировок</span>' : c.injury > 0 ? '<span class="bad">травма</span>' : c.money < (e.fee || 0) ? '<span class="bad">нет денег на взнос</span>' : '<button class="btn primary" data-act="enter" data-v="' + e.key + '">Выступить в субботу</button>') : '<span class="dim">через ' + e.inWeeks + ' нед.</span>') + '</div>';
   const wk = c.wk, wkNext = !wk ? '' : wk.i < 3 ? GW.DAYS[GW.TRAIN_DOW[wk.i]] + ' — ' + GW.SESSIONS[wk.slots[wk.i]].name : 'выходные: итоги недели';
   const gaps = C.promoGaps(c), tasks = C.tasksNow(c);
@@ -174,8 +174,9 @@ function renderHub() {
   p.innerHTML = '<h2>' + esc(c.name) + '</h2><div class="dim">' + GW.CC[c.cc] + ' · ' + c.kg + ' кг · ' + GW.HEIGHTS[c.height].name.toLowerCase() + ' · ' + (c.stance === 'R' ? 'правая' : 'левая') + ' стойка · ' + c.age + ' лет, ' + C.phase(c) + ' · ' + C.today(c) + ' · <b>' + C.sport(c) + '</b> · ' + GW.BELTS[c.tier].name + ' · ' + esc((GW.CLUBS[c.club] || GW.CLUBS.sakura).name) + '</div>' +
     saveLine(c) +
     '<div class="ladder">' + ladder + '</div>' +
-    '<div class="note"><b>Этап ' + (c.tier + 1) + ' · ' + esc(T.name) + '</b> — ' + esc(T.place) + '. ' + esc(T.text) + '</div>' +
-    '<div class="opens">Открыто на этом этапе: ' + T.opens.map((o) => '<span>' + esc(o) + '</span>').join('') + '</div>' +
+    '<div class="note"><b>Этап ' + (c.tier + 1) + ' · ' + esc(T.name) + '</b> — ' + esc(L(T.place)) + '. ' + esc(L(T.text)) + '</div>' +
+    '<div class="opens">Открыто на этом этапе: ' + T.opens.map((o) => '<span>' + esc(L(o)) + '</span>').join('') + '</div>' +
+    (c.restUntil > c.week && !c.wk ? '<div class="task"><h4>После чемпионата</h4><div class="goal">Турниры подождут: следующие недели — обычные тренировки, физика и спарринги.</div><button class="btn primary" data-act="plainweek">Неделя: физика и спарринг</button></div>' : '') +
     (next ? '<div class="dim">Дальше: <b>' + esc(next.name) + '</b>. ' + (gaps.length ? 'Осталось: ' + esc(gaps.join(' · ')) + '.' : 'Всё готово — переход после ближайшего результата.') + '</div>' + (c.tier > 0 ? bar(C.stageRep(c).got, C.stageRep(c).need) : bar(Object.keys(c.tasks).filter((id) => GW.TIER_NEED[0].includes(id)).length, GW.TIER_NEED[0].length)) : '<div class="note">Вершина. Защищайте титул, возвращайте долги старым соперникам и копите наследие: ' + C.legacy(c) + ' очков (' + C.legacyName(C.legacy(c)) + ').</div>') +
     (c.ev && c.ev.state !== 'done' ? '<div class="foot"><button class="btn primary" data-act="toev">Продолжить: ' + esc(c.ev.name) + '</button></div>' : '') +
     (wk ? '<div class="task"><h4>Неделя идёт · сделано дней: ' + wk.i + ' из 3</h4><div class="goal">' + (wk.log.length ? wk.log.map((d) => esc(d.day + ': ' + d.name)).join(' · ') + '<br>' : '') + 'Следующий день: <b>' + esc(wkNext) + '</b></div><button class="btn primary" data-act="contweek">Продолжить неделю</button></div>' : '') +
@@ -248,6 +249,7 @@ function renderWeek() {
   p.innerHTML = '<h2>Тренировочная неделя</h2><div class="dim">' + C.date(c) + ' · тренировки в понедельник, среду и пятницу, каждый день сохраняется сразу · тренер: ' + esc(club.coach.split(',')[0]) + ' (рост ×' + club.mult + '). Мини-игры дают рост ×0.5–1.8 в зависимости от того, как вы их пройдёте; без мини-игры — ×0.65, и задания тренера тогда не засчитываются.</div>' +
     [0, 1, 2].map(slot).join('') +
     (locked.length ? '<div class="dim" style="font-size:12px">Закрыто: ' + locked.map((k) => GW.SESSIONS[k].name + ' (' + esc(lockedWhy(c, k)) + ')').join(' · ') + '</div>' : '') +
+    '<div class="opt"><label>Обычная неделя</label><div class="chips"><button class="chip' + (plan.slots.join() === ['power', 'sparring', 'cardio'].join() ? ' on' : '') + '" data-act="plain">Физика и спарринг<small>сила · спарринг · выносливость</small></button></div></div>' +
     (S ? '<div class="opt"><label>Индивидуальный план · ' + esc(S.name) + '</label><div class="chips"><button class="chip' + (plan.slots.join() === S.plan.join() ? ' on' : '') + '" data-act="indiv">' + S.plan.map((x) => GW.SESSIONS[x].name).join(' + ') + '<small>+10% к росту всей недели · ' + esc(GW.ATTRS[S.attr].name) + ' растёт на 35% быстрее всегда</small></button></div></div>' : '') +
     (plan.slots.includes('uchikomi') ? '<div class="opt"><label>Бросок для отработки (только изученные)</label><div class="chips">' + c.known.map((id) => '<button class="chip' + (plan.tech === id ? ' on' : '') + '" data-act="tech" data-v="' + id + '">' + tn(id) + '<small>мастерство ' + Math.round(c.mastery[id] || 10) + '</small></button>').join('') + '</div></div>' : '') +
     '<div class="opt"><label>Мини-игры на татами</label><div class="chips"><button class="chip' + (plan.play ? ' on' : '') + '" data-act="play" data-v="1">Играть (лучше рост, задания)</button><button class="chip' + (!plan.play ? ' on' : '') + '" data-act="play" data-v="0">Быстро (×0.65)</button></div></div>' +
@@ -334,7 +336,7 @@ function renderEvent() {
   if (ev.state !== 'over') {
     const n = C.npcById(C.nextOpponent(c)), r = c.rivals[n.id];
     const scouted = ev.scouted && ev.scouted.includes(n.id);
-    body = '<h3>' + esc(ev.single ? ev.name : C.roundName(ev)) + '</h3><div class="opp">' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> · ' + GW.CC[n.cc] + ' · ' + C.npcAge(n, c) + ' лет, ' + GW.PHASE[C.npcPhase(n, c)] + ' · сегодня ' + GW.FORM(C.formOf(n, c)) + ' · уровень ' + Math.max(C.npcLevel(n, c), ev.boost || 0) + ' · ' + GW.BELTS[Math.min(7, n.tier)].name +
+    body = '<h3>' + esc(ev.single ? ev.name : C.roundName(ev)) + '</h3><div class="opp">' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> · ' + GW.CC[C.npcCc(n, c)] + ' · ' + C.npcAge(n, c) + ' лет, ' + GW.PHASE[C.npcPhase(n, c)] + ' · сегодня ' + GW.FORM(C.formOf(n, c)) + ' · уровень ' + Math.max(C.npcLevel(n, c), ev.boost || 0) + ' · ' + GW.BELTS[Math.min(7, n.tier)].name +
       '<div class="dim" style="margin-top:6px">' + esc(GW.TYPES[n.type].desc) + '</div><div style="margin-top:4px">Любимые броски: <b>' + n.fav.map(tn).join(', ') + '</b>' + (r ? ' · ваши встречи: ' + r.w + '–' + r.l : ' · вы не встречались') + '</div><div class="dim" style="margin-top:4px">' + esc(n.bio) + '</div>' +
       recordHtml(c, n.id) + styleHtml(c, n) + memoryHtml(c, n) + (scouted || (r && r.l > 0 && c.tier >= 4) ? '<div class="sw" style="margin-top:4px">Вы его изучили: ваши броски +6%, его любимые броски против вас −10%.</div>' : '') + '</div>' +
       (c.tier >= 4 && !n.filler && !scouted ? '<div class="foot"><button class="btn" data-act="scout" data-v="' + n.id + '">Разобрать видео соперника</button></div>' : '') +
@@ -347,7 +349,7 @@ function renderEvent() {
       evStatsHtml(ev) + unlockedHtml(ev.unlocked) +
       '<div class="foot">' + (ev.place <= 3 && !ev.single && !ev.exam && !ev.podium && ev.tier >= 1 ? '<button class="btn primary" data-act="podium">Пьедестал</button>' : '') + '<button class="btn' + (ev.place <= 3 && !ev.single && !ev.exam && !ev.podium && ev.tier >= 1 ? '' : ' primary') + '" data-act="evdone">Дальше</button></div>';
   }
-  p.innerHTML = '<h2>' + esc(ev.name) + '</h2><div class="dim">' + GW.TIERS[ev.tier].name + (ev.single ? '' : ev.exam ? ' · две аттестационные схватки со старшими' : ' · сетка на ' + ev.size) + (ev.invite ? ' · по приглашению' : '') + '</div><div class="br">' + rows + '</div>' + body +
+  p.innerHTML = '<h2>' + esc(ev.name) + '</h2><div class="dim">' + GW.TIERS[ev.tier].name + (ev.cat && ev.cat !== 'senior' ? ' · ' + GW.AGE_CAT[ev.cat].name : '') + (ev.intlY ? ' · за сборную ' + esc((GW.NAT[c.cc] || GW.NAT.RUS).gen) : '') + (ev.single ? '' : ev.exam ? ' · две аттестационные схватки со старшими' : ' · сетка на ' + ev.size) + (ev.invite ? ' · по приглашению' : '') + '</div><div class="br">' + rows + '</div>' + body +
     (ev.log.length ? '<h3>Другие схватки</h3><div class="news">' + ev.log.slice(-6).map((l) => '<div>' + esc(l) + '</div>').join('') + '</div>' : '');
 }
 function unlockedHtml(list) {
@@ -359,7 +361,7 @@ function unlockedHtml(list) {
     if (u.startsWith('task:')) { const t = GW.TASKS.find((x) => x.id === u.slice(5)); return t ? '<div class="good">Задание тренера выполнено: <b>' + esc(t.name) + '</b> · ' + reward(t.reward) + '</div>' : ''; }
     if (u.startsWith('session:')) { const S = GW.SESSIONS[u.slice(8)]; return S ? '<div class="good">Открыта тренировка: <b>' + esc(S.name) + '</b> — ' + esc(S.desc) + '</div>' : ''; }
     if (u.startsWith('learn:')) return '<div class="good">Новые броски: <b>' + u.slice(6).split(',').map(tn).join(', ') + '</b> — поставьте их на кнопки в «Билд и кнопки».</div>';
-    if (u.startsWith('invite:')) { const k = u.slice(7), e = GW.EVENTS.find((x) => x.id === k.split('@')[0]); return e ? '<div class="good">Приглашение на «<b>' + esc(e.name) + '</b>» (' + esc(GW.TIERS[e.tier].name) + ')</div>' : ''; }
+    if (u.startsWith('invite:')) { const k = u.slice(7), e = GW.EVENTS.find((x) => x.id === k.split('@')[0]); return e ? '<div class="good">Приглашение на «<b>' + esc(C.evLocal(e, GW.c, true).name) + '</b>» (' + esc(GW.TIERS[e.tier].name) + ')</div>' : ''; }
     if (u.startsWith('ch:')) { const ch = GW.CHALLENGES.find((x) => x.id === u.slice(3)); return ch ? '<div class="good">Испытание выполнено: <b>' + esc(ch.name) + '</b></div>' : ''; }
     const a = GW.ACH[u]; return a ? '<div class="good">Достижение: <b>' + esc(a.name) + '</b> — ' + esc(a.desc) + '</div>' : '';
   }).join('');
@@ -453,7 +455,7 @@ function renderRivals() {
   const rm = C.rematches(c);
   const met = Object.entries(c.rivals).map(([id, r]) => ({ n: C.npcById(id), r })).filter((x) => x.n).sort((a, b) => (b.r.w + b.r.l) - (a.r.w + a.r.l));
   const scout = GW.ROSTER.filter((n) => n.tier >= Math.max(1, c.tier - 1) && n.tier <= c.tier + 1);
-  const card = (n, extra) => '<div class="ev"><div>' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> <span class="dim">' + GW.CC[n.cc] + ' · ' + C.npcAge(n, c) + ' лет, ' + GW.PHASE[C.npcPhase(n, c)] + ' · уровень ' + C.npcLevel(n, c) + ' · ' + esc(GW.TIERS[Math.min(7, n.tier)].name) + '</span><small>' + n.fav.map(tn).join(', ') + ' · ' + esc(n.bio) + '</small>' + recordHtml(c, n.id) + styleHtml(c, n) + '</div>' + (extra || '') + '</div>';
+  const card = (n, extra) => '<div class="ev"><div>' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> <span class="dim">' + GW.CC[C.npcCc(n, c)] + ' · ' + C.npcAge(n, c) + ' лет, ' + GW.PHASE[C.npcPhase(n, c)] + ' · уровень ' + C.npcLevel(n, c) + ' · ' + esc(GW.TIERS[Math.min(7, n.tier)].name) + '</span><small>' + n.fav.map(tn).join(', ') + ' · ' + esc(n.bio) + '</small>' + recordHtml(c, n.id) + styleHtml(c, n) + '</div>' + (extra || '') + '</div>';
   let rank = '';
   if (c.tier >= 4) {
     const T = C.rankTable(c), me = T.findIndex((x) => x.id === 'player');
@@ -575,11 +577,13 @@ function onClick(e) {
     case 'height': spec.height = v; renderHub(); break;
     case 'stance': spec.stance = v; renderHub(); break;
     case 'create': { const inp = document.getElementById('gw-name'); if (inp) spec.name = inp.value; if (!spec.name.trim()) spec.name = 'Иван Волков'; C.create(spec); J.opt.kg = spec.kg; renderHub(); break; }
+    case 'plainweek': if (c.wk) { runWeek(); break; } plan = newPlan(c); { const sp = c.sessions.includes('sparring'); plan.slots = c.injury > 0 ? ['tech', 'recovery', 'tech'] : ['power', sp ? 'sparring' : 'tech', 'cardio']; } U.go('scr-gw-week'); break;
     case 'week': if (c.ev) { U.go('scr-gw-ev', null, { reset: true }); break; } if (c.wk) { runWeek(); break; } plan = null; U.go('scr-gw-week'); break;
     case 'taskgo': if (c.wk) runWeek(); else goTask(c, v); break;
     case 'club': U.go('scr-gw-club'); break;
     case 'slot': plan.slots[+b.dataset.i] = v; renderWeek(); break;
     case 'partner': plan.partner[+b.dataset.i] = v; renderWeek(); break;
+    case 'plain': { const sp = c.sessions.includes('sparring'); plan.slots = c.injury > 0 ? ['tech', 'recovery', 'tech'] : ['power', sp ? 'sparring' : 'tech', 'cardio']; if (sp) plan.partner[1] = plan.partner[1] || defaultPartner(c); renderWeek(); break; }
     case 'indiv': if (c.spec) plan.slots = GW.SPECS[c.spec].plan.filter((s) => c.sessions.includes(s)).concat(['recovery', 'recovery']).slice(0, 3); renderWeek(); break;
     case 'tech': plan.tech = v; renderWeek(); break;
     case 'play': plan.play = v === '1'; renderWeek(); break;

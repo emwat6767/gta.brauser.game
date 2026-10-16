@@ -174,7 +174,8 @@ C.legacy = function (c) {
   const TW = [0, 1, 2, 4, 9, 18, 35, 60];
   let p = 0;
   for (const m of c.medals) p += TW[m.tier] * (m.place === 1 ? 1 : m.place === 2 ? 0.6 : 0.4);
-  for (const t of c.titles) p += t.name === 'Олимпийский чемпион' ? 200 : t.name === 'Чемпион мира' ? 120 : t.name === 'Чемпион страны' ? 40 : 0;
+  const TP = { 'Олимпийский чемпион': 200, 'Чемпион мира': 120, 'Чемпион страны': 40, 'Чемпион мира (молодёжь)': 25, 'Чемпион континента (молодёжь)': 15, 'Чемпион страны (молодёжь)': 8 };
+  for (const t of c.titles) p += TP[t.key || t.name] || 0;
   p += c.defenses * 60 + Object.keys(c.achievements).length * 5;
   return Math.round(p);
 };
@@ -204,14 +205,17 @@ C.grow = function (c, k, g) {
 // ---------------------------------------------------------------- the people
 // every person has his own prime: he grows until it, keeps it three years, then fades, faster after six
 C.npcPrime = (n) => n.prime || Math.max(24 + (hash(n.id + 'p') % 6), n.age - 2);
-C.npcAge = (n, c) => Math.floor(n.age + c.week / WEEKS_YEAR);
+// the generic entrants of a youth category stay in it: they are whoever fights there this season
+C.npcAgeF = (n, c) => (n.yc ? n.age : n.age + c.week / WEEKS_YEAR);
+C.npcAge = (n, c) => Math.floor(C.npcAgeF(n, c));
+C.catFits = (n, c, cat) => !cat || cat === 'senior' || C.npcAgeF(n, c) < { cadet: 18, junior: 21, u23: 23 }[cat];
 C.npcPhase = function (n, c) {
-  const d = n.age + c.week / WEEKS_YEAR - C.npcPrime(n);
+  const d = C.npcAgeF(n, c) - C.npcPrime(n);
   return d < -3 ? 'young' : d <= 3 ? 'peak' : d <= 9 ? 'past' : 'veteran';
 };
 GW.PHASE = { young: 'растёт', peak: 'на пике', past: 'после пика', veteran: 'ветеран' };
 C.npcLevel = function (n, c) {
-  const age = n.age + c.week / WEEKS_YEAR, p = C.npcPrime(n);
+  const age = C.npcAgeF(n, c), p = C.npcPrime(n);
   const grow = Math.max(0, Math.min(age, p) - n.age) * 1.0;
   const past = Math.max(0, age - Math.max(p + 3, n.age)), fall = past * 0.9 + Math.max(0, past - 6) * 0.6;
   return Math.round(cl(n.lv + grow - fall, 15, 96));
@@ -225,20 +229,28 @@ GW.FORM = (f) => (f >= 3 ? 'в отличной форме' : f <= -3 ? 'не в
 // the player's own place on the curve
 C.phase = (c) => (c.age < c.prime - 3 ? 'растёте' : c.age <= c.prime + 2 ? 'на пике' : c.age <= c.prime + 8 ? 'после пика' : 'ветеран');
 C.npcById = (id) => GW.ROSTER.find((n) => n.id === id) || (GW.c && GW.c.fillers && GW.c.fillers[id]) || null;
-const FIRST = { RUS: ['Илья', 'Женя', 'Глеб', 'Паша', 'Арсен', 'Стас', 'Вадим'], JPN: ['Юки', 'Кадзуя', 'Рё', 'Дайки'], FRA: ['Матис', 'Ноа', 'Лукас'], GEO: ['Лука', 'Дато', 'Ника'], KAZ: ['Айдос', 'Нурлан', 'Ерлан'], MGL: ['Тэмуулэн', 'Мунх-Очир'], KOR: ['Чжун Хо', 'Сын Ми'], AZE: ['Эльчин', 'Турал'], NED: ['Тим', 'Бас'], UZB: ['Бобур', 'Санжар'] };
-const LAST = { RUS: ['Кравцов', 'Белов', 'Гусев', 'Дзагоев', 'Панин', 'Хохлов', 'Мельник'], JPN: ['Танака', 'Ито', 'Кобаяси', 'Мацуда'], FRA: ['Леруа', 'Моро', 'Фонтен'], GEO: ['Бердзенишвили', 'Чохели', 'Маргвелашвили'], KAZ: ['Ахметов', 'Сарсенбаев', 'Жумабеков'], MGL: ['Ганболд', 'Дорж'], KOR: ['Пак', 'Чхве'], AZE: ['Гусейнов', 'Мамедов'], NED: ['де Йонг', 'Баккер'], UZB: ['Рахимов', 'Юлдашев'] };
+const FIRST = { RUS: ['Илья', 'Женя', 'Глеб', 'Паша', 'Арсен', 'Стас', 'Вадим', 'Егор', 'Матвей', 'Кирилл', 'Данил'], JPN: ['Юки', 'Кадзуя', 'Рё', 'Дайки', 'Хаято', 'Сота', 'Рику'], FRA: ['Матис', 'Ноа', 'Лукас', 'Юго', 'Габриэль', 'Арно'], GEO: ['Лука', 'Дато', 'Ника', 'Гиорги', 'Ираклий', 'Леван'], KAZ: ['Айдос', 'Нурлан', 'Ерлан', 'Даурен', 'Алихан', 'Темирлан'], MGL: ['Тэмуулэн', 'Мунх-Очир', 'Ганбаатар', 'Батзориг'], KOR: ['Чжун Хо', 'Сын Мин', 'Дон Хён', 'Мин Джэ'], AZE: ['Эльчин', 'Турал', 'Рустам', 'Орхан', 'Мурад'], NED: ['Тим', 'Бас', 'Йорис', 'Сем'], UZB: ['Бобур', 'Санжар', 'Шахзод', 'Мухаммад', 'Достон'] };
+const LAST = { RUS: ['Кравцов', 'Белов', 'Гусев', 'Дзагоев', 'Панин', 'Хохлов', 'Мельник', 'Соколов', 'Тагиров', 'Ершов', 'Демин'], JPN: ['Танака', 'Ито', 'Кобаяси', 'Мацуда', 'Сасаки', 'Ямамото', 'Огава'], FRA: ['Леруа', 'Моро', 'Фонтен', 'Мартен', 'Бернар', 'Дюран'], GEO: ['Бердзенишвили', 'Чохели', 'Маргвелашвили', 'Тушишвили', 'Шавдатуашвили', 'Липартелиани'], KAZ: ['Ахметов', 'Сарсенбаев', 'Жумабеков', 'Смагулов', 'Кенжебаев', 'Оспанов'], MGL: ['Ганболд', 'Дорж', 'Батсух', 'Энхбат'], KOR: ['Пак', 'Чхве', 'Ли', 'Ан'], AZE: ['Гусейнов', 'Мамедов', 'Алиев', 'Гасанов', 'Керимов'], NED: ['де Йонг', 'Баккер', 'Висcер', 'ван Дейк'], UZB: ['Рахимов', 'Юлдашев', 'Турсунов', 'Каримов', 'Норов'] };
 // the bracket needs bodies: a few extra entrants, made once per tier and kept, so they become familiar faces too
-C.fillersFor = function (c, tier) {
+C.fillersFor = function (c, tier, intl, cat, need) {
   c.fillers = c.fillers || {};
-  const ids = Object.keys(c.fillers).filter((k) => c.fillers[k].tier === tier);
-  if (ids.length >= 8) return ids;
-  const T = GW.TIERS[tier], ccs = tier <= 5 ? [c.cc, c.cc, c.cc, 'RUS'] : ['JPN', 'FRA', 'GEO', 'KAZ', 'MGL', 'KOR', 'AZE', 'NED', 'UZB', 'RUS'];
+  const youth = !!cat && cat !== 'senior'; need = Math.max(8, need || 0);
+  const mine = (k) => { const f = c.fillers[k]; return f.tier === tier && !!f.intl === !!intl && (youth ? f.yc === cat : !f.yc); };
+  const ids = Object.keys(c.fillers).filter(mine);
+  if (ids.length >= need) return ids;
+  const names = new Set(Object.values(c.fillers).map((f) => f.name).concat(GW.ROSTER.map((n) => n.name))), AGE = { cadet: [16, 17], junior: [18, 20], u23: [21, 22] };
+  const T = GW.TIERS[tier], world = ['JPN', 'FRA', 'GEO', 'KAZ', 'MGL', 'KOR', 'AZE', 'NED', 'UZB', 'RUS'], ccs = intl || tier > 5 ? world.filter((x) => x !== c.cc) : [c.cc, c.cc, c.cc, 'RUS'];
   const types = Object.keys(GW.TYPES);
-  for (let i = ids.length; i < 8; i++) {
-    const cc = pick(ccs), id = 'f' + tier + '_' + i;
-    c.fillers[id] = { id, name: pick(FIRST[cc]) + ' ' + pick(LAST[cc]), cc, type: types[(i + tier) % types.length], lv: Math.round(rnd(T.lv[0], T.lv[1])), tier, fav: [pick(J.TECH_ORDER), pick(J.TECH_ORDER)], age: Math.round(rnd(19, 27)), bio: 'Участник турниров этого уровня.', filler: true };
+  for (let i = ids.length; i < need; i++) {
+    const cc = pick(ccs), id = (intl ? 'fi' : 'f') + (youth ? cat[0] : '') + tier + '_' + i;
+    let name = '', tries = 0;
+    do { name = pick(FIRST[cc]) + ' ' + pick(LAST[cc]); } while (names.has(name) && ++tries < 15);
+    names.add(name);
+    c.fillers[id] = { id, name, cc, type: types[(i + tier) % types.length], lv: Math.round(rnd(T.lv[0], T.lv[1])), tier, fav: [pick(J.TECH_ORDER), pick(J.TECH_ORDER)],
+      age: youth ? Math.round(rnd(AGE[cat][0], AGE[cat][1])) : Math.round(rnd(19, 27)), bio: youth ? (intl ? 'Сборная: ' + (GW.CC[cc] || cc) + ', ' + GW.AGE_CAT[cat].name + '.' : 'Участник первенств, ' + GW.AGE_CAT[cat].name + '.') : 'Участник турниров этого уровня.', filler: true, intl: !!intl };
+    if (youth) c.fillers[id].yc = cat;
   }
-  return Object.keys(c.fillers).filter((k) => c.fillers[k].tier === tier);
+  return Object.keys(c.fillers).filter(mine);
 };
 const hash = (s) => { let h = 7; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 const TILT = { aggressor: { power: 6, speed: 4, cardio: -6, wrestling: 2 }, counter: { defense: 8, speed: 3, power: -3 }, grip: { bjj: 10, power: 3, speed: -3 }, tactician: { cardio: 10, defense: 4, power: -4 }, champion: { wrestling: 4, defense: 3, speed: 3 } };
@@ -248,12 +260,12 @@ C.npcCfg = function (n, c, boost) {
   let face = list[hash(n.id) % list.length]; if (face === c.face) face = list[(hash(n.id) + 1) % list.length];
   const base = UFC.fighterCfg(face), t = TILT[n.type] || {};
   // the age: the young are fast and raw, the veterans slow but crafty; the form of the day moves everything a little
-  const ph = n.age + c.week / WEEKS_YEAR - C.npcPrime(n), young = cl(-ph - 1, 0, 8), old = cl(ph - 3, 0, 20), form = C.formOf(n, c);
+  const ph = C.npcAgeF(n, c) - C.npcPrime(n), young = cl(-ph - 1, 0, 8), old = cl(ph - 3, 0, 20), form = C.formOf(n, c);
   const AGE = { power: -young * 1.2 - old * 0.6, speed: young * 0.4 - old * 1.2, cardio: young * 0.3 - old * 1.0, wrestling: -young * 0.8 + old * 0.9, defense: -young * 0.5 + old * 0.7, bjj: old * 0.4 };
   const st = {}; for (const k of ['power', 'speed', 'cardio', 'wrestling', 'defense', 'bjj']) st[k] = cl(Math.round(lv + (t[k] || 0) + ((hash(n.id + k) % 7) - 3) + AGE[k] + form), 10, 99);
   st.chin = 70; st.boxing = 50; st.kicks = 40;
   return Object.assign({}, base, {
-    id: 'gw_' + n.id, name: n.name, short: n.name.split(' ').slice(-1)[0], nick: GW.TYPES[n.type].name, flag: n.cc, weight: c.kg,
+    id: 'gw_' + n.id, name: n.name, short: n.name.split(' ').slice(-1)[0], nick: GW.TYPES[n.type].name, flag: C.npcCc(n, c), weight: c.kg,
     height: +((J.CLASS_H[c.kg] || 1.71) + ((hash(n.id) % 7) - 3) * 0.01).toFixed(2), style: GW.STYLE_OF[n.type], stats: st, fav: n.fav.slice(), trait: null,
     gwType: n.type, gw: { grip: st.bjj, newaza: cl(lv + (n.type === 'counter' ? 5 : 0), 10, 99) }, mastery: Math.min(100, Math.round(25 + lv * 0.75 + old)),
     gwPerks: n.tier >= 4 && !n.filler ? [SIG[n.type]] : [], belt: C.beltColor(Math.max(n.tier === 1 ? 2 : n.tier, lv >= 77 ? 6 : n.tier)), beltAlt: C.beltAlt(Math.max(n.tier, lv >= 77 ? 6 : n.tier)),
@@ -271,6 +283,26 @@ C.playerCfg = function (c) {
     gw: { grip: a.grip, newaza: a.newaza }, gwPerks: c.perks.slice(), belt: C.beltColor(c.tier), beltAlt: C.beltAlt(c.tier), trait: null, gwType: null,
   });
 };
+// the words of your country: {страны}, {чемпионат}, {первенство}, {турнир}, {турниры}, {округа}, {континента}; {возр} / {возрт} — your age category
+C.ageCat = (c) => (c.age <= 17 ? 'cadet' : c.age <= 20 ? 'junior' : c.age <= 22 ? 'u23' : 'senior');
+C.loc = function (s, c, cat) {
+  if (!s || s.indexOf('{') < 0) return s;
+  const N = GW.NAT[c.cc] || GW.NAT.RUS, A = GW.AGE_CAT[cat || 'senior'];
+  return s.replace(/\{(страны|чемпионат|первенство|турниры|турнир|округа|континента|возрт|возр)\}/g, (m, k, off, str) => {
+    const v = ({ страны: N.gen, чемпионат: N.champ, первенство: N.youth, турниры: N.tours, турнир: N.tour, округа: N.zone, континента: N.cont, возр: A.suf, возрт: A.short })[k];
+    const start = off === 0 || /[.!?:]\s*$/.test(str.slice(Math.max(0, off - 3), off));
+    return !start && /^(чемпионат|первенство|турниры|турнир)$/.test(k) && !/^Всеяпонск/.test(v) ? v[0].toLowerCase() + v.slice(1) : v;
+  });
+};
+// an event as you see it: its name for your country and age, or null when your age does not fit (the youth events end at 22)
+C.evLocal = function (e, c, any) {
+  let cat = C.ageCat(c);
+  if (e.youth && cat === 'senior') { if (!any) return null; cat = 'u23'; }
+  if (!e.youth) cat = e.tier >= 2 && e.id === 'vseros' ? cat : 'senior';
+  return { name: C.loc(e.name, c, cat), tname: e.tname ? C.loc(e.tname, c, cat) : e.title || null, cat, catName: GW.AGE_CAT[cat].name, noteL: e.note ? C.loc(e.note, c, cat) : '' };
+};
+// the people of your country take your flag; the foreign youth and the world keep theirs
+C.npcCc = (n, c) => (n.cc === 'RUS' && !n.intl && n.tier <= 5 && !n.filler ? c.cc : n.cc);
 C.lvOf = (id, c) => (id === 'player' ? C.ovr(c) : C.npcLevel(C.npcById(id), c));
 
 // ---------------------------------------------------------------- the calendar
@@ -279,7 +311,8 @@ C.eventsAround = function (c) {
   for (const inv of c.invites) {
     if (inv.week < c.week || inv.week >= c.week + 4 || c.done[inv.key]) continue;
     const e = GW.EVENTS.find((x) => x.id === inv.id); if (!e || e.tier <= c.tier) continue;
-    out.push(Object.assign({ key: inv.key, week: inv.week, inWeeks: inv.week - c.week, invite: true }, e));
+    const L = C.evLocal(e, c); if (!L) continue;
+    out.push(Object.assign({ key: inv.key, week: inv.week, inWeeks: inv.week - c.week, invite: true }, e, L));
   }
   for (const e of GW.EVENTS) {
     if (e.tier > c.tier || e.tier < Math.max(1, c.tier - 2)) continue;
@@ -290,7 +323,8 @@ C.eventsAround = function (c) {
       if (((w - e.at) % e.every + e.every) % e.every !== 0) continue;
       const key = e.id + '@' + w;
       if (c.done[key]) continue;
-      out.push(Object.assign({ key, week: w, inWeeks: w - c.week }, e));
+      const L = C.evLocal(e, c); if (!L) continue;
+      out.push(Object.assign({ key, week: w, inWeeks: w - c.week }, e, L));
     }
   }
   out.sort((a, b) => a.week - b.week || b.tier - a.tier);
@@ -402,7 +436,7 @@ C.birthday = function (c) {
 C.boutLine = (w, bout) => { const s = (id) => C.npcById(id).name.split(' ').slice(-1)[0]; return s(w) + ' — ' + s(bout.l) + ': победил ' + s(w) + ' (' + bout.how + ')'; };
 C.simBout = function (c, a, b) {
   const side = (id, vs) => {
-    const n = C.npcById(id), o = C.npcById(vs), ph = n.age + c.week / WEEKS_YEAR - C.npcPrime(n);
+    const n = C.npcById(id), o = C.npcById(vs), ph = C.npcAgeF(n, c) - C.npcPrime(n);
     let e = C.npcLevel(n, c) + C.formOf(n, c) + (Math.random() - 0.5) * 6;
     if (o && n.strong && n.strong === o.weak) e += 3;   // his strength meets the other's weakness
     return { id, n, e, crafty: ph > 3 ? Math.min(0.35, (ph - 3) * 0.03) : 0, sc: 0 };
@@ -433,11 +467,13 @@ C.startEvent = function (c, e) {
   const T = GW.TIERS[e.tier], n = e.size;
   // who comes: the club fights the club; the first competitions are for your level and the one below; higher up, a level around
   const fits = (x) => (e.tier <= 1 ? x.tier === e.tier : e.tier <= 3 ? x.tier >= e.tier - 1 && x.tier <= e.tier : Math.abs(x.tier - e.tier) <= 1) && (e.tier >= 6 || x.tier <= 5);
-  const pool = GW.ROSTER.filter((x) => fits(x) && x.tier <= Math.max(c.tier, e.tier) + 1).map((x) => x.id);
+  const cat = e.cat || 'senior';
+  const pool = GW.ROSTER.filter((x) => fits(x) && x.tier <= Math.max(c.tier, e.tier) + 1 && (e.intlY ? !!x.intl : !x.intl) && C.catFits(x, c, cat)).map((x) => x.id);
   // the strongest of the level are always there at the big ones; the rest are drawn
   pool.sort(() => Math.random() - 0.5);
-  const fill = C.fillersFor(c, e.tier);
-  const others = [], need = e.size === 2 ? 2 : n - 1;   // the belt exam: two bouts against the seniors
+  const need = e.size === 2 ? 2 : n - 1;   // the belt exam: two bouts against the seniors
+  const fill = C.fillersFor(c, e.tier, !!e.intlY, cat, need - Math.min(pool.length, need));
+  const others = [];
   for (const id of pool) if (others.length < need) others.push(id);
   for (const id of fill) if (others.length < need) others.push(id);
   while (others.length < need) others.push(pick(fill));
@@ -446,8 +482,8 @@ C.startEvent = function (c, e) {
   const pos = n <= 2 ? 0 : e.tier <= 3 ? (Math.random() * n) | 0 : Math.min(n - 1, Math.max(0, Math.round((1 - cl(C.rankPts(c) / (T.pts * 6))) * (n - 1))));   // small events draw lots, big ones seed by the ranking
   const order = others.slice(); order.splice(pos, 0, 'player');
   const bracket = n <= 2 ? ['player'].concat(others) : seedOrder(order);
-  c.ev = { key: e.key, id: e.id, name: e.name, tier: e.tier, size: n, exam: e.size === 2, title: e.title || null, fee: e.fee || 0, alive: bracket, round: 0, wins: 0, results: [], log: [], state: 'run', conceded: 0, shido: 0, place: null,
-    venue: e.venue || (e.tier === 2 ? 'gym' : null), invite: !!e.invite, lost: 0, st: { t: 0, gAdv: 0, tries: 0, landed: 0, stopped: 0, noFull: 0, shido: 0, scored: 0, against: 0, stam: 0, fights: 0, combos: 0 }, plan: 'own', scouted: [] };
+  c.ev = { key: e.key, id: e.id, name: e.name, tier: e.tier, size: n, exam: e.size === 2, title: e.title || null, tname: e.tname || e.title || null, major: !!e.major, intlY: !!e.intlY, cat: e.cat || 'senior', fee: e.fee || 0, alive: bracket, round: 0, wins: 0, results: [], log: [], state: 'run', conceded: 0, shido: 0, place: null,
+    venue: e.venue || null, invite: !!e.invite, lost: 0, st: { t: 0, gAdv: 0, tries: 0, landed: 0, stopped: 0, noFull: 0, shido: 0, scored: 0, against: 0, stam: 0, fights: 0, combos: 0 }, plan: 'own', scouted: [] };
   c.done[e.key] = true; c.dow = 5;
   if (e.fee) c.money -= e.fee;
   C.save();
@@ -606,7 +642,7 @@ C.closeEvent = function (c) {
   if (p === 1) c.stats.golds++;
   const A = (id) => { if (!c.achievements[id]) { c.achievements[id] = c.week; unlocked.push(id); } };
   const CH = (id) => { const ch = GW.CHALLENGES.find((x) => x.id === id); if (!ch || c.challenges[id] || c.tier < ch.tier) return; c.challenges[id] = c.week; C.reward(c, ch.reward); unlocked.push('ch:' + id); };
-  if (ev.champion && ev.champion !== 'player') { const r2 = C.npcRec(c, ev.champion); r2.gold++; if (ev.title) r2.titles.push(ev.title); r2.rank.push({ w: c.week, pts: T.pts }); }
+  if (ev.champion && ev.champion !== 'player') { const r2 = C.npcRec(c, ev.champion); r2.gold++; if (ev.title) r2.titles.push(ev.tname || ev.title); r2.rank.push({ w: c.week, pts: T.pts }); }
   if (!ev.exam && !ev.single) { c.unbeaten = p === 1 && ev.lost === 0 ? c.unbeaten + 1 : 0; if (c.unbeaten >= 3) CH('c_unbeaten'); }
   if (p === 1 && !ev.exam) A('first_title');
   if (p <= 3 && ev.id === 'national') c.natMedal = true;
@@ -615,7 +651,7 @@ C.closeEvent = function (c) {
     if (ev.id === 'club') CH('c_first');
     if (ev.shido === 0 && ev.tier >= 4) CH('c_noshido');
     if (ev.title) {
-      c.titles.push({ name: ev.title, w: c.week, ev: ev.name, kg: c.kg });
+      c.titles.push({ name: ev.tname || ev.title, key: ev.title, w: c.week, ev: ev.name, kg: c.kg });
       if (c.kg !== c.startKg) { A('new_class'); CH('c_newweight'); }
       if (ev.title === 'Чемпион страны') { c.natChamp = true; A('national'); }
       if (ev.title === 'Чемпион мира') { if (ev.id === 'wdef' && c.worldChamp) { c.defenses++; CH('c_dynasty'); if (c.defenses >= 3) A('defend3'); } c.worldChamp = true; A('world'); }
@@ -624,12 +660,14 @@ C.closeEvent = function (c) {
   } else if (ev.id === 'wdef' && c.worldChamp) { c.worldChamp = false; C.news(c, 'Титул чемпиона мира потерян. Его можно вернуть на следующем чемпионате.'); }
   C.news(c, ev.name + ': ' + (p === 1 ? 'ЗОЛОТО' : p === 2 ? 'серебро' : p === 3 ? 'бронза' : p + '-е место') + ' · +' + rep + ' репутации' + (prize ? ' · $' + prize : ''));
   c.history.unshift({ w: c.week, ev: ev.name, place: p, prize, rep, summary: true });
+  // after a championship of the season: a few weeks of plain training, the physical work and the sparring
+  if (ev.major) { c.restUntil = c.week + 3; C.news(c, (GW.CLUBS[c.club] || GW.CLUBS.sakura).coach.split(',')[0] + ': «' + ev.name + ' позади. Следующие недели — физика и спарринги, турниры подождут».'); }
   // a good result brings an invitation one level up
   if (p <= 2 && !ev.exam && !ev.single && ev.tier >= c.tier && c.tier >= 1 && c.tier < 6) {
-    const up = GW.EVENTS.filter((x) => x.tier === c.tier + 1 && !x.single);
+    const up = GW.EVENTS.filter((x) => x.tier === c.tier + 1 && !x.single && C.evLocal(x, c));
     let best = null;
     for (const x of up) for (let w = c.week + 2; w < c.week + 9; w++) if (((w - x.at) % x.every + x.every) % x.every === 0 && (!best || w < best.week)) { best = { key: x.id + '@' + w, id: x.id, week: w }; break; }
-    if (best && !c.invites.some((i) => i.key === best.key)) { c.invites.push(best); unlocked.push('invite:' + best.key); C.news(c, 'Приглашение: «' + GW.EVENTS.find((x) => x.id === best.id).name + '» через ' + (best.week - c.week) + ' нед.'); }
+    if (best && !c.invites.some((i) => i.key === best.key)) { c.invites.push(best); unlocked.push('invite:' + best.key); C.news(c, 'Приглашение: «' + C.evLocal(GW.EVENTS.find((x) => x.id === best.id), c, true).name + '» через ' + (best.week - c.week) + ' нед.'); }
     if (c.invites.length > 6) c.invites.splice(0, c.invites.length - 6);
   }
   if (ev.finalU) unlocked.push(...ev.finalU);
@@ -656,9 +694,9 @@ GW.TIER_SESSIONS = { 1: ['newaza'] };
 const TIER_SAY = [
   '',
   'Палыч: «Проверку прошёл — ты в основной группе. Старшие — мастера спорта, они тебя пока бросают. Учись у них и выбирай, с кем бороться».',
-  'Палыч: «Готовься. В чужом зале никто не будет тебе подыгрывать».',
-  'Палыч: «Хватит бороться как юниор. Пора решить, каким будет твоё дзюдо».',
-  'Палыч: «Я дал тебе всё, что мог. Дальше — сильные клубы и сборы».',
+  'Палыч: «Чёрный пояс — это только начало. Теперь ты выступаешь за регион, а потом — за страну».',
+  'Палыч: «Первенство страны — это уже серьёзно. Пора решить, каким будет твоё дзюдо».',
+  'Палыч: «Тебя взяли в молодёжную сборную. Я дал тебе всё, что мог. Дальше — сильные клубы и сборы».',
   'Тренер: «Теперь каждый турнир на счету. Планируй и тренировки, и отдых».',
   'Тренер сборной: «Здесь все сильные. Побеждает тот, у кого есть план».',
   'Вы — легенда. Теперь титулы надо защищать, а старые соперники ещё вернутся.',
@@ -824,20 +862,21 @@ C.worldWeek = function (c) {
     if (((c.week - e.at) % e.every + e.every) % e.every !== 0) continue;
     const key = e.id + '@' + c.week; if (c.done[key]) continue;
     c.done[key] = true;
-    const pool = GW.ROSTER.filter((x) => (e.tier <= 1 ? x.tier === e.tier : e.tier <= 3 ? x.tier >= e.tier - 1 && x.tier <= e.tier : Math.abs(x.tier - e.tier) <= 1) && (e.tier >= 6 || x.tier <= 5)).map((x) => x.id);
-    if (e.tier >= 2) for (const f of C.fillersFor(c, e.tier)) if (pool.length < 8) pool.push(f);
+    const L = C.evLocal(e, c); if (!L) continue;   // the youth events of your own age category only
+    const pool = GW.ROSTER.filter((x) => (e.tier <= 1 ? x.tier === e.tier : e.tier <= 3 ? x.tier >= e.tier - 1 && x.tier <= e.tier : Math.abs(x.tier - e.tier) <= 1) && (e.tier >= 6 || x.tier <= 5) && (e.intlY ? !!x.intl : !x.intl) && C.catFits(x, c, L.cat)).map((x) => x.id);
+    if (e.tier >= 2) for (const f of C.fillersFor(c, e.tier, !!e.intlY, L.cat)) if (pool.length < 8) pool.push(f);
     pool.sort(() => Math.random() - 0.5);
     const size = Math.min(e.size, pool.length >= 8 ? 8 : 4), br = pool.slice(0, size);
     if (br.length < 2) continue;
     const champ = C.simBracket(c, br, e), r = C.npcRec(c, champ), n = C.npcById(champ);
-    r.gold++; if (e.title) r.titles.push(e.title); r.rank.push({ w: c.week, pts: GW.TIERS[e.tier].pts });
-    if (n && !n.filler && e.tier >= c.tier - 1) C.news(c, e.name + ' без вас: победил ' + n.name + '.');
+    r.gold++; if (e.title) r.titles.push(L.tname); r.rank.push({ w: c.week, pts: GW.TIERS[e.tier].pts });
+    if (n && !n.filler && e.tier >= c.tier - 1) C.news(c, L.name + ' без вас: победил ' + n.name + '.');
   }
 };
 C.npcRankPts = (c, id) => { const r = c.npc[id]; if (!r || !r.rank) return 0; return r.rank.reduce((a, x) => { const d = c.week - x.w; return a + x.pts * (d < 24 ? 1 : d < 72 ? 1 - (d - 24) / 48 : 0); }, 0); };
 // the ranking table of your stage
 C.rankTable = function (c) {
-  const ids = GW.ROSTER.filter((x) => Math.abs(x.tier - c.tier) <= 1 && x.tier >= 1 && (c.tier >= 6 || x.tier <= 5)).map((x) => x.id).concat(c.fillers ? Object.keys(c.fillers).filter((k) => Math.abs(c.fillers[k].tier - c.tier) <= 1) : []);
+  const ids = GW.ROSTER.filter((x) => Math.abs(x.tier - c.tier) <= 1 && x.tier >= 1 && (c.tier >= 6 || x.tier <= 5) && (c.tier >= 6 || !x.intl)).map((x) => x.id).concat(c.fillers ? Object.keys(c.fillers).filter((k) => Math.abs(c.fillers[k].tier - c.tier) <= 1 && !c.fillers[k].yc && (c.tier >= 6 || !c.fillers[k].intl)) : []);
   const rows = ids.map((id) => ({ id, name: C.npcById(id).name, pts: Math.round(C.npcRankPts(c, id) + C.lvOf(id, c) * 0.4 * GW.TIERS[c.tier].pts / 20), lv: C.lvOf(id, c) }));
   rows.push({ id: 'player', name: c.name, pts: Math.round(C.rankPts(c) + C.ovr(c) * 0.4 * GW.TIERS[c.tier].pts / 20), lv: C.ovr(c) });
   rows.sort((a, b) => b.pts - a.pts);
@@ -853,7 +892,7 @@ C.knowsStyle = function (c, n) {
 // ---------------------------------------------------------------- sparring partners
 C.partners = function (c) {
   const lo = c.tier <= 1 ? 0 : c.tier - 1, hi = Math.max(c.tier, c.tier <= 0 ? 0 : 1);
-  return GW.ROSTER.filter((n) => n.tier >= lo && n.tier <= hi);
+  return GW.ROSTER.filter((n) => n.tier >= lo && n.tier <= hi && !n.intl);
 };
 C.partnerK = (c, n) => cl(1 + (C.npcLevel(n, c) - C.ovr(c)) / 14, 0.7, 1.4);
 C.settleSpar = function (c, id, won, L) {
