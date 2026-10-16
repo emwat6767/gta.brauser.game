@@ -18,31 +18,37 @@ GW.BELTS = [
 // the eight steps. rep: the reputation it takes to be promoted to the next one (and a medal at this level)
 // the eight stages. rep: the reputation it takes to be promoted to the next one (plus a medal at this stage);
 // stage 0 is left by doing the coach's first tasks. opens: what the stage really gives you
+// the sport titles by stage: the player starts as a candidate master of sport
+GW.SPORT = ['КМС', 'КМС', 'КМС', 'КМС', 'КМС', 'Мастер спорта', 'МСМК', 'ЗМС'];
+// the КМС scale: the levels of the novice version squeezed so that a 16-year-old КМС starts at 40 and the top stays at 90;
+// every gap shrinks by 5/7, so the balance of each stage is the same as before
+GW.kmsLv = (L) => 40 + (L - 20) * 5 / 7;
+GW.SPORT_FULL = { 'КМС': 'кандидат в мастера спорта', 'Мастер спорта': 'мастер спорта', 'МСМК': 'мастер спорта международного класса', 'ЗМС': 'заслуженный мастер спорта' };
 GW.TIERS = [
-  { name: 'Первые дни', place: 'Додзё «Сакура», подвал спорткомплекса', lv: [18, 26], rep: 0, venue: 'dojo', prize: 0, pts: 5,
-    text: 'Вам 16, на вас коричневый пояс из детской секции. Но во взрослом зале он ничего не значит: ни побед, ни денег, ни имени. Тренер Палыч смотрит, есть ли в вас характер, и даёт первые задания. Выполните их — и вас запишут в группу.',
-    opens: ['Тренер Палыч и его задания по порядку', 'Тренировки захвата, броска и защиты (мини-игры)', 'Спарринг с новичками клуба', 'Три базовых броска: подсечка, отхват, бедро', 'Подсказка тренера в схватке «СЕЙЧАС!» (до районных турниров)'] },
-  { name: 'Новичок клуба', place: 'Группа Палыча', lv: [22, 32], rep: 70, venue: 'dojo', prize: 30, pts: 10,
-    text: 'Вы в группе. Старшие ученики сильнее — у каждого свой стиль и свои победы. Выиграйте клубное первенство или сдайте аттестацию на чёрный пояс.',
-    opens: ['Выбор партнёра для спарринга: новички и старшие', 'Клубное первенство и аттестация на чёрный пояс (1 дан)', 'Тренировка партера', 'Новые броски: зацеп и через плечо'] },
-  { name: 'Первые соревнования', place: 'Районные первенства', lv: [28, 40], rep: 180, venue: 'gym', prize: 80, pts: 25,
+  { name: 'Новый клуб', place: 'Додзё «Сакура», подвал спорткомплекса', lv: [39, 44], rep: 0, venue: 'dojo', prize: 0, pts: 5,
+    text: 'Вам 16, вы кандидат в мастера спорта, коричневый пояс. Семья переехала, и вы пришли в новый клуб — «Сакуру». Здесь вас никто не знает: ребята в группе тоже КМС и в зале с семи лет. Тренер Палыч не учит вас с нуля, а проверяет — захват, бросок, защиту, спарринг. Пройдите проверку и займите своё место в группе.',
+    opens: ['Проверка тренера Палыча: задания по порядку', 'Тренировки захвата, броска и защиты (мини-игры)', 'Спарринги с ребятами из группы (тоже КМС)', 'Базовая техника КМС: подсечка, отхват, бедро, зацеп, через плечо, подхват, сколен', 'Подсказка тренера в схватке «СЕЙЧАС!» (до районных турниров)'] },
+  { name: 'Свой в группе', place: 'Группа Палыча', lv: [41, 49], rep: 70, venue: 'dojo', prize: 30, pts: 10,
+    text: 'Палыч взял вас в основную группу. Старшие — мастера спорта, у каждого свой стиль и свои победы. Выиграйте клубное первенство или сдайте аттестацию на чёрный пояс.',
+    opens: ['Выбор партнёра для спарринга: ровесники и старшие', 'Клубное первенство и аттестация на чёрный пояс (1 дан)', 'Тренировка партера', 'Новый бросок: тай-отоси'] },
+  { name: 'Первые соревнования', place: 'Районные первенства', lv: [46, 54], rep: 180, venue: 'gym', prize: 80, pts: 25,
     text: 'Чужие спортзалы и чужие тренеры. Сетки на 4 и 8 участников, первые призовые и первые приглашения.',
-    opens: ['Турниры района', 'Статистика турнира', 'Приглашения на более серьёзные старты', 'Новые броски: подхват и сколен'] },
-  { name: 'Становление бойца', place: 'Кубки города', lv: [36, 50], rep: 380, venue: 'B', prize: 220, pts: 50,
+    opens: ['Турниры района', 'Статистика турнира', 'Приглашения на более серьёзные старты', 'Новые соперники: лучшие КМС района'] },
+  { name: 'Становление бойца', place: 'Кубки города', lv: [51, 61], rep: 380, venue: 'B', prize: 220, pts: 50,
     text: 'Пора решить, каким будет ваше дзюдо. Соперники уже запоминают, что вы делаете.',
     opens: ['Специализация и индивидуальный план тренировок', 'Комбинации: второй бросок после неудачного первого', 'Соперники запоминают ваши повторяющиеся атаки', 'Принципиальный соперник'] },
-  { name: 'Региональный уровень', place: 'Чемпионаты области и региона', lv: [46, 60], rep: 650, venue: 'B', prize: 550, pts: 100,
+  { name: 'Региональный уровень', place: 'Чемпионаты области и региона', lv: [59, 69], rep: 650, venue: 'B', prize: 550, pts: 100,
     text: 'Область и регион. Сильные клубы, сборы, рейтинговая таблица. Проиграли сильному — изучите его и вернитесь.',
-    opens: ['Переход в сильный клуб или наставник', 'Рейтинговая таблица и смена весовой категории', 'Разбор видео соперника перед схваткой', 'Новые броски: тай-отоси и пистолет'] },
-  { name: 'Национальная карьера', place: 'Чемпионат и кубок страны', lv: [56, 70], rep: 1000, venue: 'B', prize: 1600, pts: 220,
+    opens: ['Переход в сильный клуб или наставник', 'Рейтинговая таблица и смена весовой категории', 'Разбор видео соперника перед схваткой', 'Новый бросок: пистолет'] },
+  { name: 'Национальная карьера', place: 'Чемпионат и кубок страны', lv: [66, 76], rep: 1000, venue: 'B', prize: 1600, pts: 220,
     text: 'Лучшие в стране. У каждого соперника — сильные и слабые стороны. Здесь планируют и тренировки, и отдых.',
-    opens: ['Сильные и слабые стороны всех соперников', 'Рейтинговые матчи и финалы', 'Приглашение в центр олимпийской подготовки', 'Бросок через спину'] },
-  { name: 'Международная элита', place: 'Открытые кубки, Гран-при, Гранд-слэмы, чемпионат мира', lv: [66, 82], rep: 1600, venue: 'A', prize: 6000, pts: 600,
+    opens: ['Сильные и слабые стороны всех соперников', 'Рейтинговые матчи и финалы', 'Приглашение в центр олимпийской подготовки', 'Бросок через спину', 'Звание мастера спорта'] },
+  { name: 'Международная элита', place: 'Открытые кубки, Гран-при, Гранд-слэмы, чемпионат мира', lv: [73, 84], rep: 1600, venue: 'A', prize: 6000, pts: 600,
     text: 'Сильнейшие в мире. Побеждает не тот, кто сильнее, а тот, у кого есть план на соперника.',
-    opens: ['План на схватку: контрмеры под соперника', 'Смена специализации', 'Гранд-слэмы и чемпионат мира', 'Томоэ-нагэ'] },
-  { name: 'Легенда', place: 'Титулы, Олимпиада, турнир легенд', lv: [76, 90], rep: 99999, venue: 'A', prize: 45000, pts: 1500,
+    opens: ['План на схватку: контрмеры под соперника', 'Смена специализации', 'Гранд-слэмы и чемпионат мира', 'Томоэ-нагэ', 'Звание МСМК'] },
+  { name: 'Легенда', place: 'Титулы, Олимпиада, турнир легенд', lv: [80, 90], rep: 99999, venue: 'A', prize: 45000, pts: 1500,
     text: 'Вас знают все. Теперь — удержать титулы, вернуть долги старым соперникам и оставить наследие.',
-    opens: ['Защита титула чемпиона мира', 'Олимпиада, Мастерс и турнир легенд', 'Долгосрочные испытания', 'Старые соперники возвращаются за реваншем'] },
+    opens: ['Защита титула чемпиона мира', 'Олимпиада, Мастерс и турнир легенд', 'Долгосрочные испытания', 'Старые соперники возвращаются за реваншем', 'Звание ЗМС'] },
 ];
 
 // the events of every stage: every one comes round on its own weeks
@@ -71,44 +77,44 @@ GW.EVENTS = [
 // the cast. lv: the level at the start of your career; they grow a little with the years.
 // type: the way he fights; fav: his two throws; strong / weak: what he does best and where he can be beaten
 GW.ROSTER = [
-  // the novices: your level
-  { id: 'martynov', name: 'Лёша Мартынов', cc: 'RUS', type: 'aggressor', lv: 20, tier: 0, fav: ['otkhvat', 'bedro'], age: 16, strong: 'fwd', weak: 'cardio', bio: 'Пришёл на месяц раньше вас. Бросается вперёд очертя голову — и через полминуты дышит как паровоз.' },
-  { id: 'gus', name: 'Тимофей Гусь', cc: 'RUS', type: 'tactician', lv: 21, tier: 0, fav: ['podsechka', 'otkhvat'], age: 17, strong: 'cardio', weak: 'back', bio: 'Тихий, терпеливый. Стоит на пятках — его можно уронить назад.' },
-  { id: 'ermak', name: 'Ваня Ермаков', cc: 'RUS', type: 'counter', lv: 22, tier: 0, fav: ['podsechka', 'bedro'], age: 17, strong: 'defense', weak: 'grip', bio: 'Сам почти не атакует, ждёт ошибки. Захват у него слабый.' },
+  // the boys of the group: КМС too, your level
+  { id: 'martynov', name: 'Лёша Мартынов', cc: 'RUS', type: 'aggressor', lv: 40, tier: 0, fav: ['otkhvat', 'bedro'], age: 16, strong: 'fwd', weak: 'cardio', bio: 'КМС, в «Сакуре» с семи лет — любимчик Палыча. Бросается вперёд очертя голову — и через полминуты дышит как паровоз.' },
+  { id: 'gus', name: 'Тимофей Гусь', cc: 'RUS', type: 'tactician', lv: 41, tier: 0, fav: ['podsechka', 'otkhvat'], age: 17, strong: 'cardio', weak: 'back', bio: 'КМС, призёр первенства области среди юношей. Тихий, терпеливый. Стоит на пятках — его можно уронить назад.' },
+  { id: 'ermak', name: 'Ваня Ермаков', cc: 'RUS', type: 'counter', lv: 41, tier: 0, fav: ['podsechka', 'bedro'], age: 17, strong: 'defense', weak: 'grip', bio: 'КМС, в клубе с детства. Сам почти не атакует, ждёт ошибки. Захват у него слабый.' },
   // the seniors of the club
-  { id: 'burov', name: 'Саня Буров', cc: 'RUS', type: 'aggressor', lv: 27, tier: 1, fav: ['podhvat', 'otkhvat'], age: 19, strong: 'fwd', weak: 'cardio', bio: 'Старший в клубе. Лезет вперёд и толкается — пока не кончится дыхалка.' },
-  { id: 'tkach', name: 'Миша Ткач', cc: 'RUS', type: 'counter', lv: 28, tier: 1, fav: ['zacep', 'podsechka'], age: 18, strong: 'back', weak: 'tempo', bio: 'Тихий, ждёт ошибки. Пропустите контру — проиграете. Не любит, когда его гоняют.' },
-  { id: 'zubov', name: 'Олег Зубов', cc: 'RUS', type: 'grip', lv: 30, tier: 1, fav: ['plecho', 'zacep'], age: 21, strong: 'grip', weak: 'ground', bio: 'Руки как тиски, отворот не даёт. Зато в партере теряется.' },
-  { id: 'kim', name: 'Денис Ким', cc: 'KOR', type: 'tactician', lv: 29, tier: 1, fav: ['skolen', 'podsechka'], age: 20, strong: 'cardio', weak: 'fwd', bio: 'Никуда не спешит, выматывает. Уходя от атаки, проваливается вперёд.' },
+  { id: 'burov', name: 'Саня Буров', cc: 'RUS', type: 'aggressor', lv: 45, tier: 1, fav: ['podhvat', 'otkhvat'], age: 19, strong: 'fwd', weak: 'cardio', bio: 'Мастер спорта, старший в клубе. Лезет вперёд и толкается — пока не кончится дыхалка.' },
+  { id: 'tkach', name: 'Миша Ткач', cc: 'RUS', type: 'counter', lv: 46, tier: 1, fav: ['zacep', 'podsechka'], age: 18, strong: 'back', weak: 'tempo', bio: 'Тихий, ждёт ошибки. Пропустите контру — проиграете. Не любит, когда его гоняют.' },
+  { id: 'zubov', name: 'Олег Зубов', cc: 'RUS', type: 'grip', lv: 47, tier: 1, fav: ['plecho', 'zacep'], age: 21, strong: 'grip', weak: 'ground', bio: 'Руки как тиски, отворот не даёт. Зато в партере теряется.' },
+  { id: 'kim', name: 'Денис Ким', cc: 'KOR', type: 'tactician', lv: 46, tier: 1, fav: ['skolen', 'podsechka'], age: 20, strong: 'cardio', weak: 'fwd', bio: 'Никуда не спешит, выматывает. Уходя от атаки, проваливается вперёд.' },
   // the district
-  { id: 'sychev', name: 'Рома Сычёв', cc: 'RUS', type: 'aggressor', lv: 34, tier: 2, fav: ['bedro', 'otkhvat'], age: 20, strong: 'fwd', weak: 'back', bio: 'Гроза районных первенств. Бросает всё подряд.' },
-  { id: 'galiev', name: 'Артур Галиев', cc: 'RUS', type: 'grip', lv: 36, tier: 2, fav: ['plecho', 'zacep'], age: 22, strong: 'grip', weak: 'cardio', bio: 'Борется за отворот по полминуты. Взялся — бросил. К концу схватки сдыхает.' },
-  { id: 'pankov', name: 'Никита Панков', cc: 'RUS', type: 'champion', lv: 37, tier: 2, fav: ['podhvat', 'podsechka'], age: 19, strong: 'defense', weak: 'ground', bio: 'Лучший в районе. Ровный во всём, но в партере плывёт.' },
+  { id: 'sychev', name: 'Рома Сычёв', cc: 'RUS', type: 'aggressor', lv: 50, tier: 2, fav: ['bedro', 'otkhvat'], age: 20, strong: 'fwd', weak: 'back', bio: 'Гроза районных первенств. Бросает всё подряд.' },
+  { id: 'galiev', name: 'Артур Галиев', cc: 'RUS', type: 'grip', lv: 51, tier: 2, fav: ['plecho', 'zacep'], age: 22, strong: 'grip', weak: 'cardio', bio: 'Борется за отворот по полминуты. Взялся — бросил. К концу схватки сдыхает.' },
+  { id: 'pankov', name: 'Никита Панков', cc: 'RUS', type: 'champion', lv: 52, tier: 2, fav: ['podhvat', 'podsechka'], age: 19, strong: 'defense', weak: 'ground', bio: 'Лучший в районе. Ровный во всём, но в партере плывёт.' },
   // the city
-  { id: 'lebed', name: 'Кирилл Лебедь', cc: 'RUS', type: 'counter', lv: 43, tier: 3, fav: ['otkhvat', 'zacep'], age: 23, strong: 'back', weak: 'fwd', bio: 'Любит, когда атакуют его. Контрит назад, но сам проваливается вперёд.' },
-  { id: 'abaev', name: 'Тимур Абаев', cc: 'RUS', type: 'tactician', lv: 45, tier: 3, fav: ['zacep', 'plecho'], age: 25, strong: 'cardio', weak: 'tempo', bio: 'Двужильный. В золотом скоре не проигрывал. Но высокий темп его ломает.' },
-  { id: 'kotov', name: 'Влад Котов', cc: 'RUS', type: 'champion', lv: 47, tier: 3, fav: ['podhvat', 'skolen'], age: 22, strong: 'fwd', weak: 'grip', rival: true, bio: 'Лучший в городе, клуб «Динамо». Считает вас случайным. Сильный подхват, но захват можно выиграть.' },
+  { id: 'lebed', name: 'Кирилл Лебедь', cc: 'RUS', type: 'counter', lv: 56, tier: 3, fav: ['otkhvat', 'zacep'], age: 23, strong: 'back', weak: 'fwd', bio: 'Любит, когда атакуют его. Контрит назад, но сам проваливается вперёд.' },
+  { id: 'abaev', name: 'Тимур Абаев', cc: 'RUS', type: 'tactician', lv: 58, tier: 3, fav: ['zacep', 'plecho'], age: 25, strong: 'cardio', weak: 'tempo', bio: 'Двужильный. В золотом скоре не проигрывал. Но высокий темп его ломает.' },
+  { id: 'kotov', name: 'Влад Котов', cc: 'RUS', type: 'champion', lv: 59, tier: 3, fav: ['podhvat', 'skolen'], age: 22, strong: 'fwd', weak: 'grip', rival: true, bio: 'Лучший в городе, клуб «Динамо». Считает вас случайным. Сильный подхват, но захват можно выиграть.' },
   // the region
-  { id: 'khapov', name: 'Аслан Хапов', cc: 'RUS', type: 'aggressor', lv: 52, tier: 4, fav: ['pistol', 'podhvat'], age: 23, strong: 'fwd', weak: 'cardio', bio: 'Взрывной, как пружина. Первые двадцать секунд — опаснее всех.' },
-  { id: 'sedykh', name: 'Игорь Седых', cc: 'RUS', type: 'grip', lv: 54, tier: 4, fav: ['taiotoshi', 'plecho'], age: 26, strong: 'grip', weak: 'back', bio: 'Хозяин захвата. Ломает ваш рукав и ставит свой. Назад падает охотно.' },
-  { id: 'bekoev', name: 'Руслан Бекоев', cc: 'RUS', type: 'counter', lv: 55, tier: 4, fav: ['zacep', 'skolen'], age: 24, strong: 'ground', weak: 'tempo', bio: 'Контратака на подхват — его визитная карточка. Опасен в партере.' },
+  { id: 'khapov', name: 'Аслан Хапов', cc: 'RUS', type: 'aggressor', lv: 63, tier: 4, fav: ['pistol', 'podhvat'], age: 23, strong: 'fwd', weak: 'cardio', bio: 'Взрывной, как пружина. Первые двадцать секунд — опаснее всех.' },
+  { id: 'sedykh', name: 'Игорь Седых', cc: 'RUS', type: 'grip', lv: 64, tier: 4, fav: ['taiotoshi', 'plecho'], age: 26, strong: 'grip', weak: 'back', bio: 'Хозяин захвата. Ломает ваш рукав и ставит свой. Назад падает охотно.' },
+  { id: 'bekoev', name: 'Руслан Бекоев', cc: 'RUS', type: 'counter', lv: 65, tier: 4, fav: ['zacep', 'skolen'], age: 24, strong: 'ground', weak: 'tempo', bio: 'Контратака на подхват — его визитная карточка. Опасен в партере.' },
   // the country
-  { id: 'tsaraev', name: 'Давид Цараев', cc: 'RUS', type: 'champion', lv: 62, tier: 5, fav: ['plecho', 'otkhvat'], age: 25, strong: 'defense', weak: 'ground', bio: 'Действующий чемпион страны. Читает соперника за полминуты.' },
-  { id: 'orlov', name: 'Степан Орлов', cc: 'RUS', type: 'tactician', lv: 60, tier: 5, fav: ['bedro', 'zacep'], age: 28, strong: 'cardio', weak: 'fwd', bio: 'Опытный, тяжёлый, терпеливый. Переигрывает на выносливости.' },
-  { id: 'nuriev', name: 'Ильяс Нуриев', cc: 'RUS', type: 'grip', lv: 63, tier: 5, fav: ['spina', 'taiotoshi'], age: 24, strong: 'grip', weak: 'tempo', bio: 'Борьба за захват у него как шахматы.' },
+  { id: 'tsaraev', name: 'Давид Цараев', cc: 'RUS', type: 'champion', lv: 70, tier: 5, fav: ['plecho', 'otkhvat'], age: 25, strong: 'defense', weak: 'ground', bio: 'Действующий чемпион страны. Читает соперника за полминуты.' },
+  { id: 'orlov', name: 'Степан Орлов', cc: 'RUS', type: 'tactician', lv: 69, tier: 5, fav: ['bedro', 'zacep'], age: 28, strong: 'cardio', weak: 'fwd', bio: 'Опытный, тяжёлый, терпеливый. Переигрывает на выносливости.' },
+  { id: 'nuriev', name: 'Ильяс Нуриев', cc: 'RUS', type: 'grip', lv: 71, tier: 5, fav: ['spina', 'taiotoshi'], age: 24, strong: 'grip', weak: 'tempo', bio: 'Борьба за захват у него как шахматы.' },
   // the world
-  { id: 'murakami', name: 'Кэнта Мураками', cc: 'JPN', type: 'champion', lv: 70, tier: 6, fav: ['podhvat', 'taiotoshi'], age: 24, strong: 'fwd', weak: 'grip', bio: 'Японская школа: идеальный подхват, идеальный тайминг.' },
-  { id: 'beranger', name: 'Луи Беранже', cc: 'FRA', type: 'counter', lv: 68, tier: 6, fav: ['otkhvat', 'tomoe'], age: 27, strong: 'back', weak: 'cardio', bio: 'Француз с длинными руками. Контратакует любой бросок вперёд.' },
-  { id: 'mikeladze', name: 'Гиорги Микеладзе', cc: 'GEO', type: 'aggressor', lv: 69, tier: 6, fav: ['pistol', 'spina'], age: 23, strong: 'fwd', weak: 'ground', bio: 'Грузинская школа: мощь, захват за пояс, бросок через спину.' },
-  { id: 'ganzorig', name: 'Бат-Эрдэнэ Ганзориг', cc: 'MGL', type: 'tactician', lv: 71, tier: 6, fav: ['zacep', 'bedro'], age: 26, strong: 'cardio', weak: 'back', bio: 'Монгольский борец: не устаёт и не падает вперёд.' },
-  { id: 'yamada', name: 'Сёта Ямада', cc: 'JPN', type: 'champion', lv: 78, tier: 6, fav: ['plecho', 'podhvat'], age: 25, strong: 'defense', weak: 'tempo', bio: 'Двукратный чемпион мира. Знает всё про ваш любимый бросок.' },
-  { id: 'kveselava', name: 'Нодар Квеселава', cc: 'GEO', type: 'grip', lv: 77, tier: 6, fav: ['taiotoshi', 'spina'], age: 27, strong: 'grip', weak: 'back', bio: 'Самый неудобный захват в мире.' },
-  { id: 'dufour', name: 'Мартен Дюфур', cc: 'FRA', type: 'tactician', lv: 76, tier: 6, fav: ['otkhvat', 'zacep'], age: 29, strong: 'cardio', weak: 'fwd', bio: 'Выигрывает золотыми скорами и шидо.' },
-  { id: 'tulegenov', name: 'Ерасыл Тулегенов', cc: 'KAZ', type: 'aggressor', lv: 77, tier: 6, fav: ['pistol', 'bedro'], age: 24, strong: 'fwd', weak: 'cardio', bio: 'Темп, темп, темп. Бросает даже без захвата.' },
+  { id: 'murakami', name: 'Кэнта Мураками', cc: 'JPN', type: 'champion', lv: 76, tier: 6, fav: ['podhvat', 'taiotoshi'], age: 24, strong: 'fwd', weak: 'grip', bio: 'Японская школа: идеальный подхват, идеальный тайминг.' },
+  { id: 'beranger', name: 'Луи Беранже', cc: 'FRA', type: 'counter', lv: 74, tier: 6, fav: ['otkhvat', 'tomoe'], age: 27, strong: 'back', weak: 'cardio', bio: 'Француз с длинными руками. Контратакует любой бросок вперёд.' },
+  { id: 'mikeladze', name: 'Гиорги Микеладзе', cc: 'GEO', type: 'aggressor', lv: 75, tier: 6, fav: ['pistol', 'spina'], age: 23, strong: 'fwd', weak: 'ground', bio: 'Грузинская школа: мощь, захват за пояс, бросок через спину.' },
+  { id: 'ganzorig', name: 'Бат-Эрдэнэ Ганзориг', cc: 'MGL', type: 'tactician', lv: 76, tier: 6, fav: ['zacep', 'bedro'], age: 26, strong: 'cardio', weak: 'back', bio: 'Монгольский борец: не устаёт и не падает вперёд.' },
+  { id: 'yamada', name: 'Сёта Ямада', cc: 'JPN', type: 'champion', lv: 81, tier: 6, fav: ['plecho', 'podhvat'], age: 25, strong: 'defense', weak: 'tempo', bio: 'Двукратный чемпион мира. Знает всё про ваш любимый бросок.' },
+  { id: 'kveselava', name: 'Нодар Квеселава', cc: 'GEO', type: 'grip', lv: 81, tier: 6, fav: ['taiotoshi', 'spina'], age: 27, strong: 'grip', weak: 'back', bio: 'Самый неудобный захват в мире.' },
+  { id: 'dufour', name: 'Мартен Дюфур', cc: 'FRA', type: 'tactician', lv: 80, tier: 6, fav: ['otkhvat', 'zacep'], age: 29, strong: 'cardio', weak: 'fwd', bio: 'Выигрывает золотыми скорами и шидо.' },
+  { id: 'tulegenov', name: 'Ерасыл Тулегенов', cc: 'KAZ', type: 'aggressor', lv: 81, tier: 6, fav: ['pistol', 'bedro'], age: 24, strong: 'fwd', weak: 'cardio', bio: 'Темп, темп, темп. Бросает даже без захвата.' },
   // the legends
-  { id: 'sato', name: 'Хидэаки Сато', cc: 'JPN', type: 'champion', lv: 85, tier: 7, fav: ['podhvat', 'plecho'], age: 27, strong: 'defense', weak: 'ground', bio: 'Олимпийский чемпион. Говорят, его никто не бросал три года.' },
-  { id: 'aliev', name: 'Рустам Алиев', cc: 'AZE', type: 'counter', lv: 84, tier: 7, fav: ['zacep', 'tomoe'], age: 28, strong: 'ground', weak: 'fwd', bio: 'Мастер контратаки и партера. Опасен на земле.' },
-  { id: 'vanberg', name: 'Нильс ван Берг', cc: 'NED', type: 'grip', lv: 83, tier: 7, fav: ['taiotoshi', 'otkhvat'], age: 29, strong: 'grip', weak: 'tempo', bio: 'Голландский великан с хватом-капканом.' },
+  { id: 'sato', name: 'Хидэаки Сато', cc: 'JPN', type: 'champion', lv: 86, tier: 7, fav: ['podhvat', 'plecho'], age: 27, strong: 'defense', weak: 'ground', bio: 'Олимпийский чемпион. Говорят, его никто не бросал три года.' },
+  { id: 'aliev', name: 'Рустам Алиев', cc: 'AZE', type: 'counter', lv: 86, tier: 7, fav: ['zacep', 'tomoe'], age: 28, strong: 'ground', weak: 'fwd', bio: 'Мастер контратаки и партера. Опасен на земле.' },
+  { id: 'vanberg', name: 'Нильс ван Берг', cc: 'NED', type: 'grip', lv: 85, tier: 7, fav: ['taiotoshi', 'otkhvat'], age: 29, strong: 'grip', weak: 'tempo', bio: 'Голландский великан с хватом-капканом.' },
 ];
 GW.STRONG = { fwd: 'сильные броски вперёд', back: 'сильные броски назад и контры', grip: 'жёсткий захват', ground: 'опасен в партере', cardio: 'не устаёт', defense: 'его трудно бросить' };
 GW.WEAK = { fwd: 'проваливается вперёд — броски вперёд по нему +15%', back: 'стоит на пятках — броски назад по нему +15%', grip: 'слабый захват', cardio: 'быстро устаёт', ground: 'слаб в партере', tempo: 'ломается от высокого темпа: уставший бросает хуже' };
@@ -128,10 +134,10 @@ GW.ATTRS = {
 GW.ATTR_KEYS = Object.keys(GW.ATTRS);
 // the build at the start: where the first points went
 GW.ORIGINS = {
-  power: { name: 'Силовик', desc: 'из тяжёлой атлетики: сила и рывки', a: { power: 29, speed: 21, cardio: 22, technique: 19, grip: 24, defense: 22, newaza: 21 } },
-  tech: { name: 'Техник', desc: 'в детстве ходил на дзюдо: техника и скорость', a: { power: 20, speed: 25, cardio: 22, technique: 28, grip: 22, defense: 21, newaza: 20 } },
-  cardio: { name: 'Марафонец', desc: 'из лёгкой атлетики: дыхалка и защита', a: { power: 20, speed: 23, cardio: 30, technique: 19, grip: 22, defense: 24, newaza: 20 } },
-  grip: { name: 'Борец', desc: 'из вольной борьбы: захват и партер', a: { power: 23, speed: 21, cardio: 22, technique: 19, grip: 28, defense: 22, newaza: 25 } },
+  power: { name: 'Силовик', desc: 'дзюдо и штанга с детства: сила и рывки', a: { power: 49, speed: 41, cardio: 42, technique: 39, grip: 44, defense: 42, newaza: 41 } },
+  tech: { name: 'Техник', desc: 'чистая школа дзюдо: техника и скорость', a: { power: 40, speed: 45, cardio: 42, technique: 48, grip: 42, defense: 41, newaza: 40 } },
+  cardio: { name: 'Марафонец', desc: 'дзюдо и кроссы: дыхалка и защита', a: { power: 40, speed: 43, cardio: 50, technique: 39, grip: 42, defense: 44, newaza: 40 } },
+  grip: { name: 'Борец', desc: 'дзюдо и самбо: захват и партер', a: { power: 43, speed: 41, cardio: 42, technique: 39, grip: 48, defense: 42, newaza: 45 } },
 };
 GW.HEIGHTS = {
   short: { name: 'Невысокий', dh: -0.05, desc: 'броски с поворотом (плечо, через спину, пистолет, тай-отоси, бедро) +5%, захват чуть хуже' },
@@ -139,7 +145,7 @@ GW.HEIGHTS = {
   tall: { name: 'Высокий', dh: 0.05, desc: 'захват лучше, подхват и отхват +5%, броски с поворотом −5%' },
 };
 // when each throw becomes known: the stage, unless the coach teaches it earlier
-GW.THROW_TIER = { podsechka: 0, otkhvat: 0, bedro: 0, zacep: 1, plecho: 1, podhvat: 2, skolen: 2, taiotoshi: 4, pistol: 4, spina: 5, tomoe: 6 };
+GW.THROW_TIER = { podsechka: 0, otkhvat: 0, bedro: 0, zacep: 0, plecho: 0, podhvat: 0, skolen: 0, taiotoshi: 1, pistol: 4, spina: 5, tomoe: 6 };
 
 // the perks: every one has a price
 GW.PERKS = {
@@ -191,13 +197,13 @@ GW.PLANS = {
 };
 // the coach's tasks: they lead the first days and give every stage its goals
 GW.TASKS = [
-  { id: 'grip1', tier: 0, name: 'Первое занятие: захват', coach: 'Дзюдо начинается с рук. Подойди, возьми рукав, потом отворот. Он будет сбрасывать — не давай.', goal: 'Тренировка захватов со счётом 10 и больше', act: 'drill:grip', reward: { xp: 40 }, unlock: 'uchikomi' },
-  { id: 'throw1', tier: 0, name: 'Первый бросок', coach: 'Бросок — это момент. Жди, когда он качнётся, и бросай туда, куда он падает.', goal: '3 точных броска из 8 на отработке', act: 'drill:uchikomi', reward: { xp: 50 }, unlock: 'defense' },
-  { id: 'defend1', tier: 0, name: 'Устоять', coach: 'Тебя тоже будут бросать. Видишь атаку — сразу L1, держи ноги. Чувствуешь опасность — держи ЗАЩИТУ.', goal: 'Устоять 3 раза из 6 атак', act: 'drill:defense', reward: { xp: 50 }, unlock: 'sparring' },
-  { id: 'spar1', tier: 0, name: 'Первый спарринг', coach: 'Лёша пришёл на месяц раньше тебя. Поборитесь в полную силу — посмотрю, чему ты научился.', goal: 'Провести спарринг с Лёшей Мартыновым', act: 'spar:martynov', reward: { xp: 60, money: 20 } },
-  { id: 'win1', tier: 0, name: 'Первая победа', coach: 'Теперь — победа. Неважно над кем из новичков. Проиграешь — разберём, что не так, и снова.', goal: 'Выиграть спарринг у новичка клуба', act: 'spar:novice', reward: { xp: 80, rep: 20 } },
-  { id: 'senior', tier: 1, name: 'Старшие', coach: 'Старшие пока бросают тебя как хотят. Найди одного, у кого выиграешь, — изучи, где он слаб.', goal: 'Победить старшего ученика: Бурова, Ткача, Зубова или Кима', act: 'spar:senior', reward: { xp: 100, rep: 20 } },
-  { id: 'ground1', tier: 1, name: 'Партер', coach: 'Упал — это не конец. Научись держать и выходить снизу.', goal: 'Удержать 10 с на тренировке партера', act: 'drill:newaza', reward: { xp: 70 }, unlock: 'newaza' },
+  { id: 'grip1', tier: 0, name: 'Проверка: захват', coach: 'Ты КМС, учить тебя с нуля не буду — покажи, что умеешь. Возьми рукав и отворот и держи. Он будет сбрасывать — не давай.', goal: 'Тренировка захватов со счётом 10 и больше', act: 'drill:grip', reward: { xp: 40 }, unlock: 'uchikomi' },
+  { id: 'throw1', tier: 0, name: 'Проверка: бросок', coach: 'Посмотрю твоё чувство момента. Жди, когда он качнётся, и бросай туда, куда он падает.', goal: '3 точных броска из 8 на отработке', act: 'drill:uchikomi', reward: { xp: 50 }, unlock: 'defense' },
+  { id: 'defend1', tier: 0, name: 'Проверка: защита', coach: 'Теперь он атакует. Видишь атаку — сразу L1, держи ноги. Чувствуешь опасность — держи ЗАЩИТУ.', goal: 'Устоять 3 раза из 6 атак', act: 'drill:defense', reward: { xp: 50 }, unlock: 'sparring' },
+  { id: 'spar1', tier: 0, name: 'Спарринг с Лёшей', coach: 'Лёша тоже КМС, у меня с семи лет. Поборитесь в полную силу — посмотрю, чему тебя научили на старом месте.', goal: 'Провести спарринг с Лёшей Мартыновым', act: 'spar:martynov', reward: { xp: 60, money: 20 } },
+  { id: 'win1', tier: 0, name: 'Своё место', coach: 'Хочешь место в основной группе — выиграй у кого-нибудь из ребят. Проиграешь — разберём, что не так, и снова.', goal: 'Выиграть спарринг у Мартынова, Гуся или Ермакова', act: 'spar:novice', reward: { xp: 80, rep: 20 } },
+  { id: 'senior', tier: 1, name: 'Старшие', coach: 'Старшие — мастера спорта, они бросают тебя как хотят. Найди одного, у кого выиграешь, — изучи, где он слаб.', goal: 'Победить старшего ученика: Бурова, Ткача, Зубова или Кима', act: 'spar:senior', reward: { xp: 100, rep: 20 } },
+  { id: 'ground1', tier: 1, name: 'Партер', coach: 'Партер у тебя детский. Научись держать по-взрослому и выходить снизу.', goal: 'Удержать 10 с на тренировке партера', act: 'drill:newaza', reward: { xp: 70 }, unlock: 'newaza' },
   { id: 'club1', tier: 1, name: 'Первый титул', coach: 'Клубное первенство. Здесь все свои — и все хотят тебя бросить.', goal: 'Выиграть клубное первенство или сдать аттестацию на пояс', act: 'event', reward: { xp: 120, rep: 15 } },
   { id: 'local1', tier: 2, name: 'Чужой зал', coach: 'Район. Тебя никто не знает. Посмотрим, как ты держишься в чужом зале.', goal: 'Взять медаль на турнире района', act: 'event', reward: { xp: 150, money: 60 } },
   { id: 'stats1', tier: 2, name: 'Работа над ошибками', coach: 'Хватит атаковать без захвата. Сначала ●●, потом бросок.', goal: 'Провести 5 схваток, где 60%+ атак — с полным захватом', act: 'auto', need: 5, reward: { xp: 120 } },

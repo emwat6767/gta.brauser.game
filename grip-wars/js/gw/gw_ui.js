@@ -118,7 +118,7 @@ function renderCreate(p) {
   const faces = J.CLASSES[spec.kg] || J.CLASSES[66];
   if (spec.face == null || !faces.includes(spec.face)) spec.face = faces[0];
   const ch = (act, v, cur, label, sub) => '<button class="chip' + (v === cur ? ' on' : '') + '" data-act="' + act + '" data-v="' + v + '">' + label + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
-  p.innerHTML = '<h2>GRIP WARS · Путь легенды</h2><div class="dim">Вам 16, на вас коричневый пояс из детской секции. Подвал спорткомплекса, старые маты со скотчем на порванных углах и тренер Палыч. Во взрослом дзюдо у вас ни побед, ни денег, ни имени. Восемь этапов — до легенды мирового дзюдо и красно-белого пояса.</div>' +
+  p.innerHTML = '<h2>GRIP WARS · Путь легенды</h2><div class="dim">Вам 16, вы кандидат в мастера спорта, коричневый пояс. Семья переехала, и вы пришли в новый клуб «Сакура»: подвал спорткомплекса, старые маты со скотчем и тренер Палыч, который сначала проверит, чего стоит ваш разряд. Впереди мастер спорта, МСМК и ЗМС — восемь этапов до легенды мирового дзюдо и красно-белого пояса.</div>' +
     '<div class="opt"><label>Имя и фамилия</label><input class="txt" id="gw-name" maxlength="24" value="' + esc(spec.name) + '" placeholder="Например, Иван Волков"></div>' +
     '<div class="opt"><label>Страна</label><div class="chips">' + ['RUS', 'KAZ', 'UZB', 'GEO', 'AZE', 'KOR', 'JPN', 'FRA'].map((k) => ch('cc', k, spec.cc, GW.CC[k])).join('') + '</div></div>' +
     '<div class="opt"><label>Весовая категория</label><div class="chips">' + GW.CLASSES.map((k) => ch('kg', String(k), String(spec.kg), k + ' кг')).join('') + '</div></div>' +
@@ -171,7 +171,7 @@ function renderHub() {
   const wk = c.wk, wkNext = !wk ? '' : wk.i < 3 ? GW.DAYS[GW.TRAIN_DOW[wk.i]] + ' — ' + GW.SESSIONS[wk.slots[wk.i]].name : 'выходные: итоги недели';
   const gaps = C.promoGaps(c), tasks = C.tasksNow(c);
   const pot = C.potential(c), sum = Math.round(C.attrSum(c));
-  p.innerHTML = '<h2>' + esc(c.name) + '</h2><div class="dim">' + GW.CC[c.cc] + ' · ' + c.kg + ' кг · ' + GW.HEIGHTS[c.height].name.toLowerCase() + ' · ' + (c.stance === 'R' ? 'правая' : 'левая') + ' стойка · ' + c.age + ' лет · ' + C.today(c) + ' · ' + GW.BELTS[c.tier].name + ' · ' + esc((GW.CLUBS[c.club] || GW.CLUBS.sakura).name) + '</div>' +
+  p.innerHTML = '<h2>' + esc(c.name) + '</h2><div class="dim">' + GW.CC[c.cc] + ' · ' + c.kg + ' кг · ' + GW.HEIGHTS[c.height].name.toLowerCase() + ' · ' + (c.stance === 'R' ? 'правая' : 'левая') + ' стойка · ' + c.age + ' лет · ' + C.today(c) + ' · <b>' + C.sport(c) + '</b> · ' + GW.BELTS[c.tier].name + ' · ' + esc((GW.CLUBS[c.club] || GW.CLUBS.sakura).name) + '</div>' +
     saveLine(c) +
     '<div class="ladder">' + ladder + '</div>' +
     '<div class="note"><b>Этап ' + (c.tier + 1) + ' · ' + esc(T.name) + '</b> — ' + esc(T.place) + '. ' + esc(T.text) + '</div>' +
@@ -355,6 +355,7 @@ function unlockedHtml(list) {
   const seen = {};
   return list.filter((u) => !seen[u] && (seen[u] = true)).map((u) => {
     if (u.startsWith('tier:')) { const t = +u.slice(5); return '<div class="good"><b>НОВЫЙ ЭТАП: ' + esc(GW.TIERS[t].name) + '</b> · ' + esc(GW.BELTS[t].name) + '<br>Открыто: ' + GW.TIERS[t].opens.map(esc).join(' · ') + '</div>'; }
+    if (u.startsWith('sport:')) { const t = u.slice(6); return '<div class="good"><b>Присвоено звание:</b> ' + esc(GW.SPORT_FULL[t] || t) + '</div>'; }
     if (u.startsWith('task:')) { const t = GW.TASKS.find((x) => x.id === u.slice(5)); return t ? '<div class="good">Задание тренера выполнено: <b>' + esc(t.name) + '</b> · ' + reward(t.reward) + '</div>' : ''; }
     if (u.startsWith('session:')) { const S = GW.SESSIONS[u.slice(8)]; return S ? '<div class="good">Открыта тренировка: <b>' + esc(S.name) + '</b> — ' + esc(S.desc) + '</div>' : ''; }
     if (u.startsWith('learn:')) return '<div class="good">Новые броски: <b>' + u.slice(6).split(',').map(tn).join(', ') + '</b> — поставьте их на кнопки в «Билд и кнопки».</div>';

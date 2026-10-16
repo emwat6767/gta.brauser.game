@@ -106,6 +106,16 @@ C.migrate = (c) => {
   if (!c.known) { c.known = []; C.learnFor(c); }
   if (!c.sessions) { c.sessions = GW.START_SESSIONS.slice(); for (const t of GW.TASKS) if (t.unlock && (c.tasks[t.id] != null || t.tier < c.tier)) C.open(c, t.unlock); for (let t = 1; t <= c.tier; t++) for (const sid of GW.TIER_SESSIONS[t] || []) C.open(c, sid); }
   if (!c.loadout) c.loadout = c.known.slice(0, 5);
+  // a career started before the КМС start: its numbers move onto the КМС scale, like everyone else's
+  if (!c.kms) {
+    const up = Math.round(GW.kmsLv(C.ovr(c)) - C.ovr(c));
+    for (const k of GW.ATTR_KEYS) c.attrs[k] = Math.min(100, GW.kmsLv(c.attrs[k]));
+    for (const id of J.TECH_ORDER) if (GW.THROW_TIER[id] === 0) c.mastery[id] = Math.max(c.mastery[id] || 10, 30);
+    for (const f of Object.values(c.fillers || {})) f.lv = Math.round(GW.kmsLv(f.lv));
+    const learned = C.learnFor(c); for (const id of learned) { const k = [0, 1, 2, 3, 4].find((j) => !c.loadout[j] || !c.known.includes(c.loadout[j])); if (k != null) c.loadout[k] = id; }
+    c.kms = true;
+    if (up) C.news(c, 'Обновление пути: вы — кандидат в мастера спорта. Характеристики +' + up + ', базовая техника КМС открыта.');
+  }
 };
 
 // ---------------------------------------------------------------- creation
@@ -115,17 +125,19 @@ C.create = function (spec) {
   const c = {
     v: 2, name: spec.name || 'Иван Волков', cc: spec.cc || 'RUS', kg: spec.kg || 66, startKg: spec.kg || 66, face: spec.face == null ? J.CLASSES[spec.kg || 66][0] : spec.face, gi: spec.gi || 'white', origin: spec.origin || 'tech',
     height: GW.HEIGHTS[spec.height] ? spec.height : 'mid', stance: spec.stance === 'R' ? 'R' : 'L',
-    week: 0, age: 16, prime: Math.round(rnd(25, 28)), money: 50, xp: 0, level: 1, pts: 0, tier: 0, rep: 0, fatigue: 10, injury: 0, injuryPart: '', club: 'sakura', physio: false,
-    attrs: Object.assign({}, o.a), mastery: Object.fromEntries(J.TECH_ORDER.map((id) => [id, favs.includes(id) ? 18 : 8])), perks: [],
+    kms: true, week: 0, age: 16, prime: Math.round(rnd(25, 28)), money: 50, xp: 0, level: 1, pts: 0, tier: 0, rep: 0, fatigue: 10, injury: 0, injuryPart: '', club: 'sakura', physio: false,
+    attrs: Object.assign({}, o.a), mastery: Object.fromEntries(J.TECH_ORDER.map((id) => [id, favs.includes(id) ? 45 : GW.THROW_TIER[id] === 0 ? 35 : 10])), perks: [],
     stats: { fights: 0, wins: 0, losses: 0, ippons: 0, wazaari: 0, holds: 0, subs: 0, golden: 0, streak: 0, best: 0, tries: 0, landed: 0, events: 0, golds: 0 },
     history: [], medals: [], titles: [], rank: [], rivals: {}, achievements: {}, challenges: {}, records: {}, news: [], medalAt: {}, typesBeaten: {}, intlBeaten: {},
     ev: null, done: {}, defenses: 0, worldChamp: false, natChamp: false, retired: false, lastRematch: {},
     tasks: {}, taskProg: {}, npc: {}, spar: {}, invites: [], scouted: {}, known: [], sessions: GW.START_SESSIONS.slice(), unbeaten: 0,
   };
-  C.learnFor(c); c.loadout = c.known.slice(0, 5);
+  C.learnFor(c);
+  // the buttons: the favourite throw first, then the classic set of a КМС
+  c.loadout = favs.concat(['podsechka', 'otkhvat', 'podhvat', 'plecho', 'bedro', 'zacep', 'skolen'].filter((id) => !favs.includes(id) && c.known.includes(id))).slice(0, 5);
   c.short = c.name.split(' ').slice(-1)[0];
   GW.c = c;
-  C.news(c, 'Первый день в додзё «Сакура». Подвал спорткомплекса, старые маты, скотч на порванных углах. Тренер Палыч: «Посмотрим, на что ты годен. Начнём с рук».');
+  C.news(c, 'Первый день в новом клубе — додзё «Сакура». Подвал спорткомплекса, старые маты, скотч на порванных углах. Тренер Палыч: «КМС, говоришь? Здесь полгруппы КМС. Посмотрим, чего стоит твой разряд. Начнём с рук».');
   C.save();
   return c;
 };
@@ -139,7 +151,10 @@ GW.TRAIN_DOW = [0, 2, 4];
 C.dayNo = (c) => c.week * 7 + (c.dow || 0) + 1;
 C.today = (c) => 'Год ' + (1 + Math.floor(c.week / WEEKS_YEAR)) + ' · день ' + C.dayNo(c) + ' · ' + GW.DAYS[c.dow || 0];
 C.dayOf = (c, n) => (n.d ? 'день ' + n.d : C.date(c, n.w));
-C.potential = (c) => Math.min(640, 185 + 55 * c.tier + 3 * (c.level - 1));
+// the ceiling of the attributes by stage: a КМС starts near 300, a legend reaches 640
+const POT = [317, 356, 396, 435, 474, 513, 553, 592];
+C.potential = (c) => Math.min(640, Math.round(POT[Math.max(0, Math.min(7, c.tier))] + 2.2 * (c.level - 1)));
+C.sport = (c) => GW.SPORT[Math.max(0, Math.min(7, c.tier))];
 C.attrSum = (c) => GW.ATTR_KEYS.reduce((a, k) => a + c.attrs[k], 0);
 C.ovr = (c) => Math.round(C.attrSum(c) / GW.ATTR_KEYS.length);
 C.xpNeed = (lv) => Math.round(80 * Math.pow(lv, 1.35));
@@ -168,7 +183,7 @@ C.legacyName = (p) => { let n = GW.LEGACY[0][1]; for (const [v, t] of GW.LEGACY)
 // a point of a skill: into an attribute, inside the potential
 C.spend = function (c, k) {
   if (c.pts <= 0 || c.attrs[k] >= 100 || C.attrSum(c) >= C.potential(c)) return false;
-  c.pts--; c.attrs[k] = Math.min(100, c.attrs[k] + 1); C.save(); return true;
+  c.pts--; c.attrs[k] = Math.min(100, c.attrs[k] + 5 / 7); C.save(); return true;   // a point on the КМС scale
 };
 C.togglePerk = function (c, id) {
   const i = c.perks.indexOf(id);
@@ -179,7 +194,7 @@ C.togglePerk = function (c, id) {
 // growth of an attribute: slower near the top, never past the potential
 C.grow = function (c, k, g) {
   const cur = c.attrs[k];
-  g *= cl((100 - cur) / 40, 0.15, 1);
+  g *= (5 / 7) * cl((97 - cur) / 28.6, 0.15, 1);   // the КМС scale: the same slowdown near the top as before
   const room = Math.max(0, C.potential(c) - C.attrSum(c));
   g = Math.max(0, Math.min(g, room, 100 - cur));
   c.attrs[k] = cur + g;
@@ -189,7 +204,7 @@ C.grow = function (c, k, g) {
 // ---------------------------------------------------------------- the people
 C.npcLevel = function (n, c) {
   const yrs = c.week / WEEKS_YEAR, age = n.age + yrs;
-  let lv = n.lv + Math.min(yrs, Math.max(0, 28 - n.age)) * 1.4 - Math.max(0, age - 31) * 1.2;
+  let lv = n.lv + Math.min(yrs, Math.max(0, 28 - n.age)) * 1.0 - Math.max(0, age - 31) * 0.86;
   return Math.round(cl(lv, 15, 96));
 };
 C.npcById = (id) => GW.ROSTER.find((n) => n.id === id) || (GW.c && GW.c.fillers && GW.c.fillers[id]) || null;
@@ -221,7 +236,7 @@ C.npcCfg = function (n, c, boost) {
     id: 'gw_' + n.id, name: n.name, short: n.name.split(' ').slice(-1)[0], nick: GW.TYPES[n.type].name, flag: n.cc, weight: c.kg,
     height: +((J.CLASS_H[c.kg] || 1.71) + ((hash(n.id) % 7) - 3) * 0.01).toFixed(2), style: GW.STYLE_OF[n.type], stats: st, fav: n.fav.slice(), trait: null,
     gwType: n.type, gw: { grip: st.bjj, newaza: cl(lv + (n.type === 'counter' ? 5 : 0), 10, 99) }, mastery: Math.round(25 + lv * 0.75),
-    gwPerks: n.tier >= 4 && !n.filler ? [SIG[n.type]] : [], belt: C.beltColor(Math.max(n.tier, lv >= 72 ? 6 : n.tier)), beltAlt: C.beltAlt(Math.max(n.tier, lv >= 72 ? 6 : n.tier)),
+    gwPerks: n.tier >= 4 && !n.filler ? [SIG[n.type]] : [], belt: C.beltColor(Math.max(n.tier === 1 ? 2 : n.tier, lv >= 77 ? 6 : n.tier)), beltAlt: C.beltAlt(Math.max(n.tier, lv >= 77 ? 6 : n.tier)),
     known: J.TECH_ORDER.filter((t) => GW.THROW_TIER[t] <= Math.max(n.tier + 1, 1) || n.fav.includes(t)), gwStrong: n.strong || null, gwWeak: n.weak || null,
     gwCombo: n.tier >= 4 || (n.type === 'champion' && n.tier >= 3), gwRead: n.tier, gwPrep: !!(c.scouted && c.scouted[n.id] != null && c.week - c.scouted[n.id] < 16) || !!(c.rivals && c.rivals[n.id] && c.rivals[n.id].l > 0 && c.tier >= 4),
     stance: hash(n.id + 's') % 3 === 0 ? 'southpaw' : 'orthodox',
@@ -356,7 +371,7 @@ C.birthday = function (c) {
   C.news(c, 'Вам ' + c.age + '. ' + (c.age < c.prime - 1 ? 'Тело ещё растёт.' : c.age <= c.prime + 2 ? 'Вы в лучшей форме — это прайм.' : 'Скорость и дыхалка начинают уходить.'));
   if (c.age > c.prime + 2) {
     const k = c.age > c.prime + 8 ? 3 : c.age > c.prime + 5 ? 2 : 1.2;
-    for (const [a, m] of [['speed', 1.5], ['cardio', 1.4], ['power', 1.0], ['defense', 0.4]]) c.attrs[a] = Math.max(15, c.attrs[a] - m * k);
+    for (const [a, m] of [['speed', 1.5], ['cardio', 1.4], ['power', 1.0], ['defense', 0.4]]) c.attrs[a] = Math.max(15, c.attrs[a] - m * k * 5 / 7);
   }
   if (c.age >= 40 && !c.retired) C.news(c, 'В 40 лет пора подумать о завершении карьеры.');
 };
@@ -589,9 +604,9 @@ GW.TIER_NEED = { 0: ['grip1', 'throw1', 'defend1', 'spar1', 'win1'], 1: ['senior
 GW.TIER_SESSIONS = { 1: ['newaza'] };
 const TIER_SAY = [
   '',
-  'Палыч: «Всё, ты в группе. Старшие тебя пока бросают — это нормально. Учись у них и выбирай, с кем бороться».',
+  'Палыч: «Проверку прошёл — ты в основной группе. Старшие — мастера спорта, они тебя пока бросают. Учись у них и выбирай, с кем бороться».',
   'Палыч: «Готовься. В чужом зале никто не будет тебе подыгрывать».',
-  'Палыч: «Ты уже не новичок. Пора решить, каким будет твоё дзюдо».',
+  'Палыч: «Хватит бороться как юниор. Пора решить, каким будет твоё дзюдо».',
   'Палыч: «Я дал тебе всё, что мог. Дальше — сильные клубы и сборы».',
   'Тренер: «Теперь каждый турнир на счету. Планируй и тренировки, и отдых».',
   'Тренер сборной: «Здесь все сильные. Побеждает тот, у кого есть план».',
@@ -607,6 +622,7 @@ C.checkPromotion = function (c) {
     for (const t of GW.TASKS) if (t.unlock && t.tier < c.tier && C.open(c, t.unlock)) out.push('session:' + t.unlock);
     if (learned.length) { out.push('learn:' + learned.join(',')); for (const id of learned) { const k = [0, 1, 2, 3, 4].find((j) => !c.loadout[j] || !c.known.includes(c.loadout[j])); if (k != null) c.loadout[k] = id; } }
     C.news(c, 'НОВЫЙ ЭТАП: ' + GW.TIERS[c.tier].name + '. ' + GW.BELTS[c.tier].name + '. ' + TIER_SAY[c.tier]);
+    if (GW.SPORT[c.tier] !== GW.SPORT[c.tier - 1]) { C.news(c, 'Присвоено звание: ' + GW.SPORT_FULL[GW.SPORT[c.tier]] + '.'); out.push('sport:' + GW.SPORT[c.tier]); }
     if (c.tier >= 2 && !c.achievements.black_belt) { c.achievements.black_belt = c.week; out.push('black_belt'); }
   }
   return out;
@@ -788,7 +804,7 @@ C.partners = function (c) {
   const lo = c.tier <= 1 ? 0 : c.tier - 1, hi = Math.max(c.tier, c.tier <= 0 ? 0 : 1);
   return GW.ROSTER.filter((n) => n.tier >= lo && n.tier <= hi);
 };
-C.partnerK = (c, n) => cl(1 + (C.npcLevel(n, c) - C.ovr(c)) / 20, 0.7, 1.4);
+C.partnerK = (c, n) => cl(1 + (C.npcLevel(n, c) - C.ovr(c)) / 14, 0.7, 1.4);
 C.settleSpar = function (c, id, won, L) {
   const out = [], s = c.spar[id] = c.spar[id] || { w: 0, l: 0 };
   if (won) s.w++; else s.l++;
