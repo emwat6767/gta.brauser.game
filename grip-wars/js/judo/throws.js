@@ -122,7 +122,7 @@ const UK_BACK = R({ hip: [0, 0.54, -0.07], sp: [-0.1, 0, 0], nk: [0, 0, 0], fL: 
 
 // 1 ПОДХВАТ (harai-goshi): turn in, load him on the hip, sweep his leg with the straight leg
 mk('podhvat', {
-  vk: 0.75,
+  vk: 0.75, vkOver: 0.48,
   name: 'Подхват', jp: 'Харай-госи', range: 1.7, cost: 12, base: 0.6, power: 1.0, fall: 'forward',
   tori(m) {
     const fit = R({ hip: [0.02 * m, 0.45, -0.03], hr: [0.2, 0, 0], sp: [0.55, 0, 0], nk: [-0.2, 0, 0], fL: [0.075, 0.046, 0.0], fR: [-0.1, 0.046, 0.0] });
@@ -132,13 +132,13 @@ mk('podhvat', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.35, 0, 0.04, 0, UK_PULLED], [0.62, 0, 0.1, 0, R({ hip: [0, 0.56, 0.12], sp: [0.55, 0, 0], nk: [-0.3, 0, 0], fL: [0.07, 0.12, 0.1], fR: [-0.06, 0.046, -0.02] })]]; },
   grips(m) { return { 0.0: { L: ['lapelR', 'u'], R: ['sleeveL', 'u'] } }; },
-  drive: (m) => ({ t0: 0.64, dur: 0.34, pivot: [0.1 * m, 0.95, 0.42], axis: [1, 0, 0], ang: 3.1, lift: 0.08, drop: 0.25, push: [0, 0.5] }),
+  drive: (m) => ({ t0: 0.64, dur: 0.34, pivot: [0.1 * m, 0.95, 0.42], axis: [1, 0, 0], ang: 3.1, lift: 0.08, drop: 0.25, push: [0, 0.5], over: 0.12, land: [0.12 * m, 1.5] }),
 });
 
 // 2 ПИСТОЛЕТ: a grab of the near leg and the sleeve, lift and drive him over
 // 2 ПИСТОЛЕТ: the sleeve held like a pistol grip, a turn in and a drop to both knees under him: he goes over the shoulder (seoi-otoshi)
 mk('pistol', {
-  vk: 0.37,
+  vk: 0.37, vkOver: 0.55,
   name: 'Пистолет', jp: 'Сэои-отоси (захват «пистолет»)', range: 1.65, cost: 13, base: 0.56, power: 1.05, fall: 'forward',
   tori(m) {
     const turn = R({ hip: [0, 0.44, 0], hr: [0.2, 0, 0], sp: [0.3, 0, 0], nk: [-0.1, 0, 0], fL: [0.09, 0.046, 0.05], fR: [-0.09, 0.046, -0.04], kn: [0.8, 0.35] });
@@ -149,12 +149,12 @@ mk('pistol', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.32, 0, 0.06, 0, UK_PULLED], [0.6, 0, 0.14, 0, R({ hip: [0, 0.55, 0.18], sp: [0.75, 0, 0], nk: [-0.35, 0, 0], fL: [0.07, 0.15, 0.14], fR: [-0.06, 0.06, -0.02] })]]; },
   grips(m) { return { 0: { L: ['sleeveL', 'u'], R: ['armpitR', 'u'] } }; },
-  drive: (m) => ({ t0: 0.62, dur: 0.4, pivot: [0.06 * m, 0.5, 0.65], axis: [1, 0, 0], ang: 3.2, lift: 0.05, push: [0, 0.8] }),   // he rolls over the back and the shoulder
+  drive: (m) => ({ t0: 0.62, dur: 0.4, pivot: [0.06 * m, 0.5, 0.65], axis: [1, 0, 0], ang: 3.2, lift: 0.05, push: [0, 0.8], over: 0.3, land: [0.06 * m, 1.6] }),   // he rolls over the back and the shoulder
 });
 
 // 3 ПЛЕЧО (ippon-seoi-nage): drop under him, load him on the back, throw him over the shoulder
 mk('plecho', {
-  vk: 0.72,
+  vk: 0.72, vkOver: 0.49,
   name: 'Плечо', jp: 'Иппон-сэои-нагэ', range: 1.6, cost: 12, base: 0.58, power: 1.05, fall: 'forward',
   tori(m) {
     const fit = R({ hip: [0.0, 0.36, -0.04], hr: [0.28, 0, 0], sp: [0.72, 0, 0], nk: [-0.4, 0, 0], fL: [0.09, 0.046, 0.03], fR: [-0.09, 0.046, -0.02], kn: [0.9, 0.35] });
@@ -164,12 +164,12 @@ mk('plecho', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.35, 0, 0.05, 0, UK_PULLED], [0.65, 0, 0.1, 0, R({ hip: [0, 0.56, 0.14], sp: [0.6, 0, 0], nk: [-0.3, 0, 0], fL: [0.07, 0.14, 0.12], fR: [-0.06, 0.05, -0.02] })]]; },
   grips(m) { return { 0: { L: ['armpitR', 'u'], R: ['sleeveL', 'u'] } }; },
-  drive: (m) => ({ t0: 0.68, dur: 0.4, pivot: [0.08 * m, 0.95, 0.45], axis: [1, 0, 0], ang: 3.1, lift: 0.05, drop: 0.3, push: [0, 0.55] }),
+  drive: (m) => ({ t0: 0.68, dur: 0.4, pivot: [0.08 * m, 0.95, 0.45], axis: [1, 0, 0], ang: 3.1, lift: 0.05, drop: 0.3, push: [0, 0.55], over: 0.1, land: [0.08 * m, 1.5] }),
 });
 
 // 4 СКОЛЕН (hiza-guruma): the sole blocks his knee, the hands turn him over it
 mk('skolen', {
-  vk: 0.3,
+  vk: 0.3, vkOver: 0.53,
   name: 'Сколен', jp: 'Хиза-гурума', range: 1.55, cost: 9, base: 0.62, power: 0.9, fall: 'side',
   tori(m) {
     const blk = R({ hip: [0, 0.5, 0.05], hr: [0.1, 0, 0], sp: [0.25, 0, 0.12 * m], nk: [0, 0, 0], fL: [0.08, 0.046, 0.0], fR: [-0.06, 0.28, 0.42], kn: [0.2, 0.2] });
@@ -177,7 +177,7 @@ mk('skolen', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.4, 0, 0.05, 0, R({ hip: [0.02 * m, 0.55, 0.05], sp: [0.22, 0, 0.05], nk: [-0.1, 0, 0] })], [0.62, 0, 0.1, 0, R({ hip: [0.04 * m, 0.55, 0.08], sp: [0.35, 0, 0.1 * m], nk: [-0.15, 0, 0] })]]; },
   grips(m) { return { 0: { L: ['lapelR', 'u'], R: ['sleeveL', 'u'] } }; },
-  drive: (m) => ({ t0: 0.62, dur: 0.4, pivot: [0, 0.45, 0.2], axis: [0.7, 0, 0.7], ang: 3.0, lift: 0.1, push: [0, 0.1] }),
+  drive: (m) => ({ t0: 0.62, dur: 0.4, pivot: [0, 0.45, 0.2], axis: [0.7, 0, 0.7], ang: 3.0, lift: 0.1, push: [0, 0.1], over: 0.35, overAng: 4.4, land: [-0.55, 0.75] }),
 });
 
 // 5 ЗАЦЕП (o-uchi-gari): step in, hook his inside leg and push him back
@@ -199,7 +199,7 @@ mk('podsechka', {
   name: 'Подсечка', jp: 'Де-аши-барай', range: 1.45, cost: 7, base: 0.7, power: 0.8, fall: 'side',
   tori(m) {
     const sw = R({ hip: [0, 0.52, 0.05], hr: [0.1, 0, 0], sp: [0.2, 0, 0.1 * m], nk: [0, 0, 0], fL: [0.07, 0.046, 0.0], fR: [-0.06, 0.1, 0.55], kn: [0.2, 0.2] });
-    return [[0, 0, 1.0, PI, R({})], [0.28, 0, 0.95, PI, R({ hip: [0, 0.53, 0.04], sp: [0.18, 0, 0], fR: [-0.06, 0.07, 0.25] })], [0.5, 0, 0.9, PI, sw], [0.9, 0, 0.9, PI, R({ hip: [0, 0.52, 0.12], sp: [0.35, 0, 0.1 * m], fL: [0.07, 0.046, 0.1], fR: [-0.06, 0.08, 0.9] })], [1.4, 0, 0.95, PI, R({ hip: [0, 0.52, 0.12], sp: [0.35, 0, 0.1 * m], fL: [0.07, 0.046, 0.1], fR: [-0.06, 0.046, 0.5] })], [1.8, 0, 1.0, PI, R({})]];
+    return [[0, 0, 1.0, PI, R({})], [0.28, 0, 0.95, PI, R({ hip: [0, 0.53, 0.04], sp: [0.18, 0, 0], fR: [-0.06, 0.07, 0.25] })], [0.5, 0, 0.9, PI, sw], [0.9, 0, 0.9, PI, R({ hip: [0, 0.52, 0.12], sp: [0.35, 0, 0.1 * m], fL: [0.07, 0.046, 0.1], fR: [-0.06, 0.1, 0.62] })], [1.2, 0, 0.95, PI, R({ hip: [0, 0.52, 0.1], sp: [0.3, 0, 0.05 * m], fL: [0.07, 0.046, 0.1], fR: [-0.06, 0.046, 0.3] })], [1.7, 0, 1.0, PI, R({})]];
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.4, 0, 0.0, 0, R({ hip: [0, 0.55, 0.03], sp: [0.12, 0, 0], fL: [0.07, 0.15, 0.2], fR: [-0.06, 0.046, -0.04] })], [0.58, 0, 0.02, 0, R({ hip: [0, 0.55, 0.06], sp: [0.15, 0, 0], fL: [0.07, 0.12, 0.3], fR: [-0.06, 0.046, -0.04] })]]; },
   grips(m) { return { 0: { L: ['lapelR', 'u'], R: ['sleeveL', 'u'] } }; },
@@ -208,7 +208,7 @@ mk('podsechka', {
 
 // 7 БЕДРО (o-goshi): the hip as a fulcrum, an arm around his waist
 mk('bedro', {
-  vk: 0.7,
+  vk: 0.7, vkOver: 0.54,
   name: 'Бедро', jp: 'О-госи', range: 1.5, cost: 11, base: 0.6, power: 0.95, fall: 'forward',
   tori(m) {
     const fit = R({ hip: [0, 0.42, -0.05], hr: [0.25, 0, 0], sp: [0.5, 0, 0], nk: [-0.2, 0, 0], fL: [0.1, 0.046, 0.0], fR: [-0.1, 0.046, 0.0], kn: [0.8, 0.35] });
@@ -217,7 +217,7 @@ mk('bedro', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.35, 0, 0.04, 0, UK_PULLED], [0.64, 0, 0.1, 0, R({ hip: [0, 0.56, 0.1], sp: [0.5, 0, 0], nk: [-0.25, 0, 0], fL: [0.07, 0.1, 0.1], fR: [-0.06, 0.05, -0.02] })]]; },
   grips(m) { return { 0: { L: ['backBelt', 'u'], R: ['sleeveL', 'u'] } }; },
-  drive: (m) => ({ t0: 0.66, dur: 0.34, pivot: [0.05 * m, 0.9, 0.42], axis: [1, 0, 0], ang: 3.2, lift: 0.05, drop: 0.2, push: [0, 0.5] }),
+  drive: (m) => ({ t0: 0.66, dur: 0.34, pivot: [0.05 * m, 0.9, 0.42], axis: [1, 0, 0], ang: 3.2, lift: 0.05, drop: 0.2, push: [0, 0.5], over: 0.12, land: [0.06 * m, 1.45] }),
 });
 
 // 8 ОТХВАТ (o-soto-gari): beside him, a big reap of the outside leg, a push on the chest
@@ -225,9 +225,10 @@ mk('otkhvat', {
   vk: 0.33,
   name: 'Отхват', jp: 'О-сото-гари', range: 1.45, cost: 11, base: 0.58, power: 1.05, fall: 'backward',
   tori(m) {
-    const reap = R({ hip: [0, 0.5, 0.1], hr: [0.25, 0, 0], sp: [0.55, 0, 0], nk: [-0.1, 0, 0], fL: [0.1, 0.046, 0.0], fR: [-0.1, 0.5, -0.5], kn: [0.2, 0.2] });
-    const fwd = R({ hip: [0, 0.5, 0.18], hr: [0.45, 0, 0], sp: [0.9, 0, 0], nk: [-0.4, 0, 0], fL: [0.1, 0.046, 0.0], fR: [-0.1, 0.58, -0.6], kn: [0.2, 0.2] });
-    return [[0, 0, 1.0, PI, R({})], [0.3, 0.2 * m, 0.7, PI, R({ hip: [0, 0.52, 0.04], sp: [0.2, 0, 0], fL: [0.09, 0.046, 0.12], fR: [-0.08, 0.046, -0.02] })], [0.55, 0.22 * m, 0.4, PI, reap], [0.95, 0.22 * m, 0.38, PI, fwd], [1.25, 0.22 * m, 0.42, PI, REC], [1.9, 0.1 * m, 0.7, PI, R({})]];
+    const swing = R({ hip: [0, 0.51, 0.08], hr: [0.12, 0, 0], sp: [0.32, 0, 0], nk: [-0.05, 0, 0], fL: [0.1, 0.046, 0.02], fR: [-0.1, 0.17, 0.24], kn: [0.45, 0.25] });
+    const reap = R({ hip: [0, 0.5, 0.12], hr: [0.3, 0, 0], sp: [0.6, 0, 0], nk: [-0.15, 0, 0], fL: [0.1, 0.046, 0.0], fR: [-0.1, 0.3, -0.26], kn: [0.2, 0.2] });
+    const fwd = R({ hip: [0, 0.5, 0.18], hr: [0.45, 0, 0], sp: [0.9, 0, 0], nk: [-0.4, 0, 0], fL: [0.1, 0.046, 0.0], fR: [-0.1, 0.56, -0.58], kn: [0.2, 0.2] });
+    return [[0, 0, 1.0, PI, R({})], [0.3, 0.2 * m, 0.7, PI, R({ hip: [0, 0.52, 0.04], sp: [0.2, 0, 0], fL: [0.09, 0.046, 0.12], fR: [-0.08, 0.046, -0.02] })], [0.55, 0.22 * m, 0.42, PI, swing], [0.74, 0.22 * m, 0.4, PI, reap], [0.98, 0.22 * m, 0.38, PI, fwd], [1.28, 0.22 * m, 0.42, PI, REC], [1.9, 0.1 * m, 0.7, PI, R({})]];
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.45, 0, 0.0, 0, R({ hip: [0, 0.545, -0.02], sp: [0.02, 0, 0], fL: [0.07, 0.046, 0.0], fR: [-0.07, 0.07, -0.02] })], [0.72, 0, 0, 0, R({ hip: [0, 0.54, -0.06], sp: [-0.2, 0, 0], nk: [0.15, 0, 0] })]]; },
   grips(m) { return { 0: { L: ['collarR', 'u'], R: ['sleeveL', 'u'] } }; },
@@ -236,7 +237,7 @@ mk('otkhvat', {
 
 // 9 ЧЕРЕЗ СПИНУ (morote-seoi-nage): both hands, a deep turn under him
 mk('spina', {
-  vk: 0.85,
+  vk: 0.85, vkOver: 0.47,
   name: 'Через спину', jp: 'Мороте-сэои-нагэ', range: 1.6, cost: 13, base: 0.56, power: 1.1, fall: 'forward',
   tori(m) {
     const fit = R({ hip: [0, 0.34, -0.05], hr: [0.3, 0, 0], sp: [0.8, 0, 0], nk: [-0.4, 0, 0], fL: [0.1, 0.046, 0.03], fR: [-0.1, 0.046, -0.02], kn: [1.0, 0.35] });
@@ -245,12 +246,12 @@ mk('spina', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.35, 0, 0.06, 0, UK_PULLED], [0.68, 0, 0.12, 0, R({ hip: [0, 0.56, 0.15], sp: [0.65, 0, 0], nk: [-0.35, 0, 0], fL: [0.07, 0.15, 0.13], fR: [-0.06, 0.05, -0.02] })]]; },
   grips(m) { return { 0: { L: ['armpitL', 'u'], R: ['armpitR', 'u'] } }; },
-  drive: (m) => ({ t0: 0.72, dur: 0.42, pivot: [0, 0.98, 0.45], axis: [1, 0, 0], ang: 3.3, lift: 0.05, drop: 0.3, push: [0, 0.6] }),
+  drive: (m) => ({ t0: 0.72, dur: 0.42, pivot: [0, 0.98, 0.45], axis: [1, 0, 0], ang: 3.3, lift: 0.05, drop: 0.3, push: [0, 0.6], over: 0.1, land: [0, 1.55] }),
 });
 
 // 10 ТОМОЭ-НАГЭ: a sacrifice throw, he sits back and the foot in his belly sends him over the head
 mk('tomoe', {
-  vk: 0.55,
+  vk: 0.55, vkOver: 0.46,
   name: 'Томоэ-нагэ', jp: 'Томоэ-нагэ', range: 1.65, cost: 12, base: 0.64, power: 1.15, fall: 'forward', follow: 0,
   tori(m) {
     // he pulls uke onto his toes, drops on his seat right between uke's feet, the sole on the belly
@@ -262,13 +263,13 @@ mk('tomoe', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.3, 0, 0.08, 0, UK_PULLED], [0.55, 0, 0.2, 0, R({ hip: [0, 0.52, 0.16], sp: [0.7, 0, 0], nk: [-0.4, 0, 0], fL: [0.07, 0.12, 0.16], fR: [-0.06, 0.05, 0.02], kn: [0.4, 0.3] })]]; },
   grips(m) { return { 0: { L: ['lapelR', 'u'], R: ['lapelL', 'u'] } }; },
-  drive: (m) => ({ t0: 0.6, dur: 0.42, pivot: [0, 0.8, 0.42], axis: [1, 0, 0], ang: 3.3, lift: 0.15, push: [0, 1.25] }),   // over tori's head on his foot, not onto him
+  drive: (m) => ({ t0: 0.6, dur: 0.42, pivot: [0, 0.8, 0.42], axis: [1, 0, 0], ang: 3.3, lift: 0.15, push: [0, 1.25], over: 0.15, land: [0, 1.95] }),   // over tori's head on his foot, not onto him
 });
 
 // 11 ТАЙ-ОТОСИ (передняя подножка): a three-quarter turn in front of him, the straight leg across his shin,
 // the hands pull him forward and down over it: no hip under him, he trips over the leg and rolls over in front
 mk('taiotoshi', {
-  vk: 0.25,
+  vk: 0.25, vkOver: 0.36,
   name: 'Тай-отоси', jp: 'Тай-отоси (передняя подножка)', range: 1.6, cost: 10, base: 0.58, power: 1.0, fall: 'forward',
   tori(m) {
     const turn = R({ hip: [0, 0.48, 0], hr: [0.15, 0, 0], sp: [0.25, 0, 0], nk: [-0.1, 0, 0], fL: [0.09, 0.046, 0.05], fR: [-0.09, 0.046, -0.05], kn: [0.6, 0.35] });
@@ -279,7 +280,7 @@ mk('taiotoshi', {
   },
   uke(m) { return [[0, 0, 0, 0, R({})], [0.3, 0, 0.06, 0, UK_PULLED], [0.6, 0, 0.14, 0, R({ hip: [0, 0.55, 0.16], sp: [0.7, 0, 0], nk: [-0.35, 0, 0], fL: [0.07, 0.12, 0.14], fR: [-0.06, 0.05, 0.05], kn: [0.3, 0.3] })]]; },
   grips(m) { return { 0: { L: ['sleeveL', 'u'], R: ['lapelR', 'u'] } }; },
-  drive: (m) => ({ t0: 0.64, dur: 0.38, pivot: [-0.05 * m, 0.55, 0.32], axis: [1, 0, 0.25 * m], ang: 3.0, lift: 0.15, drop: 0.1, push: [0.15 * m, 0.55] }),
+  drive: (m) => ({ t0: 0.64, dur: 0.38, pivot: [-0.05 * m, 0.55, 0.32], axis: [1, 0, 0.25 * m], ang: 3.0, lift: 0.15, drop: 0.1, push: [0.15 * m, 0.55], over: 0.3, land: [0.12 * m, 1.4] }),
 });
 
 J.TECHS = T;

@@ -312,7 +312,7 @@ C.eventsAround = function (c) {
     if (inv.week < c.week || inv.week >= c.week + 4 || c.done[inv.key]) continue;
     const e = GW.EVENTS.find((x) => x.id === inv.id); if (!e || e.tier <= c.tier) continue;
     const L = C.evLocal(e, c); if (!L) continue;
-    out.push(Object.assign({ key: inv.key, week: inv.week, inWeeks: inv.week - c.week, invite: true }, e, L));
+    out.push(Object.assign({ key: inv.key, week: inv.week, inWeeks: inv.week - c.week, invite: true }, e, L, inv.free ? { fee: 0, team: true } : {}));
   }
   for (const e of GW.EVENTS) {
     if (e.tier > c.tier || e.tier < Math.max(1, c.tier - 2)) continue;
@@ -402,6 +402,33 @@ C.closeWeek = function (c) {
   return r;
 };
 // the whole week at once (used by the quick simulation)
+// a month in one go: four weeks of the same plan without the mini-games; a tired body gets a recovery day, an injured one
+// the light sessions; it stops before a week with a start of your level, so that you can enter it
+C.runMonth = function (c, slots, tech) {
+  const sum = { gains: {}, xp: 0, unlocked: [], log: [], weeks: 0, month: true, stop: '' };
+  for (let w = 0; w < 4; w++) {
+    if (c.ev || c.retired) break;
+    if (w > 0) {
+      // it stops for a championship, an invitation, and for the starts of your stage while the stage still wants a medal from you
+      const e = C.eventsAround(c).find((x) => x.inWeeks === 0 && !x.single && (x.major || x.invite || (x.tier >= c.tier && !c.medalAt[c.tier])));
+      if (e) { sum.stop = 'Неделя турнира: «' + e.name + '» в эту субботу — можно выступить.'; break; }
+    }
+    let sl = slots.filter((s) => c.sessions.includes(s));
+    while (sl.length < 3) sl.push('recovery');
+    if (c.injury > 0) sl = ['tech', 'recovery', 'tech'];
+    // the coach keeps the load: no week ends above 55 of fatigue, the heaviest day turns into a recovery day
+    const after = () => c.fatigue + sl.reduce((a, s) => a + GW.SESSIONS[s].fat * (c.physio ? 0.85 : 1), 0) - (c.physio ? 24 : 12);
+    for (let k = 0; k < 2 && after() > 55; k++) { let hi = -1; sl.forEach((s, i) => { if (s !== 'recovery' && (hi < 0 || GW.SESSIONS[s].fat >= GW.SESSIONS[sl[hi]].fat)) hi = i; }); if (hi < 0) break; sl[hi] = 'recovery'; }
+    const r = C.runWeek(c, { slots: sl, tech: tech || c.known[0], play: false });
+    for (const [k, v] of Object.entries(r.gains)) sum.gains[k] = (sum.gains[k] || 0) + v;
+    sum.xp += r.xp; sum.unlocked.push(...(r.unlocked || []));
+    sum.log.push({ day: 'Неделя ' + (w + 1), name: sl.map((s) => GW.SESSIONS[s].name).join(' · '), text: C.today(c) });
+    sum.weeks++;
+  }
+  c.lastSlots = slots.slice(0, 3);
+  C.save();
+  return sum;
+};
 C.runWeek = function (c, plan) {
   C.startWeek(c, plan);
   for (let i = 0; i < 3; i++) C.runDay(c, i, { mult: plan.mult && plan.mult[i], spar: plan.spar && plan.spar[i], sparK: plan.sparK && plan.sparK[i] });
@@ -668,6 +695,18 @@ C.closeEvent = function (c) {
     let best = null;
     for (const x of up) for (let w = c.week + 2; w < c.week + 9; w++) if (((w - x.at) % x.every + x.every) % x.every === 0 && (!best || w < best.week)) { best = { key: x.id + '@' + w, id: x.id, week: w }; break; }
     if (best && !c.invites.some((i) => i.key === best.key)) { c.invites.push(best); unlocked.push('invite:' + best.key); C.news(c, 'Приглашение: «' + C.evLocal(GW.EVENTS.find((x) => x.id === best.id), c, true).name + '» через ' + (best.week - c.week) + ' нед.'); }
+    if (c.invites.length > 6) c.invites.splice(0, c.invites.length - 6);
+  }
+  // the federation has seen a champion: a place in the national team at a Grand Slam or a Grand Prix, the team pays
+  const team = !ev.exam && !ev.single && c.tier < 6 && ((ev.intlY && (p === 1 || (ev.major && p === 2))) || (ev.id === 'natyouth' && p === 1) || (ev.id === 'national' && p === 1));
+  if (team) {
+    const gs = (ev.major && p === 1) || ev.id === 'national', x = GW.EVENTS.find((y) => y.id === (gs ? 'gs' : 'gp'));
+    let best = null;
+    for (let w = c.week + 2; w < c.week + 12 && !best; w++) if (((w - x.at) % x.every + x.every) % x.every === 0) best = { key: x.id + '@' + w, id: x.id, week: w, free: true };
+    if (best && !c.invites.some((i) => i.key === best.key)) {
+      c.invites.push(best); unlocked.push('invite:' + best.key);
+      C.news(c, 'Федерация берёт вас в сборную ' + (GW.NAT[c.cc] || GW.NAT.RUS).gen + ': «' + C.evLocal(x, c, true).name + '» через ' + (best.week - c.week) + ' нед. Взнос и дорогу оплачивает сборная.');
+    }
     if (c.invites.length > 6) c.invites.splice(0, c.invites.length - 6);
   }
   if (ev.finalU) unlocked.push(...ev.finalU);

@@ -114,7 +114,21 @@ J.neTick = function (g, dt) {
       g.ui.callout('ВАЗА-АРИ', 'удержание 10 с · держи до 20!', 'ko', 1.6);
     }
     if (ne.held >= 20) return J.ippon(g, tori, { name: 'Удержание', jp: 'Осаекоми-вадза' }, 'Иппон · удержание 20 с');
-  } else if (ne.t > 2.6) return J.neEnd(g, 'МАТЭ');
+  } else if (ne.t > 2.6 && !ne.sub) return J.neEnd(g, 'МАТЭ');   // no progress on the ground: matte; a choke or a lock in progress is progress
+  // the choke or the lock: it tightens by itself and with every press of the man on top; the man underneath fights the hands
+  if (ne.sub) {
+    const SB = ne.sub;
+    SB.t += dt; SB.cd -= dt;
+    SB.prog += SB.rate * dt;
+    if (!tori.isPlayer) SB.prog += SB.push * 4 * dt;   // the opponent works the hands all the time
+    if (!uke.isPlayer) SB.prog -= SB.res * dt * (0.6 + 0.4 * cl(uke.stamina / 100));
+    tori.stamina = Math.max(0, tori.stamina - dt * 1.5); uke.stamina = Math.max(0, uke.stamina - dt * 2.5);
+    if (SB.prog >= 1) { g.ui.callout('СДАЛСЯ!', SB.T.name + ' · ' + SB.T.jp, 'ko', 2.4); return J.ippon(g, tori, SB.T, 'Сдался'); }
+    if (SB.prog <= 0 || SB.t > 10) {
+      ne.sub = null; ne.subCd = tori.isPlayer ? 1.0 : 4; ne.esc += 0.12; ne.t = Math.min(ne.t, 1.0);
+      mark2(g, tori, 'ЗАЩИТИЛСЯ ОТ: ' + SB.T.name.toUpperCase());
+    }
+  }
   // the man underneath bridges and turns out
   if (!uke.isPlayer) {
     const lvl = M.clamp(g.opts.difficulty | 0, 0, 3);
@@ -124,19 +138,36 @@ J.neTick = function (g, dt) {
   // the opponent on top goes for the neck or the arm
   if (!tori.isPlayer && ne.subCd <= 0 && Math.random() < dt * 0.25) J.subTry(g, tori);
 };
+// a submission is fought to the end: L2 puts it on and every further press tightens it, the referee does not stop it;
+// it ends when he taps, when he frees his neck or arm, or when it has gone nowhere for ten seconds
 J.subTry = function (g, f) {
-  const ne = g.judoNe; if (!ne || ne.tori !== f || ne.subCd > 0) return;
-  ne.subCd = 1.6; f.stamina = Math.max(0, f.stamina - 4);
+  const ne = g.judoNe; if (!ne || ne.tori !== f) return;
+  if (ne.sub) {
+    const SB = ne.sub;
+    if (!f.isPlayer || SB.cd > 0) return;
+    SB.cd = 0.13; SB.prog += SB.push; f.stamina = Math.max(0, f.stamina - 0.5);
+    return;
+  }
+  if (ne.subCd > 0) return;
+  f.stamina = Math.max(0, f.stamina - 3);
   const u = ne.uke, T = J.NE_TECH[ne.hold ? (Math.random() < 0.5 ? 0 : 1) : (Math.random() < 0.5 ? 0 : 2)];
-  const p = cl(0.12 + (neSkill(f) - neSkill(u)) * 0.9 + (ne.hold ? 0.05 : 0) + 0.12 * (1 - cl(u.stamina / 100)), 0.04, 0.42) * (f.isPlayer ? 1 : 0.5);   // the opponent's choke is no lottery ticket
-  if (Math.random() < p) { g.ui.callout('СДАЛСЯ!', T.name + ' · ' + T.jp, 'ko', 2.4); return J.ippon(g, f, T, 'Сдался'); }
-  ne.esc += 0.22; mark2(g, f, 'ЗАЩИТИЛСЯ ОТ: ' + T.name.toUpperCase());
+  const edge = neSkill(f) - neSkill(u), tired = 1 - cl(u.stamina / 100);
+  ne.sub = {
+    T, t: 0, cd: 0.15, prog: 0.12,
+    push: cl(0.04 + edge * 0.15, 0.02, 0.07) * (f.isPlayer ? 1 : 0.6),   // a press of L2
+    rate: cl(0.02 + edge * 0.15 + 0.06 * tired + (ne.hold ? 0.02 : 0), 0, 0.12),   // it tightens by itself
+    res: cl(0.1 - edge * 0.3, 0.03, 0.18),   // he fights the hands
+  };
+  g.ui.callout(T.name.toUpperCase(), T.jp + (f.isPlayer ? ' · жми L2 — дожимай!' : ''), 'round', 1.3);
+  if (u.isPlayer) g.ui.hitMarker('ЗАЩИЩАЙСЯ — ЖМИ L1!', 0);
 };
 J.escTry = function (g, f) {
   const ne = g.judoNe; if (!ne || ne.uke !== f) return;
   if ((f._escCd || 0) > (g.simTime || 0)) return;
   f._escCd = (g.simTime || 0) + 0.15;
   f.stamina = Math.max(0, f.stamina - 1.2);
+  // the neck or the arm first: pull the hands off
+  if (ne.sub) { ne.sub.prog -= cl(0.05 - (neSkill(ne.tori) - neSkill(f)) * 0.12, 0.025, 0.08) * (0.6 + 0.4 * cl(f.stamina / 60)); return; }
   ne.esc += cl(0.03 + (neSkill(f) - neSkill(ne.tori)) * 0.08, 0.015, 0.05) * (0.6 + 0.4 * cl(f.stamina / 60));
 };
 const mark2 = (g, f, t) => g.ui.hitMarker(t, f === g.p1 ? 0 : 1);
@@ -435,6 +466,8 @@ body.judo .bar.hp, body.judo .bar.hd, body.judo .bar.fl, body.judo .zones, body.
 #jne b { color: #f0c82c; font-size: 22px; margin-left: 8px; }
 #jne i, #jne u { display: block; height: 4px; margin-top: 6px; border-radius: 2px; }
 #jne i { background: #f0c82c; } #jne u { background: #4da3ff; }
+#jne .jsub { margin-top: 8px; font-size: 13px; letter-spacing: .5px; color: #ffd0d0; }
+#jne .jsub s { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e04848; text-decoration: none; transition: width .08s; }
 #hitlog { top: 132px !important; }
 @media (max-height: 520px) { #hitlog { top: 104px !important; } }
 .jsc b.sh { background: #e8c547; color: #1a1500; }
@@ -462,7 +495,9 @@ Uip.hudUpdate = function (game) {
   let ne = document.getElementById('jne');
   if (!ne) { ne = document.createElement('div'); ne.id = 'jne'; document.body.appendChild(ne); }
   const N = game.judoNe;
-  if (N && N.hold) { ne.style.display = 'block'; ne.innerHTML = 'ОСАЕКОМИ <b>' + N.held.toFixed(1) + '</b><i style="width:' + Math.min(100, N.held / 20 * 100) + '%"></i><u style="width:' + Math.min(100, N.esc * 100) + '%"></u>'; }
+  const SB = N && N.sub, subBar = SB ? '<div class="jsub">' + SB.T.name.toUpperCase() + (N.tori === game.p1 ? ' · L2 — ДОЖИМАЙ' : ' · L1 — ЗАЩИЩАЙСЯ') + '<s style="width:' + Math.round(Math.min(1, Math.max(0, SB.prog)) * 100) + '%"></s></div>' : '';
+  if (N && N.hold) { ne.style.display = 'block'; ne.innerHTML = 'ОСАЕКОМИ <b>' + N.held.toFixed(1) + '</b><i style="width:' + Math.min(100, N.held / 20 * 100) + '%"></i><u style="width:' + Math.min(100, N.esc * 100) + '%"></u>' + subBar; }
+  else if (N && SB) { ne.style.display = 'block'; ne.innerHTML = 'НЕ-ВАДЗА' + subBar + '<u style="width:' + Math.min(100, N.esc * 100) + '%"></u>'; }
   else if (N) { ne.style.display = 'block'; ne.innerHTML = 'НЕ-ВАДЗА<u style="width:' + Math.min(100, N.esc * 100) + '%"></u>'; }
   else ne.style.display = 'none';
 };

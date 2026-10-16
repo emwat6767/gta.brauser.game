@@ -15,6 +15,8 @@ const CONTACT = ['hips', 'chest', 'shL', 'shR', 'head'];
 const RADIUS = { head: 0.11, hips: 0.12, chest: 0.13, shL: 0.07, shR: 0.07 };
 // kneeling over the thrown man: the back knee on the mat, the front foot planted, the chest over him
 const PRESS = { hip: [0, 0.3, -0.03], hr: [0.4, 0, 0], sp: [0.75, 0, 0], nk: [-0.45, 0, 0], fL: [0.11, 0.05, 0.17], fR: [-0.1, 0.035, -0.3], kn: [1.0, 0.3] };
+// working a choke or a lock: lower, the chest closer to him
+const SUBP = { hip: [0, 0.26, 0.02], hr: [0.55, 0, 0], sp: [0.95, 0, 0], nk: [-0.55, 0, 0], fL: [0.12, 0.05, 0.2], fR: [-0.1, 0.035, -0.28], kn: [1.05, 0.3] };
 
 function snap(f) {
   const B = f.body.B, s = { q: {}, hips: B.hips.position.clone(), pos: f.pos.clone(), yaw: f.yaw };
@@ -51,7 +53,7 @@ function segSeg(p1, q1, p2, q2, c1, c2) {
   c1.copy(p1).addScaledVector(d1, s); c2.copy(p2).addScaledVector(d2, t);
   return c1.distanceTo(c2);
 }
-const _s1 = new V3(), _s2 = new V3(), _s3 = new V3(), _c1 = new V3(), _c2 = new V3();
+const _s1 = new V3(), _s2 = new V3(), _s3 = new V3(), _c1 = new V3(), _c2 = new V3(), _np = new V3();
 function capsules(f) {
   const B = f.body.B, H = f.h;
   const w = (bone, x, y, z) => bone.localToWorld(new V3(x * H, y * H, z * H));
@@ -224,19 +226,22 @@ class ThrowRun {
   startDrive() {
     const u = this.uke, rd = u.ragdoll;
     this.stage = 'drive'; this.driveT = 0;
+    // the hip and shoulder throws: over the fulcrum, three quarters of a turn, and a little longer in the air
+    this.over = this.drive.ang > 2.5 && !this.drive.noOver;
+    if (this.over) { this.overAng = this.drive.overAng || this.drive.ang + 1.45; this.drive.dur *= 1.15; }
     rd.rootYaw = u.yaw;
     rd.start(new V3(), 0, 0.9);
     this.p0 = {}; this.kinPrev = {};
     for (const k of CORE.concat(Object.keys(LIMB_W))) { this.p0[k] = rd.p[k].clone(); this.kinPrev[k] = rd.p[k].clone(); }
     const g = this.g;
-    if (this.opts.cinema !== false) { g.slowmo = Math.max(g.slowmo || 0, 0.55); g.timeScale = 0.5; if (g.cam && g.cam.cinematic) g.cam.cinematic(this.uke, 1.7, { lookY: 0.7, height: 1.35, fov: 48 }); }
+    if (this.opts.cinema !== false) { g.slowmo = Math.max(g.slowmo || 0, this.over ? 0.85 : 0.6); g.timeScale = 0.5; if (g.cam && g.cam.cinematic) g.cam.cinematic(this.uke, 1.7, { lookY: 0.7, height: 1.35, fov: 48 }); }
     g.audio.whoosh && g.audio.whoosh(9);
     this.twist = 0; this.twistDir = Math.random() < 0.5 ? 1 : -1;
     // the thrown man turns out of it by himself as often as the opponent does; L1 in the air gives the player more
     if (this.opts.partial) this.twist = 3.1;   // the throw goes through, but he turns in the air and lands on his belly
     else if (this.opts.twist !== false) {
       const r = Math.random(), p = J.twistChance ? J.twistChance(u, this.tori, this.power) : 0.25;
-      this.twist = r < p ? 3.1 : r < p + 0.22 ? 1.55 : 0;   // onto the belly (no score) or onto the side
+      this.twist = r < p ? 3.1 : r < p + 0.22 ? (this.over ? 1.2 : 1.55) : 0;   // onto the belly (no score) or onto the side
     }
     if (u.isPlayer && g.ui) g.ui.hitMarker('L1 — ВЫКРУТИТЬСЯ!', 0);
   }
@@ -248,7 +253,7 @@ class ThrowRun {
     if (this.twist > 3) return 'full';
     if (this.driveT / this.drive.dur > 0.75) return 'late';
     const p = J.twistChance ? J.twistChance(this.uke, this.tori, this.power, true) : 0.4;
-    this.twist = Math.random() < p ? 3.1 : 1.55;
+    this.twist = Math.random() < p ? 3.1 : this.over ? 1.2 : 1.55;
     return this.twist > 3 ? 'full' : 'half';
   }
 
@@ -266,8 +271,10 @@ class ThrowRun {
     const want = Math.atan2(cx - tori.pos.x, cz - tori.pos.z);
     tori.yaw += M.wrap(want - tori.yaw) * kk;
     tori.body.root.position.copy(tori.pos); tori.body.root.rotation.set(0, tori.yaw, 0); tori.body.root.updateMatrixWorld(true);
-    const grip = { L: J.anchor(uke, 'lapelR', new V3()), R: J.anchor(uke, 'sleeveL', new V3()) };
-    J.applyRig(tori, PRESS, grip);
+    const ne = this.g.judoNe, SB = ne && ne.tori === tori && ne.sub, arm = SB && /руку/.test(SB.T.name);
+    const grip = SB ? (arm ? { L: J.anchor(uke, 'sleeveL', new V3()), R: J.anchor(uke, 'elbowL', new V3()) } : { L: J.anchor(uke, 'collarR', new V3()), R: J.anchor(uke, 'collarL', new V3()) })
+      : { L: J.anchor(uke, 'lapelR', new V3()), R: J.anchor(uke, 'sleeveL', new V3()) };
+    J.applyRig(tori, SB ? SUBP : PRESS, grip);
     blendFrom(tori, this.sP, ease(this.pressT / 0.45));
   }
 
@@ -285,7 +292,7 @@ class ThrowRun {
 
   driveStep(dt) {
     const d = this.drive, u = this.uke, rd = u.ragdoll, k = this.k;
-    this.driveT += dt;
+    this.driveT += dt; this.lastDt = dt;
     const s = cl(this.driveT / d.dur);
     // he twists out in the air: the turn about his own spine, to the side or onto the belly
     this.twistNow = (this.twistNow || 0) + ((this.twist || 0) - (this.twistNow || 0)) * Math.min(1, dt * 9);
@@ -296,27 +303,58 @@ class ThrowRun {
     const ang = d.ang * e;
     const push = new V3().addScaledVector(this.Xu, d.push[0] * k).addScaledVector(this.Zu, d.push[1] * k);
     rd.step(dt);
-    const kin = (key, out) => { out.copy(this.p0[key]).sub(pivot).applyAxisAngle(axis, ang).add(pivot).addScaledVector(push, e); out.y += d.lift * k * Math.sin(Math.PI * s) - (d.drop || 0) * k * e * e; return out; };   // drop: he rolls over the back and comes down in front
+    let kin;
+    if (this.over) {
+      // his hips travel a curve: up onto tori's hip or back, over it, and down in front of him; the body turns
+      // about the hips three quarters of a circle, so he comes down on his back with the legs still above him
+      if (!this.path) {
+        const P0 = this.p0.hips.clone(), Pt = pivot.clone(); Pt.y += (d.over != null ? d.over : 0.12) * k;
+        const land = d.land || [d.pivot[0] + d.push[0], d.pivot[2] + 0.75];
+        const P1 = this.w(land[0] * k, land[1] * k, new V3()); P1.y = 0.27 * k;
+        this.path = [P0, Pt, P1];
+      }
+      const [P0, Pt, P1] = this.path, L0 = 2 * (e - 0.5) * (e - 1), L1 = -4 * e * (e - 1), L2 = 2 * e * (e - 0.5);
+      const hc = new V3().addScaledVector(P0, L0).addScaledVector(Pt, L1).addScaledVector(P1, L2), A = this.overAng * e;
+      kin = (key, out) => out.copy(this.p0[key]).sub(this.p0.hips).applyAxisAngle(axis, A).add(hc);
+    } else kin = (key, out) => { out.copy(this.p0[key]).sub(pivot).applyAxisAngle(axis, ang).add(pivot).addScaledVector(push, e); out.y += d.lift * k * Math.sin(Math.PI * s) - (d.drop || 0) * k * e * e; return out; };   // drop: he rolls over the back and comes down in front
     const tc = kin('hips', new V3()), ta = kin('neck', new V3()).sub(tc).normalize();
     const twist = (out) => { if (Math.abs(tw) > 1e-3) out.sub(tc).applyAxisAngle(ta, tw * this.twistDir).add(tc); return out; };
-    for (const key of CORE) {
-      const p = rd.p[key];
-      twist(kin(key, _v));
-      if (_v.y < 0.1) _v.y = 0.1;
-      rd.prev[key].copy(this.kinPrev[key]);
-      p.copy(_v); this.kinPrev[key].copy(_v);
-    }
+    const tgt = this.tgt || (this.tgt = {});
+    for (const key of CORE) twist(kin(key, tgt[key] || (tgt[key] = new V3())));
     // the limbs fly with the body (the legs over the top), a little loose
     for (const key in LIMB_W) {
-      const w = LIMB_W[key], p = rd.p[key];
-      kin(key, _v);
+      const v = kin(key, tgt[key] || (tgt[key] = new V3()));
       if (key[0] === 'k' || key[0] === 'f') {
-        const whip = (d.ang > 0 ? 0.55 : -0.35) * Math.sin(Math.PI * s) * (1 - 0.6 * Math.min(1, Math.abs(tw) / 2));
-        _v.sub(tc).applyAxisAngle(axis, whip).add(tc);
+        const whip = (d.ang > 0 ? (this.over ? 0.3 : 0.55) : -0.35) * Math.sin(Math.PI * s) * (1 - 0.6 * Math.min(1, Math.abs(tw) / 2));
+        v.sub(tc).applyAxisAngle(axis, whip).add(tc);
       }
-      twist(_v);
-      if (_v.y < 0.06) _v.y = 0.06;
-      p.lerp(_v, w); rd.prev[key].lerp(this.kinPrev[key], w); this.kinPrev[key].copy(_v);
+      twist(v);
+    }
+    // he rolls over tori, not through him: the whole body is lifted out of tori's back and hip
+    if (this.over) {
+      // on the way up and over he lies on tori; coming down in front he is free of him
+      const caps = capsules(this.tori), sep = this.sepU || (this.sepU = new V3()), free = ease((s - 0.62) / 0.3);
+      sep.multiplyScalar(Math.pow(0.03, dt) * (1 - 0.5 * free));
+      if (free < 1)
+      for (const key of ['hips', 'chest', 'head', 'shL', 'shR', 'hpL', 'hpR']) {
+        const p = _v.copy(tgt[key]).add(sep);
+        for (const c of caps) {
+          const dd = segSeg(c[0], c[1], p, p, _c1, _c2), min = c[2] + (RADIUS[key] || 0.08) * 0.9;
+          if (dd < min && dd > 1e-5) { _np.subVectors(p, _c1).normalize().multiplyScalar((min - dd) * (1 - free)); sep.add(_np); p.add(_np); }
+        }
+      }
+      for (const key in tgt) tgt[key].add(sep);
+    }
+    for (const key of CORE) {
+      const p = rd.p[key], v = tgt[key];
+      if (v.y < 0.1) v.y = 0.1;
+      rd.prev[key].copy(this.kinPrev[key]);
+      p.copy(v); this.kinPrev[key].copy(v);
+    }
+    for (const key in LIMB_W) {
+      const w = LIMB_W[key], p = rd.p[key], v = tgt[key];
+      if (v.y < 0.06) v.y = 0.06;
+      p.lerp(v, w); rd.prev[key].lerp(this.kinPrev[key], w); this.kinPrev[key].copy(v);
     }
     rd.apply();
     u.pos.set(rd.p.hips.x, 0, rd.p.hips.z);
@@ -326,6 +364,21 @@ class ThrowRun {
 
   release() {
     const u = this.uke;
+    // he comes down flat: the fall keeps its speed, most of the turn is spent, so he does not roll on over his head
+    if (this.over) {
+      const rd = u.ragdoll, dh = new V3().subVectors(rd.p.hips, rd.prev.hips);
+      // the force of the throw is the speed he was carried with through the air, not the last few centimetres:
+      // the length of the arc and the turn, over the time the drive took (a stronger throw is a faster one)
+      if (this.path) {
+        const [P0, Pt, P1] = this.path, q = new V3(), prevQ = P0.clone(); let len = 0;
+        for (let i = 1; i <= 12; i++) { const e = i / 12; q.set(0, 0, 0).addScaledVector(P0, 2 * (e - 0.5) * (e - 1)).addScaledVector(Pt, -4 * e * (e - 1)).addScaledVector(P1, 2 * e * (e - 0.5)); len += q.distanceTo(prevQ); prevQ.copy(q); }
+        this.vThrow = (len + 0.35 * this.overAng) / this.drive.dur;
+      }
+      for (const key in rd.p) {
+        const d = _np.subVectors(rd.p[key], rd.prev[key]).sub(dh).multiplyScalar(0.35).add(dh);
+        rd.prev[key].copy(rd.p[key]).sub(d);
+      }
+    }
     this.stage = 'fall'; this.released = true; this.releaseT = this.t;
     u.state = 'ko'; u.downPhase = 'fall'; u.downTimer = 0; u.getupAt = 99; this.keepDown = true; u.rise = null; u.fall = null; u._judoBusy = true;
   }
@@ -340,7 +393,9 @@ class ThrowRun {
       g.audio.impact && g.audio.impact(6 + 10 * p, 'body', false);
       g.cam.shake && g.cam.shake(0.25 + 0.5 * p);
       g.arena && g.arena.excite(0.3 * p);
-      g.hitstop = Math.max(g.hitstop || 0, 0.06);
+      g.hitstop = Math.max(g.hitstop || 0, 0.04 + 0.05 * p);
+      const rp = this.uke.ragdoll.p, c = new V3().addVectors(rp.hips, rp.chest).multiplyScalar(0.5);
+      J.matHit(g, c.x, c.z, p);
     }
     if (this.landT != null && !this.uke._lie) this.uke._lie = { t: 0 };
   }
@@ -352,7 +407,7 @@ class ThrowRun {
       const y = rd.p[k].y;
       if (this.yPrev[k] == null) { this.yPrev[k] = y; this.vyPrev[k] = 0; continue; }
       const vy = (y - this.yPrev[k]) / dt;
-      if (!this.contact[k] && y <= RADIUS[k] + 0.04) { this.contact[k] = true; this.vImpact = Math.max(this.vImpact, -this.vyPrev[k], -vy); if (this.landT == null) this.landT = this.t; }
+      if (!this.contact[k] && y <= RADIUS[k] + 0.04) { this.contact[k] = true; this.vImpact = Math.max(this.vImpact, -this.vyPrev[k], -vy, this.vThrow || 0); if (this.landT == null) this.landT = this.t; }
       this.vyPrev[k] = vy; this.yPrev[k] = y;
     }
   }
@@ -371,7 +426,7 @@ class ThrowRun {
     if (this.landT != null && this.t - this.landT < 0.4 && rd.settle > 0.01) return;
     const L = this.lie();
     const ukeDef = ((this.uke.cfg.stats.defense || 60) + (this.uke.cfg.stats.wrestling || 60)) / 200;
-    const v = this.vImpact * (this.tech.vk || 1) * this.tech.power * (this.opts.power || 1) * (1.08 - 0.28 * ukeDef);
+    const v = this.vImpact * ((this.over && this.tech.vkOver) || this.tech.vk || 1) * this.tech.power * (this.opts.power || 1) * (1.08 - 0.28 * ukeDef);
     let score = 'none';
     if (L.back > 0.6 && v > 3.6) score = 'ippon';
     else if (L.back > 0.45 && v > 1.3) score = 'wazaari';
@@ -456,6 +511,35 @@ function lieHold(rd, dt) {
     pull(rd, 'kn' + top, _b, rate * legs * 0.5);
   }
 }
+// the mat answers a body that lands on it: a wave of light across it and a puff of dust from the cover
+const RINGS = [];
+let ringGeo = null;
+J.matHit = function (g, x, z, p) {
+  if (!g.scene) return;
+  ringGeo = ringGeo || new THREE.RingGeometry(0.82, 1, 48);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 * (0.5 + p), depthWrite: false, side: THREE.DoubleSide });
+  const m = new THREE.Mesh(ringGeo, mat);
+  m.rotation.x = -Math.PI / 2; m.position.set(x, 0.012, z); m.scale.setScalar(0.25);
+  g.scene.add(m); RINGS.push({ m, t: 0, dur: 0.45 + 0.25 * p, r: 0.9 + 0.9 * p, g });
+  if (g.fx && g.fx._spawn) {
+    const n = Math.round(10 + 22 * p);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 0.6 + Math.random() * (0.8 + 1.6 * p);
+      g.fx._spawn(new V3(x + Math.cos(a) * 0.25, 0.04, z + Math.sin(a) * 0.25), new V3(Math.cos(a) * sp, 0.4 + Math.random() * 0.9 * p, Math.sin(a) * sp), 0.25 + Math.random() * 0.3, 0xf3ead2, false);
+    }
+  }
+};
+J.ringsTick = function (dt) {
+  for (let i = RINGS.length - 1; i >= 0; i--) {
+    const r = RINGS[i]; r.t += dt;
+    const k = Math.min(1, r.t / r.dur);
+    r.m.scale.setScalar(0.25 + r.r * (1 - (1 - k) * (1 - k)));
+    r.m.material.opacity *= Math.pow(0.02, dt / r.dur);
+    if (k >= 1) { r.g.scene.remove(r.m); r.m.material.dispose(); RINGS.splice(i, 1); }
+  }
+};
+const GP = UFC.Game.prototype, gStep = GP._step;
+GP._step = function (dt) { gStep.call(this, dt); if (RINGS.length) J.ringsTick(dt); };
 const R = UFC.Ragdoll.prototype, rStep = R.step, rStart = R.start, rStop = R.stop;
 R.step = function (dt) { rStep.call(this, dt); if (this.active && this.f._lie && UFC.judo) lieHold(this, dt); };
 R.start = function (...a) { this.f._lie = null; return rStart.apply(this, a); };
