@@ -202,11 +202,28 @@ C.grow = function (c, k, g) {
 };
 
 // ---------------------------------------------------------------- the people
-C.npcLevel = function (n, c) {
-  const yrs = c.week / WEEKS_YEAR, age = n.age + yrs;
-  let lv = n.lv + Math.min(yrs, Math.max(0, 28 - n.age)) * 1.0 - Math.max(0, age - 31) * 0.86;
-  return Math.round(cl(lv, 15, 96));
+// every person has his own prime: he grows until it, keeps it three years, then fades, faster after six
+C.npcPrime = (n) => n.prime || Math.max(24 + (hash(n.id + 'p') % 6), n.age - 2);
+C.npcAge = (n, c) => Math.floor(n.age + c.week / WEEKS_YEAR);
+C.npcPhase = function (n, c) {
+  const d = n.age + c.week / WEEKS_YEAR - C.npcPrime(n);
+  return d < -3 ? 'young' : d <= 3 ? 'peak' : d <= 9 ? 'past' : 'veteran';
 };
+GW.PHASE = { young: 'растёт', peak: 'на пике', past: 'после пика', veteran: 'ветеран' };
+C.npcLevel = function (n, c) {
+  const age = n.age + c.week / WEEKS_YEAR, p = C.npcPrime(n);
+  const grow = Math.max(0, Math.min(age, p) - n.age) * 1.0;
+  const past = Math.max(0, age - Math.max(p + 3, n.age)), fall = past * 0.9 + Math.max(0, past - 6) * 0.6;
+  return Math.round(cl(n.lv + grow - fall, 15, 96));
+};
+// the form of the day: the same for the card before the bout and for the bout itself
+C.formOf = function (n, c) {
+  const ev = c.ev, salt = ev && ev.state !== 'done' ? ev.key + ':' + ev.round + ':' + (ev.state || '') : 'd' + C.dayNo(c);
+  return Math.round(((hash(n.id + '|' + salt) % 1000) / 1000 - 0.5) * 10);   // -5 … +5
+};
+GW.FORM = (f) => (f >= 3 ? 'в отличной форме' : f <= -3 ? 'не в форме' : 'в обычной форме');
+// the player's own place on the curve
+C.phase = (c) => (c.age < c.prime - 3 ? 'растёте' : c.age <= c.prime + 2 ? 'на пике' : c.age <= c.prime + 8 ? 'после пика' : 'ветеран');
 C.npcById = (id) => GW.ROSTER.find((n) => n.id === id) || (GW.c && GW.c.fillers && GW.c.fillers[id]) || null;
 const FIRST = { RUS: ['Илья', 'Женя', 'Глеб', 'Паша', 'Арсен', 'Стас', 'Вадим'], JPN: ['Юки', 'Кадзуя', 'Рё', 'Дайки'], FRA: ['Матис', 'Ноа', 'Лукас'], GEO: ['Лука', 'Дато', 'Ника'], KAZ: ['Айдос', 'Нурлан', 'Ерлан'], MGL: ['Тэмуулэн', 'Мунх-Очир'], KOR: ['Чжун Хо', 'Сын Ми'], AZE: ['Эльчин', 'Турал'], NED: ['Тим', 'Бас'], UZB: ['Бобур', 'Санжар'] };
 const LAST = { RUS: ['Кравцов', 'Белов', 'Гусев', 'Дзагоев', 'Панин', 'Хохлов', 'Мельник'], JPN: ['Танака', 'Ито', 'Кобаяси', 'Мацуда'], FRA: ['Леруа', 'Моро', 'Фонтен'], GEO: ['Бердзенишвили', 'Чохели', 'Маргвелашвили'], KAZ: ['Ахметов', 'Сарсенбаев', 'Жумабеков'], MGL: ['Ганболд', 'Дорж'], KOR: ['Пак', 'Чхве'], AZE: ['Гусейнов', 'Мамедов'], NED: ['де Йонг', 'Баккер'], UZB: ['Рахимов', 'Юлдашев'] };
@@ -230,12 +247,15 @@ C.npcCfg = function (n, c, boost) {
   const lv = Math.max(C.npcLevel(n, c), boost || 0), list = J.CLASSES[c.kg] || J.CLASSES[66];
   let face = list[hash(n.id) % list.length]; if (face === c.face) face = list[(hash(n.id) + 1) % list.length];
   const base = UFC.fighterCfg(face), t = TILT[n.type] || {};
-  const st = {}; for (const k of ['power', 'speed', 'cardio', 'wrestling', 'defense', 'bjj']) st[k] = cl(Math.round(lv + (t[k] || 0) + ((hash(n.id + k) % 7) - 3)), 10, 99);
+  // the age: the young are fast and raw, the veterans slow but crafty; the form of the day moves everything a little
+  const ph = n.age + c.week / WEEKS_YEAR - C.npcPrime(n), young = cl(-ph - 1, 0, 8), old = cl(ph - 3, 0, 20), form = C.formOf(n, c);
+  const AGE = { power: -young * 1.2 - old * 0.6, speed: young * 0.4 - old * 1.2, cardio: young * 0.3 - old * 1.0, wrestling: -young * 0.8 + old * 0.9, defense: -young * 0.5 + old * 0.7, bjj: old * 0.4 };
+  const st = {}; for (const k of ['power', 'speed', 'cardio', 'wrestling', 'defense', 'bjj']) st[k] = cl(Math.round(lv + (t[k] || 0) + ((hash(n.id + k) % 7) - 3) + AGE[k] + form), 10, 99);
   st.chin = 70; st.boxing = 50; st.kicks = 40;
   return Object.assign({}, base, {
     id: 'gw_' + n.id, name: n.name, short: n.name.split(' ').slice(-1)[0], nick: GW.TYPES[n.type].name, flag: n.cc, weight: c.kg,
     height: +((J.CLASS_H[c.kg] || 1.71) + ((hash(n.id) % 7) - 3) * 0.01).toFixed(2), style: GW.STYLE_OF[n.type], stats: st, fav: n.fav.slice(), trait: null,
-    gwType: n.type, gw: { grip: st.bjj, newaza: cl(lv + (n.type === 'counter' ? 5 : 0), 10, 99) }, mastery: Math.round(25 + lv * 0.75),
+    gwType: n.type, gw: { grip: st.bjj, newaza: cl(lv + (n.type === 'counter' ? 5 : 0), 10, 99) }, mastery: Math.min(100, Math.round(25 + lv * 0.75 + old)),
     gwPerks: n.tier >= 4 && !n.filler ? [SIG[n.type]] : [], belt: C.beltColor(Math.max(n.tier === 1 ? 2 : n.tier, lv >= 77 ? 6 : n.tier)), beltAlt: C.beltAlt(Math.max(n.tier, lv >= 77 ? 6 : n.tier)),
     known: J.TECH_ORDER.filter((t) => GW.THROW_TIER[t] <= Math.max(n.tier + 1, 1) || n.fav.includes(t)), gwStrong: n.strong || null, gwWeak: n.weak || null,
     gwCombo: n.tier >= 4 || (n.type === 'champion' && n.tier >= 3), gwRead: n.tier, gwPrep: !!(c.scouted && c.scouted[n.id] != null && c.week - c.scouted[n.id] < 16) || !!(c.rivals && c.rivals[n.id] && c.rivals[n.id].l > 0 && c.tier >= 4),
@@ -377,7 +397,38 @@ C.birthday = function (c) {
 };
 
 // ---------------------------------------------------------------- the tournament
-const winP = (la, lb) => 1 / (1 + Math.exp(-(la - lb) / 7));
+// a bout off the mat is fought, not drawn: four minutes of exchanges where the level of the day, the age, the form
+// and the styles meet; any exchange can end it, so anyone can catch anyone
+C.boutLine = (w, bout) => { const s = (id) => C.npcById(id).name.split(' ').slice(-1)[0]; return s(w) + ' — ' + s(bout.l) + ': победил ' + s(w) + ' (' + bout.how + ')'; };
+C.simBout = function (c, a, b) {
+  const side = (id, vs) => {
+    const n = C.npcById(id), o = C.npcById(vs), ph = n.age + c.week / WEEKS_YEAR - C.npcPrime(n);
+    let e = C.npcLevel(n, c) + C.formOf(n, c) + (Math.random() - 0.5) * 6;
+    if (o && n.strong && n.strong === o.weak) e += 3;   // his strength meets the other's weakness
+    return { id, n, e, crafty: ph > 3 ? Math.min(0.35, (ph - 3) * 0.03) : 0, sc: 0 };
+  };
+  const A = side(a, b), B = side(b, a);
+  const hit = (X, Y, k) => Math.random() < Math.min(0.5, k * Math.exp((X.e - Y.e) / 12));
+  let w = null, how = '', tech = null;
+  const exchange = (k, golden) => {
+    for (const [X, Y] of Math.random() < 0.5 ? [[A, B], [B, A]] : [[B, A], [A, B]]) {
+      if (!hit(X, Y, k)) continue;
+      tech = X.n.fav[(Math.random() * X.n.fav.length) | 0];
+      const r = Math.random();
+      // a veteran waits for the mistake: more of his scores are counters and holds
+      if (r < X.crafty) { w = X; how = Math.random() < 0.5 ? 'контратака' : 'удержание'; if (how === 'удержание') tech = null; return; }
+      if (r < 0.3) { w = X; how = 'иппон'; return; }
+      if (r < 0.38) { w = X; how = 'удержание'; tech = null; return; }
+      if (golden) { w = X; how = 'ваза-ари в золотом скоре'; return; }
+      if (++X.sc >= 2) { w = X; how = 'две ваза-ари'; return; }
+    }
+  };
+  for (let t = 0; t < 8 && !w; t++) exchange(0.11, false);
+  if (!w && A.sc !== B.sc) { w = A.sc > B.sc ? A : B; how = 'ваза-ари'; tech = null; }
+  for (let t = 0; t < 6 && !w; t++) exchange(0.09, true);
+  if (!w) { w = Math.random() < 0.5 ? A : B; how = 'шидо в золотом скоре'; tech = null; }
+  return { w: w.id, l: w === A ? b : a, how: how + (tech && J.TECHS[tech] ? ' · ' + J.TECHS[tech].name : '') };
+};
 C.startEvent = function (c, e) {
   const T = GW.TIERS[e.tier], n = e.size;
   // who comes: the club fights the club; the first competitions are for your level and the one below; higher up, a level around
@@ -428,10 +479,10 @@ function simRound(c, ev, playerWon) {
   for (let i = 0; i < ev.alive.length; i += 2) {
     const a = ev.alive[i], b = ev.alive[i + 1];
     if (a === 'player' || b === 'player') { const o = a === 'player' ? b : a; next.push(playerWon ? 'player' : o); losers.push(playerWon ? o : 'player'); continue; }
-    const w = Math.random() < winP(C.lvOf(a, c), C.lvOf(b, c)) ? a : b;
-    next.push(w); losers.push(w === a ? b : a);
-    C.noteNpc(c, w, true, w === a ? b : a, ev.name); C.noteNpc(c, w === a ? b : a, false, w, ev.name);
-    if (ev.alive.length <= 4) ev.log.push(C.npcById(w).name + ' побеждает ' + C.npcById(w === a ? b : a).name);
+    const bout = C.simBout(c, a, b), w = bout.w;
+    next.push(w); losers.push(bout.l);
+    C.noteNpc(c, w, true, bout.l, ev.name, bout.how); C.noteNpc(c, bout.l, false, w, ev.name, bout.how);
+    if (ev.alive.length <= 8) ev.log.push(C.boutLine(w, bout));
   }
   return { next, losers };
 }
@@ -535,7 +586,7 @@ C.advance = function (c, won) {
       // the semifinal is lost: the bronze against the other loser of the semis
       ev.bronzeOp = losers.find((x) => x !== 'player'); ev.state = 'bronze';
       // the final among the others, for the book
-      const f = next; if (f.length === 2) { const w = Math.random() < winP(C.lvOf(f[0], c), C.lvOf(f[1], c)) ? f[0] : f[1]; ev.champion = w; }
+      const f = next; if (f.length === 2) { const bout = C.simBout(c, f[0], f[1]); ev.champion = bout.w; ev.log.push('Финал без вас: ' + C.boutLine(bout.w, bout)); }
     } else { ev.place = left === 8 ? 5 : left === 16 ? 9 : 7; ev.state = 'over'; ev.champion = C.simBracket(c, next, ev); }
   }
   if (ev.state === 'over') C.closeEvent(c);
@@ -745,12 +796,12 @@ C.checkTasks = function (c, e, out) {
 
 // ---------------------------------------------------------------- the people around you: every one has his own record
 C.npcRec = (c, id) => { const r = c.npc[id] = c.npc[id] || { w: 0, l: 0, gold: 0, titles: [], last: [], rank: [] }; r.rank = r.rank || []; return r; };
-C.noteNpc = function (c, id, won, vs, where) {
+C.noteNpc = function (c, id, won, vs, where, how) {
   if (!id || id === 'player') return;
   const r = C.npcRec(c, id);
   if (won) r.w++; else r.l++;
   const vn = vs === 'player' ? c.name : (C.npcById(vs) || {}).name || '?';
-  r.last.unshift({ w: c.week, won, vs: vn, at: where }); if (r.last.length > 6) r.last.length = 6;
+  r.last.unshift(Object.assign({ w: c.week, won, vs: vn, at: where }, how ? { how } : {})); if (r.last.length > 6) r.last.length = 6;
 };
 // the rest of a bracket after the player is out: the champion
 C.simBracket = function (c, alive, ev) {
@@ -759,8 +810,8 @@ C.simBracket = function (c, alive, ev) {
     const nx = [];
     for (let i = 0; i < a.length; i += 2) {
       const x = a[i], y = a[i + 1]; if (y == null) { nx.push(x); continue; }
-      const w = Math.random() < winP(C.lvOf(x, c), C.lvOf(y, c)) ? x : y;
-      nx.push(w); C.noteNpc(c, w, true, w === x ? y : x, ev.name); C.noteNpc(c, w === x ? y : x, false, w, ev.name);
+      const bout = C.simBout(c, x, y), w = bout.w;
+      nx.push(w); C.noteNpc(c, w, true, bout.l, ev.name, bout.how); C.noteNpc(c, bout.l, false, w, ev.name, bout.how);
     }
     a = nx;
   }

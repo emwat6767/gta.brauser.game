@@ -96,7 +96,7 @@ function recordHtml(c, id) {
   const D = (t) => '<div class="dim" style="font-size:12px;margin-top:3px">' + t + '</div>';
   if (!r || (!r.w && !r.l)) return D('Пока без результатов, которые вы видели.');
   return D('Побед ' + r.w + ' · поражений ' + r.l + (r.gold ? ' · турниров выиграл ' + r.gold : '') + (r.titles.length ? ' · титулы: ' + esc([...new Set(r.titles)].join(', ')) : '')) +
-    (r.last.length ? D('Последние: ' + r.last.slice(0, 3).map((x) => (x.won ? '✔ ' : '✘ ') + esc(x.vs) + ' (' + esc(x.at) + ')').join(' · ')) : '');
+    (r.last.length ? D('Последние: ' + r.last.slice(0, 3).map((x) => (x.won ? '✔ ' : '✘ ') + esc(x.vs) + ' (' + esc(x.at) + (x.how ? ', ' + esc(x.how) : '') + ')').join(' · ')) : '');
 }
 // the venue of an event: the club dojo, the school gym, or a hall of its own
 GW.venueFor = function (ev) {
@@ -171,7 +171,7 @@ function renderHub() {
   const wk = c.wk, wkNext = !wk ? '' : wk.i < 3 ? GW.DAYS[GW.TRAIN_DOW[wk.i]] + ' — ' + GW.SESSIONS[wk.slots[wk.i]].name : 'выходные: итоги недели';
   const gaps = C.promoGaps(c), tasks = C.tasksNow(c);
   const pot = C.potential(c), sum = Math.round(C.attrSum(c));
-  p.innerHTML = '<h2>' + esc(c.name) + '</h2><div class="dim">' + GW.CC[c.cc] + ' · ' + c.kg + ' кг · ' + GW.HEIGHTS[c.height].name.toLowerCase() + ' · ' + (c.stance === 'R' ? 'правая' : 'левая') + ' стойка · ' + c.age + ' лет · ' + C.today(c) + ' · <b>' + C.sport(c) + '</b> · ' + GW.BELTS[c.tier].name + ' · ' + esc((GW.CLUBS[c.club] || GW.CLUBS.sakura).name) + '</div>' +
+  p.innerHTML = '<h2>' + esc(c.name) + '</h2><div class="dim">' + GW.CC[c.cc] + ' · ' + c.kg + ' кг · ' + GW.HEIGHTS[c.height].name.toLowerCase() + ' · ' + (c.stance === 'R' ? 'правая' : 'левая') + ' стойка · ' + c.age + ' лет, ' + C.phase(c) + ' · ' + C.today(c) + ' · <b>' + C.sport(c) + '</b> · ' + GW.BELTS[c.tier].name + ' · ' + esc((GW.CLUBS[c.club] || GW.CLUBS.sakura).name) + '</div>' +
     saveLine(c) +
     '<div class="ladder">' + ladder + '</div>' +
     '<div class="note"><b>Этап ' + (c.tier + 1) + ' · ' + esc(T.name) + '</b> — ' + esc(T.place) + '. ' + esc(T.text) + '</div>' +
@@ -197,7 +197,7 @@ function renderClub() {
   const around = GW.ROSTER.filter((n) => n.tier >= 2 && Math.abs(n.tier - c.tier) <= 1);
   const mate = (n) => {
     const s = c.spar[n.id], r = c.rivals[n.id];
-    return '<div class="mate"><div>' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> <span class="dim">' + n.age + ' лет · уровень ' + C.npcLevel(n, c) + ' · ' + esc(GW.TYPES[n.type].name.toLowerCase()) + ' · ' + n.fav.map(tn).join(', ') + '</span>' +
+    return '<div class="mate"><div>' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> <span class="dim">' + C.npcAge(n, c) + ' лет, ' + GW.PHASE[C.npcPhase(n, c)] + ' · уровень ' + C.npcLevel(n, c) + ' · ' + esc(GW.TYPES[n.type].name.toLowerCase()) + ' · ' + n.fav.map(tn).join(', ') + '</span>' +
       '<small>' + esc(n.bio) + '</small>' + recordHtml(c, n.id) + styleHtml(c, n) + '</div><div style="text-align:right">' + (s ? '<div>спарринги ' + s.w + '–' + s.l + '</div>' : '') + (r ? '<div>схватки ' + r.w + '–' + r.l + '</div>' : '') + '</div></div>';
   };
   let choices = '';
@@ -334,7 +334,7 @@ function renderEvent() {
   if (ev.state !== 'over') {
     const n = C.npcById(C.nextOpponent(c)), r = c.rivals[n.id];
     const scouted = ev.scouted && ev.scouted.includes(n.id);
-    body = '<h3>' + esc(ev.single ? ev.name : C.roundName(ev)) + '</h3><div class="opp">' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> · ' + GW.CC[n.cc] + ' · уровень ' + Math.max(C.npcLevel(n, c), ev.boost || 0) + ' · ' + GW.BELTS[Math.min(7, n.tier)].name +
+    body = '<h3>' + esc(ev.single ? ev.name : C.roundName(ev)) + '</h3><div class="opp">' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> · ' + GW.CC[n.cc] + ' · ' + C.npcAge(n, c) + ' лет, ' + GW.PHASE[C.npcPhase(n, c)] + ' · сегодня ' + GW.FORM(C.formOf(n, c)) + ' · уровень ' + Math.max(C.npcLevel(n, c), ev.boost || 0) + ' · ' + GW.BELTS[Math.min(7, n.tier)].name +
       '<div class="dim" style="margin-top:6px">' + esc(GW.TYPES[n.type].desc) + '</div><div style="margin-top:4px">Любимые броски: <b>' + n.fav.map(tn).join(', ') + '</b>' + (r ? ' · ваши встречи: ' + r.w + '–' + r.l : ' · вы не встречались') + '</div><div class="dim" style="margin-top:4px">' + esc(n.bio) + '</div>' +
       recordHtml(c, n.id) + styleHtml(c, n) + memoryHtml(c, n) + (scouted || (r && r.l > 0 && c.tier >= 4) ? '<div class="sw" style="margin-top:4px">Вы его изучили: ваши броски +6%, его любимые броски против вас −10%.</div>' : '') + '</div>' +
       (c.tier >= 4 && !n.filler && !scouted ? '<div class="foot"><button class="btn" data-act="scout" data-v="' + n.id + '">Разобрать видео соперника</button></div>' : '') +
@@ -453,7 +453,7 @@ function renderRivals() {
   const rm = C.rematches(c);
   const met = Object.entries(c.rivals).map(([id, r]) => ({ n: C.npcById(id), r })).filter((x) => x.n).sort((a, b) => (b.r.w + b.r.l) - (a.r.w + a.r.l));
   const scout = GW.ROSTER.filter((n) => n.tier >= Math.max(1, c.tier - 1) && n.tier <= c.tier + 1);
-  const card = (n, extra) => '<div class="ev"><div>' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> <span class="dim">' + GW.CC[n.cc] + ' · уровень ' + C.npcLevel(n, c) + ' · ' + esc(GW.TIERS[Math.min(7, n.tier)].name) + '</span><small>' + n.fav.map(tn).join(', ') + ' · ' + esc(n.bio) + '</small>' + recordHtml(c, n.id) + styleHtml(c, n) + '</div>' + (extra || '') + '</div>';
+  const card = (n, extra) => '<div class="ev"><div>' + typeTag(n.type) + '<b>' + esc(n.name) + '</b> <span class="dim">' + GW.CC[n.cc] + ' · ' + C.npcAge(n, c) + ' лет, ' + GW.PHASE[C.npcPhase(n, c)] + ' · уровень ' + C.npcLevel(n, c) + ' · ' + esc(GW.TIERS[Math.min(7, n.tier)].name) + '</span><small>' + n.fav.map(tn).join(', ') + ' · ' + esc(n.bio) + '</small>' + recordHtml(c, n.id) + styleHtml(c, n) + '</div>' + (extra || '') + '</div>';
   let rank = '';
   if (c.tier >= 4) {
     const T = C.rankTable(c), me = T.findIndex((x) => x.id === 'player');
