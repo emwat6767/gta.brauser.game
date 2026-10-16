@@ -108,6 +108,7 @@ J.dressGi = function (body, cfg) {
   const collarMat = mk({ color: new THREE.Color(kind === 'blue' ? 0xb8c8ee : 0xf6f6f2) });
   const beltCol = cfg.belt != null ? cfg.belt : 0x0a0a0b, blackBelt = beltCol < 0x202020;   // the belt colour: white to black along the career
   const beltMat = stdMat(beltCol, 0.62, { side: THREE.DoubleSide });
+  const beltMat2 = cfg.beltAlt != null ? stdMat(cfg.beltAlt, 0.62, { side: THREE.DoubleSide }) : beltMat;   // the red-and-white belt of the high dans
   const stripeMat = stdMat(0xe6e0cf, 0.6, { side: THREE.DoubleSide });
   const add = (bone, mesh, x = 0, y = 0, z = 0) => { mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true; bone.add(mesh); return mesh; };
   const armK = (1 + musc * 0.12 + bulk * 0.1) * (0.88 + bp.arms * 0.24);
@@ -142,12 +143,12 @@ J.dressGi = function (body, cfg) {
   // the belt: two turns, a flat knot and two tails with the dan stripes
   const belt = keep(new THREE.Mesh(trunkGeo(0.012 * H, 0.056 * H, () => pelvisR * 1.2, false, false, 40, 2), beltMat));
   belt.scale.set(1.28, 1, 1.1); add(B.hips, belt);
-  const belt2 = keep(new THREE.Mesh(trunkGeo(0.02 * H, 0.048 * H, () => pelvisR * 1.23, false, false, 40, 2), beltMat));
+  const belt2 = keep(new THREE.Mesh(trunkGeo(0.02 * H, 0.048 * H, () => pelvisR * 1.23, false, false, 40, 2), beltMat2));
   belt2.scale.set(1.28, 1, 1.1); add(B.hips, belt2);
   const kz = pelvisR * 1.23 * 1.1;
   const knot = keep(new THREE.Mesh(new THREE.BoxGeometry(0.04 * H, 0.032 * H, 0.02 * H), beltMat)); add(B.hips, knot, 0, 0.034 * H, kz + 0.004 * H);
   for (const s of [-1, 1]) {
-    const tail = keep(new THREE.Mesh(new THREE.BoxGeometry(0.02 * H, 0.14 * H, 0.008 * H), beltMat));
+    const tail = keep(new THREE.Mesh(new THREE.BoxGeometry(0.02 * H, 0.14 * H, 0.008 * H), s > 0 ? beltMat2 : beltMat));
     tail.rotation.z = s * 0.2; tail.rotation.x = 0.1; add(B.hips, tail, s * 0.024 * H, -0.03 * H, kz + 0.012 * H);
     for (let k = 0; k < (blackBelt ? 2 : 0); k++) { const st = keep(new THREE.Mesh(new THREE.BoxGeometry(0.0205 * H, 0.006 * H, 0.0092 * H), stripeMat)); st.rotation.z = s * 0.2; st.rotation.x = 0.1; add(B.hips, st, s * (0.024 + 0.0085) * H, (-0.085 - k * 0.014) * H, kz + 0.012 * H); }
   }

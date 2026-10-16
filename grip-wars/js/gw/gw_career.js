@@ -14,12 +14,77 @@ const cl = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[(Math.random() * a.length) | 0];
 const KEY = 'gw.career.v1', META = 'gw.meta.v1';
+const C = GW.Career = {};
+// the save: in this browser first (instant), and in the viewer's own private cloud space when the page runs on
+// claude.ai (so the phone app or a cleared browser does not lose the career). The newer of the two wins at start.
+const cloud = GW.cloud = { db: null, id: null, ready: false, busy: false, pending: null, status: 'local', savedAt: 0 };
+const DOCS = { 'gw.career.v1': 'career', 'gw.meta.v1': 'meta' };
 const store = {
   get(k, d) { try { const s = localStorage.getItem(k); return s ? JSON.parse(s) : d; } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
-  del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } },
+  set(k, v) { let ok = false; try { localStorage.setItem(k, JSON.stringify(v)); ok = true; } catch (e) { /* not kept here */ } cloudQueue(k, v); return ok; },
+  del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } cloudQueue(k, null); },
 };
-const C = GW.Career = {};
+const cloudDoc = (k) => cloud.db.collection('data/users/' + cloud.id).doc(DOCS[k]);
+function cloudQueue(k, v) {
+  if (!cloud.ready || !DOCS[k]) return;
+  cloud.pending = cloud.pending || {}; cloud.pending[k] = v;
+  clearTimeout(cloud.timer); cloud.timer = setTimeout(cloudFlush, 900);
+}
+// one write at a time per document; a burst of saves becomes one write
+async function cloudFlush() {
+  if (cloud.busy || !cloud.pending) return;
+  cloud.busy = true;
+  const p = cloud.pending; cloud.pending = null;
+  try {
+    for (const [k, v] of Object.entries(p)) {
+      if (v == null) await cloudDoc(k).delete();
+      else await cloudDoc(k).set({ v: 2, savedAt: v.savedAt || Date.now(), json: JSON.stringify(v) });
+    }
+    cloud.status = 'cloud'; cloud.savedAt = Date.now();
+  } catch (e) {
+    cloud.status = 'error';
+    if (e && (e.code === 'invalid_argument' || e.code === 'revoked' || e.code === 'not_granted' || e.code === 'quota_exceeded')) cloud.ready = false;   // this view cannot keep it: the browser copy stays
+  }
+  cloud.busy = false;
+  if (GW.onCloud) GW.onCloud();
+  if (cloud.pending) cloudFlush();
+}
+// at start: find the viewer's cloud copy and keep the newer one
+GW.cloudInit = async function () {
+  if (!window.claude || typeof window.claude.use !== 'function') return;
+  let db, user;
+  try { [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]); } catch (e) { return; }
+  if (!db || !user) return;
+  const id = await user.id(); if (!id) return;
+  cloud.db = db; cloud.id = id;
+  let changed = false;
+  for (const k of Object.keys(DOCS)) {
+    let snap;
+    try { snap = await cloudDoc(k).get(); } catch (e) { cloud.status = 'error'; return; }
+    const local = store.get(k, null), localAt = (local && local.savedAt) || 0;
+    let remote = null;
+    if (snap.exists) { try { remote = JSON.parse(snap.data().json); } catch (e) { remote = null; } }
+    const remoteAt = (remote && remote.savedAt) || 0;
+    if (remote && remoteAt > localAt) {
+      try { localStorage.setItem(k, JSON.stringify(remote)); } catch (e) { /* the cloud copy is enough */ }
+      if (k === KEY) { GW.c = remote; C.migrate(GW.c); }
+      changed = true;
+    } else if (local) { cloud.pending = cloud.pending || {}; cloud.pending[k] = local; }
+  }
+  cloud.ready = true; cloud.status = 'cloud';
+  if (cloud.pending) cloudFlush();
+  if (GW.onCloud) GW.onCloud(changed);
+};
+// a backup code: the whole career as text, to carry to another device by hand
+C.exportCode = () => { const c = GW.c; if (!c) return ''; return btoa(unescape(encodeURIComponent(JSON.stringify({ gw: 2, career: c, meta: C.meta() })))); };
+C.importCode = function (code) {
+  let o;
+  try { o = JSON.parse(decodeURIComponent(escape(atob(String(code).trim())))); } catch (e) { return false; }
+  if (!o || o.gw !== 2 || !o.career || !o.career.name) return false;
+  GW.c = o.career; C.migrate(GW.c); GW.c.savedAt = 0; C.save();
+  if (o.meta) C.saveMeta(o.meta);
+  return true;
+};
 GW.store = store;
 const WEEKS_YEAR = 48;
 J.CLASS_H[81] = 1.83;
@@ -28,10 +93,10 @@ GW.CLASSES = [60, 66, 73, 81];
 
 // ---------------------------------------------------------------- saving
 C.load = () => { GW.c = store.get(KEY, null); if (GW.c) C.migrate(GW.c); return GW.c; };
-C.save = () => { if (GW.c) store.set(KEY, GW.c); };
+C.save = () => { if (GW.c) { GW.c.savedAt = Date.now(); GW.c.savedDay = C.dayNo(GW.c); store.set(KEY, GW.c); } };
 C.wipe = () => { store.del(KEY); GW.c = null; };
 C.meta = () => store.get(META, { ach: {}, records: {}, hall: [] });
-C.saveMeta = (m) => store.set(META, m);
+C.saveMeta = (m) => { m.savedAt = Date.now(); store.set(META, m); };
 C.migrate = (c) => {
   c.achievements = c.achievements || {}; c.challenges = c.challenges || {}; c.records = c.records || {}; c.rivals = c.rivals || {};
   c.news = c.news || []; c.medalAt = c.medalAt || {}; c.typesBeaten = c.typesBeaten || {}; c.intlBeaten = c.intlBeaten || {};
@@ -64,16 +129,23 @@ C.create = function (spec) {
   C.save();
   return c;
 };
-C.news = (c, t) => { c.news.unshift({ w: c.week, t }); if (c.news.length > 30) c.news.length = 30; };
+C.news = (c, t) => { c.news.unshift({ w: c.week, d: C.dayNo(c), t }); if (c.news.length > 30) c.news.length = 30; };
 
 // ---------------------------------------------------------------- numbers
 C.date = (c, w = c.week) => 'Год ' + (1 + Math.floor(w / WEEKS_YEAR)) + ', неделя ' + (1 + (w % WEEKS_YEAR));
+// the days: a week is Monday to Sunday; the trainings are on Monday, Wednesday and Friday, the tournaments on Saturday
+GW.DAYS = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'];
+GW.TRAIN_DOW = [0, 2, 4];
+C.dayNo = (c) => c.week * 7 + (c.dow || 0) + 1;
+C.today = (c) => 'Год ' + (1 + Math.floor(c.week / WEEKS_YEAR)) + ' · день ' + C.dayNo(c) + ' · ' + GW.DAYS[c.dow || 0];
+C.dayOf = (c, n) => (n.d ? 'день ' + n.d : C.date(c, n.w));
 C.potential = (c) => Math.min(640, 185 + 55 * c.tier + 3 * (c.level - 1));
 C.attrSum = (c) => GW.ATTR_KEYS.reduce((a, k) => a + c.attrs[k], 0);
 C.ovr = (c) => Math.round(C.attrSum(c) / GW.ATTR_KEYS.length);
 C.xpNeed = (lv) => Math.round(80 * Math.pow(lv, 1.35));
 C.perkSlots = (c) => GW.PERK_SLOTS.filter((l) => c.level >= l).length;
 C.beltColor = (t) => GW.BELTS[Math.max(0, Math.min(7, t))].color;
+C.beltAlt = (t) => GW.BELTS[Math.max(0, Math.min(7, t))].alt || null;
 C.ageK = (c) => { const a = c.age, p = c.prime; return a < p - 4 ? 1.15 : a <= p + 2 ? 1.0 : a <= p + 5 ? 0.6 : 0.3; };
 C.addXp = function (c, n) {
   c.xp += Math.round(n);
@@ -149,7 +221,7 @@ C.npcCfg = function (n, c, boost) {
     id: 'gw_' + n.id, name: n.name, short: n.name.split(' ').slice(-1)[0], nick: GW.TYPES[n.type].name, flag: n.cc, weight: c.kg,
     height: +((J.CLASS_H[c.kg] || 1.71) + ((hash(n.id) % 7) - 3) * 0.01).toFixed(2), style: GW.STYLE_OF[n.type], stats: st, fav: n.fav.slice(), trait: null,
     gwType: n.type, gw: { grip: st.bjj, newaza: cl(lv + (n.type === 'counter' ? 5 : 0), 10, 99) }, mastery: Math.round(25 + lv * 0.75),
-    gwPerks: n.tier >= 4 && !n.filler ? [SIG[n.type]] : [], belt: C.beltColor(Math.max(n.tier, lv >= 72 ? 6 : n.tier)),
+    gwPerks: n.tier >= 4 && !n.filler ? [SIG[n.type]] : [], belt: C.beltColor(Math.max(n.tier, lv >= 72 ? 6 : n.tier)), beltAlt: C.beltAlt(Math.max(n.tier, lv >= 72 ? 6 : n.tier)),
     known: J.TECH_ORDER.filter((t) => GW.THROW_TIER[t] <= Math.max(n.tier + 1, 1) || n.fav.includes(t)), gwStrong: n.strong || null, gwWeak: n.weak || null,
     gwCombo: n.tier >= 4 || (n.type === 'champion' && n.tier >= 3), gwRead: n.tier, gwPrep: !!(c.scouted && c.scouted[n.id] != null && c.week - c.scouted[n.id] < 16) || !!(c.rivals && c.rivals[n.id] && c.rivals[n.id].l > 0 && c.tier >= 4),
     stance: hash(n.id + 's') % 3 === 0 ? 'southpaw' : 'orthodox',
@@ -161,7 +233,7 @@ C.playerCfg = function (c) {
     id: 'player', name: c.name, short: c.short, flag: c.cc, weight: c.kg, height: +((J.CLASS_H[c.kg] || 1.71) + (GW.HEIGHTS[c.height] || GW.HEIGHTS.mid).dh).toFixed(2),
     stance: c.stance === 'R' ? 'southpaw' : 'orthodox', gwHeight: c.height, gwSpec: c.spec || null,
     stats: { power: a.power, speed: a.speed, cardio: a.cardio, wrestling: a.technique, defense: a.defense, bjj: a.grip, chin: 70, boxing: 50, kicks: 40 },
-    gw: { grip: a.grip, newaza: a.newaza }, gwPerks: c.perks.slice(), belt: C.beltColor(c.tier), trait: null, gwType: null,
+    gw: { grip: a.grip, newaza: a.newaza }, gwPerks: c.perks.slice(), belt: C.beltColor(c.tier), beltAlt: C.beltAlt(c.tier), trait: null, gwType: null,
   });
 };
 C.lvOf = (id, c) => (id === 'player' ? C.ovr(c) : C.npcLevel(C.npcById(id), c));
@@ -205,41 +277,66 @@ C.rematches = function (c) {
 
 // ---------------------------------------------------------------- the training week
 C.canHard = (c) => c.injury <= 0;
-C.runWeek = function (c, plan) {
+// the week is started with a plan and lived day by day: every training day is applied and saved at once,
+// so a closed page loses nothing and the week goes on from the next day
+C.startWeek = function (c, plan) {
+  c.wk = { slots: plan.slots.slice(0, 3), tech: plan.tech, play: plan.play !== false, partner: (plan.partner || []).slice(0, 3), i: 0, gains: {}, xp: 0, unlocked: [], log: [] };
+  c.dow = 0;
+  C.save();
+  return c.wk;
+};
+// one day: res = { mult (the drill result), spar (won the sparring), sparK (how strong the partner was) }
+C.runDay = function (c, i, res) {
+  const wk = c.wk; if (!wk || i !== wk.i) return null;
+  res = res || {};
+  const sid = wk.slots[i], S = GW.SESSIONS[sid];
   const club = GW.CLUBS[c.club] || GW.CLUBS.sakura, coach = club.mult, age = C.ageK(c);
-  const spec = c.spec && GW.SPECS[c.spec], indiv = spec && plan.slots.join() === spec.plan.join() ? 1.1 : 1;
+  const spec = c.spec && GW.SPECS[c.spec], indiv = spec && wk.slots.join() === spec.plan.join() ? 1.1 : 1;
   const sk = (k) => (spec && spec.attr === k ? 1.35 : 1) * (k === 'newaza' && club.ground ? club.ground : 1) * indiv;
   const fatK = c.fatigue > 70 ? 0.5 : c.fatigue > 45 ? 0.8 : 1;
-  const gains = {}, add = (k, v) => { if (v > 0) gains[k] = (gains[k] || 0) + v; };
+  const add = (k, v) => { if (v > 0) wk.gains[k] = (wk.gains[k] || 0) + v; };
   let xp = 0;
-  plan.slots.forEach((sid, i) => {
-    const S = GW.SESSIONS[sid]; if (!S) return;
-    const dm = plan.mult && plan.mult[i] != null ? plan.mult[i] : (S.drill ? 0.65 : 1);
-    const hard = S.fat >= 14;
-    if (hard && c.injury > 0) return;
+  const hard = S && S.fat >= 14;
+  if (S && !(hard && c.injury > 0)) {
+    const dm = res.mult != null ? res.mult : (S.drill ? 0.65 : 1);
     for (const [k, g] of Object.entries(S.gains)) add(k, C.grow(c, k, 0.62 * g * coach * age * fatK * dm * sk(k)));   // a few points a week: a body is not built in a month
-    if (S.mastery && plan.tech) {
-      const cur = c.mastery[plan.tech] || 10;
+    if (S.mastery && wk.tech) {
+      const cur = c.mastery[wk.tech] || 10;
       const g = S.mastery * coach * fatK * dm * (cur < 80 ? 1 : 0.45) * (c.spec === 'tech' ? 1.3 : 1);
-      c.mastery[plan.tech] = Math.min(100, cur + g); add('m:' + plan.tech, g);
+      c.mastery[wk.tech] = Math.min(100, cur + g); add('m:' + wk.tech, g);
     }
     if (sid === 'sparring') {
-      const won = plan.spar && plan.spar[i], pk = plan.sparK && plan.sparK[i] != null ? plan.sparK[i] : 1;   // a stronger partner teaches more
+      const won = !!res.spar, pk = res.sparK != null ? res.sparK : 1;   // a stronger partner teaches more
       for (const k of ['technique', 'grip', 'defense', 'cardio']) add(k, C.grow(c, k, 0.3 * coach * fatK * (won ? 1.3 : 0.9) * age * pk * sk(k)));
       xp += Math.round((won ? 45 : 25) * pk);
     }
     c.fatigue = cl(c.fatigue + S.fat * (c.physio ? 0.85 : 1), 0, 100);
-    // the risk of a heavy week
+    // the risk of a heavy day
     if (hard && c.fatigue > 65 && Math.random() < (c.fatigue - 60) / 220 * (c.physio ? 0.6 : 1)) {
       c.injury = Math.round(rnd(1, 3)); c.injuryPart = pick(['плечо', 'колено', 'голеностоп', 'пальцы', 'поясница']);
       C.news(c, 'Травма на тренировке: ' + c.injuryPart + '. ' + c.injury + ' нед. без тяжёлых нагрузок и турниров.');
     }
     xp += 10;
-  });
-  C.addXp(c, xp);
+  }
+  wk.xp += xp; C.addXp(c, xp);
+  wk.i = i + 1; c.dow = GW.TRAIN_DOW[i] + 1;
+  C.save();
+  return wk;
+};
+// the weekend: the week is over
+C.closeWeek = function (c) {
+  const wk = c.wk; if (!wk) return null;
+  const r = { gains: wk.gains, xp: wk.xp, unlocked: wk.unlocked, log: wk.log };
+  c.wk = null;
   C.endWeek(c);
   C.save();
-  return { gains, xp };
+  return r;
+};
+// the whole week at once (used by the quick simulation)
+C.runWeek = function (c, plan) {
+  C.startWeek(c, plan);
+  for (let i = 0; i < 3; i++) C.runDay(c, i, { mult: plan.mult && plan.mult[i], spar: plan.spar && plan.spar[i], sparK: plan.sparK && plan.sparK[i] });
+  return C.closeWeek(c);
 };
 C.endWeek = function (c) {
   c.fatigue = cl(c.fatigue - (c.physio ? 24 : 12), 0, 100);
@@ -249,7 +346,9 @@ C.endWeek = function (c) {
   C.worldWeek(c);
   if (c.injury > 0) c.injury--;
   c.money += Math.round(c.tier >= 2 ? 8 * Math.sqrt(c.rep) + c.tier * 15 : c.tier * 10 + 5);   // the sponsors pay for a name; a novice gets pocket money
-  c.week++;
+  c.week++; c.dow = 0;
+  // the marks of the events already gone are not needed any more: the save stays small for years
+  if (c.week % 12 === 0) for (const k of Object.keys(c.done)) { const w = +k.split('@')[1]; if (w < c.week - 6) delete c.done[k]; }
   if (c.week % WEEKS_YEAR === 0) C.birthday(c);
 };
 C.birthday = function (c) {
@@ -283,7 +382,7 @@ C.startEvent = function (c, e) {
   const bracket = n <= 2 ? ['player'].concat(others) : seedOrder(order);
   c.ev = { key: e.key, id: e.id, name: e.name, tier: e.tier, size: n, exam: e.size === 2, title: e.title || null, fee: e.fee || 0, alive: bracket, round: 0, wins: 0, results: [], log: [], state: 'run', conceded: 0, shido: 0, place: null,
     venue: e.venue || (e.tier === 2 ? 'gym' : null), invite: !!e.invite, lost: 0, st: { t: 0, gAdv: 0, tries: 0, landed: 0, stopped: 0, noFull: 0, shido: 0, scored: 0, against: 0, stam: 0, fights: 0, combos: 0 }, plan: 'own', scouted: [] };
-  c.done[e.key] = true;
+  c.done[e.key] = true; c.dow = 5;
   if (e.fee) c.money -= e.fee;
   C.save();
   return c.ev;
@@ -508,7 +607,7 @@ C.checkPromotion = function (c) {
     for (const t of GW.TASKS) if (t.unlock && t.tier < c.tier && C.open(c, t.unlock)) out.push('session:' + t.unlock);
     if (learned.length) { out.push('learn:' + learned.join(',')); for (const id of learned) { const k = [0, 1, 2, 3, 4].find((j) => !c.loadout[j] || !c.known.includes(c.loadout[j])); if (k != null) c.loadout[k] = id; } }
     C.news(c, 'НОВЫЙ ЭТАП: ' + GW.TIERS[c.tier].name + '. ' + GW.BELTS[c.tier].name + '. ' + TIER_SAY[c.tier]);
-    if (c.tier >= 6 && !c.achievements.black_belt) { c.achievements.black_belt = c.week; out.push('black_belt'); }
+    if (c.tier >= 2 && !c.achievements.black_belt) { c.achievements.black_belt = c.week; out.push('black_belt'); }
   }
   return out;
 };
@@ -525,7 +624,7 @@ C.records = function (c) {
 };
 // a one-off fight: the rematch
 C.startRematch = function (c, id, name) {
-  c.lastRematch[id] = c.week;
+  c.lastRematch[id] = c.week; c.dow = 5;
   const n = C.npcById(id), old = c.tier >= 7 && n.tier < 6;
   c.ev = { key: 'rm@' + c.week, id: 'rematch', name: name || (old ? 'Возвращение: ' + n.name : 'Реванш'), tier: old ? c.tier : Math.min(c.tier, n.tier), size: 2, exam: false, single: true, alive: ['player', id], round: 0, wins: 0, results: [], log: [], state: 'run', conceded: 0, shido: 0,
     boost: old ? GW.TIERS[7].lv[0] - 4 : 0, lost: 0, st: null, plan: 'own', scouted: [] };
@@ -540,7 +639,7 @@ C.rankRival = function (c) {
 };
 C.startRankMatch = function (c, e) {
   const id = C.rankRival(c); if (!id) return null;
-  c.done[e.key] = true;
+  c.done[e.key] = true; c.dow = 5;
   c.ev = { key: e.key, id: 'rankmatch', name: 'Рейтинговый матч', tier: c.tier, size: 2, exam: false, single: true, rank: true, alive: ['player', id], round: 0, wins: 0, results: [], log: [], state: 'run', conceded: 0, shido: 0, lost: 0, st: null, plan: 'own', scouted: [] };
   C.save(); return c.ev;
 };
