@@ -354,7 +354,7 @@ export class Humanoid {
     }
 
     // --- Жесты (только верх тела, когда руки свободны) ---
-    if (gesture && pose === 'normal' && !airborne && attack <= 0 && aim === null && !guard) {
+    if (gesture && (pose === 'normal' || pose === 'crouch') && !airborne && attack <= 0 && aim === null && !guard) {
       const g = this.time;
       if (gesture === 'talk') {
         // Объясняет что-то руками: предплечья вперёд, кисти ходят вверх-вниз.
@@ -392,6 +392,19 @@ export class Humanoid {
         const k = Math.sin(g * 5) * 0.04;
         t.shoulderLx = -0.2 + k; t.shoulderRx = -0.2 - k; t.shoulderLz = 1.3; t.shoulderRz = -1.3;
         t.elbowL = t.elbowR = -2.35; t.spineX = -0.05;
+      } else if (gesture === 'zombie') {
+        // Руки вытянуты вперёд, корпус качается, голова чуть вниз (школа: зомби).
+        const k = Math.sin(g * 2.2) * 0.12;
+        t.shoulderLx = -1.42 + k; t.shoulderRx = -1.42 - k;
+        t.shoulderLz = 0.12; t.shoulderRz = -0.12;
+        t.elbowL = t.elbowR = -0.18;
+        t.spineX = 0.2; t.spineY = Math.sin(g * 1.1) * 0.15;
+      } else if (gesture === 'cover') {
+        // Закрывает голову руками (прячется, боится).
+        t.shoulderLx = t.shoulderRx = -2.3;
+        t.shoulderLz = 0.55; t.shoulderRz = -0.55;
+        t.elbowL = t.elbowR = -2.3;
+        t.spineX = 0.35;
       } else if (gesture === 'dance') {
         const b = Math.sin(g * 6.3), s2 = Math.sin(g * 3.15);
         t.shoulderLx = -2.2 + b * 0.6; t.shoulderRx = -2.2 - b * 0.6;
@@ -444,6 +457,20 @@ export class Humanoid {
       t.elbowL = t.elbowR = -0.55;
       t.spineX = -0.18;
       t.bodyY = sitHeight - HIP_Y;
+    } else if (pose === 'crouch') {
+      // Присед: бёдра вперёд, голени назад, таз опущен; на ходу ноги переступают.
+      const step = Math.sin(this.phase) * 0.28 * clamp(speed / 1.2, 0, 1);
+      t.hipLx = -1.35 - step; t.hipRx = -1.35 + step;
+      t.hipLz = 0.12; t.hipRz = -0.12;
+      t.kneeL = 2.05 + step * 0.6; t.kneeR = 2.05 - step * 0.6;
+      t.ankleL = -(t.hipLx + t.kneeL); t.ankleR = -(t.hipRx + t.kneeR);
+      if (!gesture) {
+        t.shoulderLx = t.shoulderRx = -0.55;
+        t.shoulderLz = 0.2; t.shoulderRz = -0.2;
+        t.elbowL = t.elbowR = -0.9;
+        t.spineX = 0.42;
+      }
+      t.bodyY = -0.5;
     } else if (pose === 'stumble') {
       t.spineX = -0.35;
       t.shoulderLx = t.shoulderRx = -1.3;
