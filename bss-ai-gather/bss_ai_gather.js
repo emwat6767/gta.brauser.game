@@ -83,13 +83,16 @@ var CFG = {
     BAG_FULL_MS: 2000,
     BAG_SAMPLES: 48,          // сколько точек полоски пыльцы смотреть, чтобы знать уровень рюкзака
     RESPAWN_MS: 8000,
-    CONVERT_TRIES: 3,         // столько раз (ресет + Make Honey) пробуем, потом стоп с причиной
-    HONEY_TAPS: 2,            // столько нажатий Make Honey за одну попытку (второе может выключить — не больше)
-    CONVERT_START_MS: 12000,  // за это время рюкзак должен пойти вниз, иначе Make Honey не сработала
-    CONVERT_START_DROP: 0.02, // настолько должен опуститься рюкзак, чтобы поверить, что мёд делается
-    CONVERT_EMPTY: 0.04,      // рюкзак почти пуст — мёд готов
-    CONVERT_STALL_MS: 15000,  // рюкзак столько не убывает — переработка встала
-    CONVERT_TIMEOUT_MS: 6 * 60 * 1000, // жёсткий предел (дальше бот подбирает его по своим прошлым сдачам)
+    CONVERT_TRIES: 3,         // столько раз (ресет + Make Honey) пробуем за один заход
+    CONVERT_FAIL_CYCLES: 3,   // столько неудачных заходов подряд — и стоп с причиной (до улья, видно, не дойти)
+    CONVERT_COOLDOWN_MS: 60000, // после неудачного захода — столько ждать на поле перед следующим
+    CONVERT_START_MS: 75000,  // за это время рюкзак должен пойти вниз, иначе Make Honey не сработала
+                              // (это для первой сдачи; дальше окно подбирается по прошлым сдачам, 20–120 с)
+    CONVERT_START_DROP: 0.031, // настолько (≈1.5 точки полоски) должен опуститься рюкзак, чтобы поверить, что мёд делается
+    CONVERT_MIN_DROP: 0.15,   // сдали меньше — это не успех (значит, переработка толком не шла)
+    CONVERT_STALL_MS: 15000,  // рюкзак столько не убывает — переработка встала (для медленной — дольше, по темпу)
+    CONVERT_TIMEOUT_MS: 30 * 60 * 1000, // страховочный предел сдачи (застревание и так ловится по темпу;
+                              // с историей предел = 2.5 обычных сдачи)
     // Маршруты: список [угол, миллисекунды]. 90 = вперёд, 0 = вправо, 180 = влево, 270 = назад.
     HIVE_WALK: [],            // от точки респавна до места, где появляется Make Honey
     ROUTE_TO_FIELD: []        // от улья до центра поля, например [[90, 4000], [0, 1500]]
@@ -762,21 +765,99 @@ function bagLevelFromFlags(flags, maxGap) {
     return (last + 1) / flags.length;
 }
 
-// сколько максимум ждать переработку: по прошлым сдачам (время на целый рюкзак), но в разумных пределах
+// Заполненная часть полоски пыльцы в игре — яркий цвет от зелёного (мало) до красного (полный),
+// пустая — тёмная (её цвет берётся при настройке), цифры поверх — белые.
+function rgbHueSat(c) {
+    var r = (c >> 16) & 255, g = (c >> 8) & 255, bl = c & 255;
+    var mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), d = mx - mn, h = 0;
+    if (d > 0) {
+        if (mx === r) h = 60 * (((g - bl) / d) % 6);
+        else if (mx === g) h = 60 * ((bl - r) / d + 2);
+        else h = 60 * ((r - g) / d + 4);
+    }
+    return { h: (h + 360) % 360, s: mx ? d / mx : 0, v: mx, hex: rgbToHex(r, g, bl) };
+}
+
+function isBarFill(c, emptyHex, cfg) {
+    var q = rgbHueSat(c);
+    if (q.v < 90 || q.s < 0.45 || (q.h > 140 && q.h < 340)) return false; // не зелёный…красный — не заполнение
+    return !emptyHex || colorDiff(q.hex, emptyHex) > cfg.BAG_DIFF;
+}
+
+function isBarEmpty(c, emptyHex, cfg) {
+    var q = rgbHueSat(c);
+    return q.v < 90 || (!!emptyHex && colorDiff(q.hex, emptyHex) <= cfg.BAG_DIFF);
+}
+
+// Уровень рюкзака по полоске от a (левый конец) до b (правый). pixel(x, y) → цвет.
+// Полоска тонкая, а палец неточный: в окне ±rows ищем строку, где слева заполненный кусок,
+// а дальше — пустая часть полоски (так отличаем её от цветных значков рядом).
+function readBag(pixel, a, b, n, rows, emptyHex, cfg) {
+    var best = { level: 0, dy: 0, ok: false };
+    for (var k = 0; k <= 2 * rows; k++) {
+        var dy = k % 2 ? (k + 1) / 2 : -k / 2; // 0, 1, -1, 2, -2 ... — ближние строки первыми
+        var cols = [];
+        for (var i = 0; i < n; i++) {
+            var f = (i + 0.5) / n;
+            cols.push(pixel(Math.round(a.x + (b.x - a.x) * f), Math.round(a.y + (b.y - a.y) * f) + dy));
+        }
+        var level = bagLevelFromFlags(cols.map(function (c) { return isBarFill(c, emptyHex, cfg); }), 2);
+        var rest = cols.slice(Math.round(level * n)), empty = 0;
+        rest.forEach(function (c) { if (isBarEmpty(c, emptyHex, cfg)) empty++; });
+        var ok = level >= 0.98 || (rest.length > 0 && empty / rest.length >= 0.6);
+        if (ok && (!best.ok || level > best.level)) best = { level: level, dy: dy, ok: true };
+    }
+    return best;
+}
+
+// сколько миллисекунд уходит на переработку целого рюкзака — по прошлым сдачам (или null)
+function perBagMs(history) {
+    var v = history.filter(function (h) { return h.drop > 0.3 && h.drainMs > 0; })
+        .map(function (h) { return h.drainMs / h.drop; });
+    return v.length >= 2 ? median(v) : null;
+}
+
+// сколько максимум ждать переработку: по прошлым сдачам, но в разумных пределах
 function convertLimitMs(history, cfg) {
-    var perBag = history.filter(function (h) { return h.drop > 0.3; }).map(function (h) { return h.ms / h.drop; });
-    if (perBag.length < 2) return cfg.CONVERT_TIMEOUT_MS;
-    return clamp(2.5 * median(perBag), 60000, cfg.CONVERT_TIMEOUT_MS);
+    var pb = perBagMs(history);
+    return pb === null ? cfg.CONVERT_TIMEOUT_MS : clamp(2.5 * pb, 60000, cfg.CONVERT_TIMEOUT_MS);
+}
+
+// Уровень рюкзака по разным кадрам: медиана последних трёх, чтобы один сбойный кадр ничего не решал.
+function levelTracker(io) {
+    var last = null, buf = [];
+    return {
+        fresh: false,
+        read: function () {
+            var f = io.frame();
+            this.fresh = f !== last;
+            if (this.fresh) {
+                last = f;
+                var l = io.level();
+                if (l !== null) {
+                    buf.push(l);
+                    if (buf.length > 3) buf.shift();
+                }
+            }
+            return buf.length ? median(buf) : null;
+        },
+        clear: function () {
+            buf = [];
+        }
+    };
 }
 
 // Сдача мёда, где каждый шаг подтверждается тем, что видно на экране (уровнем рюкзака).
-// io: tap(id, waitMs) и wait(ms) → false, если бота остановили; level() → 0..1 или null;
-//     walk(route) → bool; status(text); now() → мс.
-// Итог: {result: "ok" | "stopped" | "not_started" | "no_level", tries, ms, from, to, stalled}
+// io: tap(id, waitMs) и wait(ms) → false, если бота остановили (или Roblox не на экране);
+//     level() → 0..1 или null; frame() → номер кадра зрения; walk(route) → bool; status(text); now() → мс.
+// Итог: {result: "ok" | "stopped" | "not_started" | "no_level", tries, ms, drainMs, from, to, stalled, hitLimit}
 function runConvert(io, cfg, history) {
     var t0 = io.now(), from = io.level();
     if (from === null) return { result: "no_level", tries: 0, ms: 0, from: 0, to: 0 };
-    var limit = convertLimitMs(history, cfg);
+    var tr = levelTracker(io), sample = 1 / cfg.BAG_SAMPLES, emptyLvl = 2.5 * sample;
+    var limit = convertLimitMs(history, cfg), pb = perBagMs(history);
+    // сколько ждать, что рюкзак пошёл вниз: медленной переработке — дольше (по прошлым сдачам)
+    var startWin = pb === null ? cfg.CONVERT_START_MS : clamp(4 * pb * (cfg.CONVERT_START_DROP + sample), 20000, 120000);
     function stopped(tries) {
         return { result: "stopped", tries: tries, ms: io.now() - t0, from: from, to: from };
     }
@@ -784,42 +865,66 @@ function runConvert(io, cfg, history) {
         io.status("Рюкзак полный → в улей" + (tryNo > 1 ? " (попытка " + tryNo + ")" : ""));
         if (!io.tap("menu", 900) || !io.tap("reset", 700) || !io.tap("resetOk", cfg.RESPAWN_MS)) return stopped(tryNo);
         if (!io.walk(cfg.HIVE_WALK)) return stopped(tryNo);
-        var base = io.level();
-        if (base === null) base = from;
-        // нажать Make Honey и дождаться, что рюкзак правда пошёл вниз
-        var started = false;
-        for (var k = 0; k < cfg.HONEY_TAPS && !started; k++) {
-            if (!io.tap("honey", 0)) return stopped(tryNo);
-            var until = io.now() + cfg.CONVERT_START_MS;
-            while (io.now() < until) {
-                if (!io.wait(500)) return stopped(tryNo);
-                var l = io.level();
-                if (l !== null && l < base - cfg.CONVERT_START_DROP) {
-                    started = true;
-                    break;
-                }
-            }
+        // уровень у улья до нажатия
+        tr.clear();
+        var base = null, until0 = io.now() + 1500;
+        while (io.now() < until0) {
+            if (!io.wait(250)) return stopped(tryNo);
+            var b0 = tr.read();
+            if (b0 !== null && (base === null || b0 > base)) base = b0; // верх: уровень может дрожать на границе точек
         }
-        if (!started) continue; // не у улья или кнопка не нажалась — ещё раз через ресет
-        // ждать, пока рюкзак не опустеет или не перестанет убывать
-        io.status("Делаю мёд...");
-        var best = io.level(), lastDrop = io.now(), hard = io.now() + limit, stalled = false;
-        if (best === null) best = base;
-        while (best > cfg.CONVERT_EMPTY) {
-            if (!io.wait(1000)) return stopped(tryNo);
-            var lv = io.level();
-            if (lv !== null && lv < best - 0.01) {
-                best = lv;
-                lastDrop = io.now();
-            }
-            if (io.now() - lastDrop > cfg.CONVERT_STALL_MS || io.now() > hard) {
-                stalled = true;
+        if (base === null) base = from;
+        // одно нажатие Make Honey на попытку (второе выключило бы уже идущую переработку);
+        // «пошла» — только если два свежих кадра подряд ниже хотя бы на 2 точки полоски
+        if (!io.tap("honey", 0)) return stopped(tryNo);
+        var started = false, hits = 0, until = io.now() + startWin;
+        while (io.now() < until) {
+            if (!io.wait(300)) return stopped(tryNo);
+            var l = tr.read();
+            if (!tr.fresh || l === null) continue;
+            hits = l < base - cfg.CONVERT_START_DROP ? hits + 1 : 0;
+            if (hits >= 2) {
+                started = true;
                 break;
             }
         }
-        return { result: "ok", tries: tryNo, ms: io.now() - t0, from: from, to: best, stalled: stalled };
+        if (!started) continue; // не у улья или кнопка не нажалась — ещё раз через ресет
+        io.status("Делаю мёд...");
+        var tStart = io.now(), best = tr.read(), lastDrop = io.now(), steps = [], hard = io.now() + limit;
+        var emptyHits = 0, stalled = false, hitLimit = false;
+        while (true) {
+            if (!io.wait(500)) return stopped(tryNo);
+            var lv = tr.read();
+            if (tr.fresh && lv !== null) {
+                if (lv < best - 0.5 * sample) {
+                    steps.push(io.now() - lastDrop);
+                    best = lv;
+                    lastDrop = io.now();
+                }
+                emptyHits = lv <= emptyLvl ? emptyHits + 1 : 0;
+                if (emptyHits >= 2) break; // пусто два кадра подряд
+            }
+            // «встала»: дольше, чем 3 обычных шага убывания (медленная переработка шагает реже)
+            var stallWin = Math.max(cfg.CONVERT_STALL_MS, steps.length >= 2 ? 3 * median(steps.slice(-5)) : startWin);
+            if (io.now() - lastDrop > stallWin) {
+                stalled = true;
+                break;
+            }
+            if (io.now() > hard) {
+                hitLimit = true;
+                break;
+            }
+        }
+        if (base - best < cfg.CONVERT_MIN_DROP) continue; // почти ничего не сдали — это не успех
+        return { result: "ok", tries: tryNo, ms: io.now() - t0, drainMs: io.now() - tStart, from: base, to: best,
+            stalled: stalled, hitLimit: hitLimit };
     }
     return { result: "not_started", tries: cfg.CONVERT_TRIES, ms: io.now() - t0, from: from, to: from };
+}
+
+// после неудачного захода в улей: попробовать позже или остановиться (если не выходит раз за разом)
+function convertFailurePolicy(streak, cfg) {
+    return streak >= cfg.CONVERT_FAIL_CYCLES ? { stop: true, cooldownMs: 0 } : { stop: false, cooldownMs: cfg.CONVERT_COOLDOWN_MS * streak };
 }
 
 // ===================== ТЕЛЕФОН =====================
@@ -900,13 +1005,18 @@ function main() {
     var bagEmpty = store.get("bagEmpty", null);
     var learnedK = store.get("k", null);       // выученный масштаб камеры (доли ширины экрана)
     // статистика циклов: сколько собирается рюкзак и сколько сдаётся (хранится между запусками)
-    var stats = store.get("stats", null) || { fills: [], converts: [], fails: 0 };
+    var stats = store.get("stats", null) || { fills: [], converts: [], cycles: [], fails: 0 };
+    stats.cycles = stats.cycles || [];
 
     var state = {
         running: false,
         mode: "gather",
         perception: { tokens: [], zones: [], bagFull: false, bagLevel: null, t: 0, frame: -1 },
         gatherFrom: null,                      // {t, level} — когда начали собирать этот рюкзак
+        cycleFrom: 0,                          // когда закончилась прошлая сдача (для честного «мёда в час»)
+        cycleBroken: false,                    // в этом цикле была пауза — его время не честное
+        convertFails: 0,                       // неудачных заходов в улей подряд
+        convertAfter: 0,                       // раньше этого времени в улей не идём (после неудачи)
         percQueue: [],                         // все кадры с прошлого решения — мозг смотрит каждый
         requests: [],                          // пробы цвета для потока зрения
         status: "BSS AI Gather",
@@ -1126,8 +1236,10 @@ function main() {
                 sleep(1000);
             }
         }
-        setStatus(openedMenu ? "Точки сохранены. Закрой меню Roblox (Cancel) и добавь цвета: + ТОКЕН"
-            : "Точки сохранены. Теперь добавь цвета: + ТОКЕН");
+        var doneMsg = openedMenu ? "Точки сохранены. Закрой меню Roblox (Cancel) и добавь цвета: + ТОКЕН."
+            : "Точки сохранены. Теперь добавь цвета: + ТОКЕН.";
+        setStatus(doneMsg);
+        if (P.bag && P.bagStart) state.requests.push({ type: "level", prefix: doneMsg });
     }
 
     ui.run(function () {
@@ -1152,6 +1264,10 @@ function main() {
             brain = newBrain(CFG, screenW(), learnedK); // СТАРТ = стою в центре поля
             state.percQueue = [];
             state.gatherFrom = null;
+            state.cycleFrom = 0;
+            state.convertFails = 0;
+            state.convertAfter = 0;
+            if (needsBagStart()) toast("Новое: в ТОЧКИ отметь ЛЕВЫЙ конец полоски пыльцы — иначе мёд не сдаётся");
             setMenuOpen(false);
             setStatus("Поехали");
         } else {
@@ -1198,7 +1314,7 @@ function main() {
     });
 
     // ---------- поток зрения ----------
-    var bagSince = 0, frame = 0, bgPatches = null, bgT = 0;
+    var bagSince = 0, frame = 0, bgPatches = null, bgT = 0, bagDy = 0, bagFitT = 0;
     function see() {
         if (!state.running && !state.requests.length) {
             sleep(150);
@@ -1212,6 +1328,17 @@ function main() {
 
         while (state.requests.length) {
             var rq = state.requests.shift();
+            if (rq.type === "level") {
+                // проверка после настройки: читаем уровень рюкзака и показываем — совпадает ли с игрой
+                if (P.bag && P.bagStart) {
+                    var chk = readBag(function (x, y) { return images.pixel(img, clamp(x, 0, W - 1), clamp(y, 0, H - 1)); },
+                        P.bagStart, P.bag, CFG.BAG_SAMPLES, Math.round(H * 0.012), bagEmpty, CFG);
+                    if (chk.ok) bagDy = chk.dy;
+                    setStatus(rq.prefix + " Рюкзак сейчас: " + (chk.ok ? Math.round(chk.level * 100) + "%" : "не вижу полоску") +
+                        " — если не совпадает с игрой, заново отметь концы полоски.");
+                }
+                continue;
+            }
             var px = [];
             for (var dx = -2; dx <= 2; dx++) {
                 for (var dy = -2; dy <= 2; dy++) {
@@ -1270,8 +1397,27 @@ function main() {
         }
         tokens = mergeTokens(tokens, CFG.MERGE_RADIUS * W);
 
-        var bagFull = false;
-        if (P.bag && bagEmpty) {
+        var bagFull = false, bagLevel = null;
+        if (P.bag && P.bagStart) {
+            var px = function (x, y) {
+                return images.pixel(img, clamp(x, 0, W - 1), clamp(y, 0, H - 1));
+            };
+            var nowB = Date.now();
+            if (nowB - bagFitT > 3000) {
+                // раз в 3 с уточняем, на какой строке полоска (палец мог промахнуться на несколько пикселей)
+                bagFitT = nowB;
+                var fit = readBag(px, P.bagStart, P.bag, 16, Math.round(H * 0.012), bagEmpty, CFG);
+                if (fit.ok && fit.level > 0) bagDy = fit.dy;
+            }
+            bagLevel = readBag(px, { x: P.bagStart.x, y: P.bagStart.y + bagDy }, { x: P.bag.x, y: P.bag.y + bagDy },
+                CFG.BAG_SAMPLES, 1, bagEmpty, CFG).level;
+            if (bagLevel >= 0.96) {
+                if (!bagSince) bagSince = nowB;
+                bagFull = nowB - bagSince > CFG.BAG_FULL_MS;
+            } else {
+                bagSince = 0;
+            }
+        } else if (P.bag && bagEmpty) {
             var now = Date.now();
             var cur = intToHex(images.pixel(img, P.bag.x, P.bag.y));
             if (colorDiff(cur, bagEmpty) > CFG.BAG_DIFF) {
@@ -1280,17 +1426,6 @@ function main() {
             } else {
                 bagSince = 0;
             }
-        }
-        var bagLevel = null;
-        if (P.bag && P.bagStart && bagEmpty) {
-            var flags = [];
-            for (var bi = 0; bi < CFG.BAG_SAMPLES; bi++) {
-                var f = (bi + 0.5) / CFG.BAG_SAMPLES;
-                var bx = Math.round(P.bagStart.x + (P.bag.x - P.bagStart.x) * f);
-                var by = Math.round(P.bagStart.y + (P.bag.y - P.bagStart.y) * f);
-                flags.push(colorDiff(intToHex(images.pixel(img, bx, by)), bagEmpty) > CFG.BAG_DIFF);
-            }
-            bagLevel = bagLevelFromFlags(flags, 2);
         }
         state.perception = { tokens: tokens, zones: zones, flow: flow, bagFull: bagFull, bagLevel: bagLevel, t: shotT, frame: frame++ };
         state.percQueue.push(state.perception);
@@ -1358,8 +1493,13 @@ function main() {
         return waitMs(waitAfter);
     }
 
+    // настраивал до появления уровня рюкзака: правый конец есть, левого нет
+    function needsBagStart() {
+        return !!P.bag && !P.bagStart;
+    }
+
     function canConvert() {
-        return P.menu && P.reset && P.resetOk && P.honey && P.bag && P.bagStart && bagEmpty;
+        return P.menu && P.reset && P.resetOk && P.honey && P.bag && P.bagStart;
     }
 
     function stopRunning(msg) {
@@ -1371,26 +1511,44 @@ function main() {
     function saveStats() {
         stats.fills = stats.fills.slice(-20);
         stats.converts = stats.converts.slice(-20);
+        stats.cycles = (stats.cycles || []).slice(-20);
         store.put("stats", stats);
     }
 
-    // сводка из статистики: минут на сбор рюкзака, на сдачу, и сколько рюкзаков мёда в час
+    // сводка: сколько рюкзаков мёда в час на деле — сданное за полные циклы (сбор + дорога + сдача)
+    // делим на их время; плюс медианы сбора и сдачи для понимания, где теряется время
     function cycleSummary() {
+        var cyc = stats.cycles || [];
+        if (!cyc.length) return "";
+        var drop = 0, ms = 0;
+        cyc.forEach(function (c) { drop += c.drop; ms += c.ms; });
         var fill = stats.fills.map(function (f) { return f.ms / f.gain; });
         var conv = stats.converts.map(function (c) { return c.ms; });
-        if (!fill.length || !conv.length) return "";
-        var fm = median(fill) / 60000, cm = median(conv) / 60000;
-        return "рюкзак: сбор " + fm.toFixed(1) + " мин, сдача " + cm.toFixed(1) + " мин ≈ " + (60 / (fm + cm)).toFixed(1) + " рюкз./час";
+        return "≈ " + (drop / ms * 3600000).toFixed(1) + " рюкз. мёда/час" +
+            (fill.length ? " | сбор " + (median(fill) / 60000).toFixed(1) + " мин" : "") +
+            (conv.length ? ", сдача " + (median(conv) / 60000).toFixed(1) + " мин" : "") +
+            (stats.fails ? ", неудач: " + stats.fails : "");
     }
 
+    function robloxOnTop() {
+        return currentPackage() === CFG.ROBLOX_PACKAGE;
+    }
+
+    // Roblox свернули посреди сдачи — не жмём в чужое приложение: сдача прерывается и начнётся заново
     var convertIO = {
         tap: function (id, after) {
+            if (!robloxOnTop()) return false;
             if (P[id]) press(P[id].x, P[id].y, 80);
             return waitMs(after);
         },
-        wait: waitMs,
+        wait: function (ms) {
+            return waitMs(ms) && robloxOnTop();
+        },
         level: function () { return state.perception.bagLevel; },
-        walk: walkRoute,
+        frame: function () { return state.perception.frame; },
+        walk: function (route) {
+            return robloxOnTop() && walkRoute(route);
+        },
         status: setStatus,
         now: function () { return Date.now(); }
     };
@@ -1407,15 +1565,33 @@ function main() {
             stats.fails++;
             saveStats();
             state.mode = "gather";
-            stopRunning(res.result === "no_level"
-                ? "Не вижу уровень рюкзака: заново отметь концы полоски пыльцы (ТОЧКИ)"
-                : "Мёд не пошёл ни с " + res.tries + " попыток. Проверь точку MAKE HONEY и маршрут HIVE_WALK, потом СТАРТ");
+            if (res.result === "no_level") {
+                stopRunning("Не вижу уровень рюкзака: заново отметь концы полоски пыльцы (ТОЧКИ)");
+                return;
+            }
+            state.convertFails++;
+            var pol = convertFailurePolicy(state.convertFails, CFG);
+            if (pol.stop) {
+                stopRunning("Мёд не пошёл " + state.convertFails + " захода подряд. Проверь точку MAKE HONEY и маршрут HIVE_WALK, потом СТАРТ");
+                state.convertFails = 0;
+                return;
+            }
+            // попробуем позже: пока — на поле за токенами
+            state.convertAfter = Date.now() + pol.cooldownMs;
+            setStatus("Мёд не пошёл — попробую снова через " + Math.round(pol.cooldownMs / 1000) + " с");
+            if (CFG.ROUTE_TO_FIELD.length && walkRoute(CFG.ROUTE_TO_FIELD)) brain = newBrain(CFG, screenW(), learnedK);
             return;
         }
-        stats.converts.push({ ms: res.ms, drop: res.from - res.to, stalled: res.stalled });
+        state.convertFails = 0;
+        stats.converts.push({ ms: res.ms, drainMs: res.drainMs, drop: res.from - res.to });
+        // полный цикл: от прошлой сдачи до этой, если всё это время бот работал без перерывов
+        var nowC = Date.now();
+        if (state.cycleFrom && !state.cycleBroken) stats.cycles.push({ ms: nowC - state.cycleFrom, drop: res.from - res.to });
+        state.cycleFrom = nowC;
+        state.cycleBroken = false;
         saveStats();
         var done = "Сдано " + Math.round((res.from - res.to) * 100) + "% рюкзака за " + Math.round(res.ms / 1000) + " с" +
-            (res.stalled && res.to > 0.3 ? " (переработка встала раньше)" : "");
+            (res.hitLimit ? " (дольше обычного — ушёл по пределу)" : res.stalled && res.to > 0.3 ? " (переработка встала раньше)" : "");
         if (!CFG.ROUTE_TO_FIELD.length) {
             stopRunning(done + ". Маршрут на поле не задан — доведи персонажа и жми СТАРТ");
             return;
@@ -1427,7 +1603,9 @@ function main() {
         state.mode = "gather";
     }
 
-    setStatus(P.player && P.joy ? "Готов. Встань в центр поля и жми СТАРТ" : "Сначала жми ТОЧКИ и отметь всё по порядку");
+    setStatus(!P.player || !P.joy ? "Сначала жми ТОЧКИ и отметь всё по порядку"
+        : needsBagStart() ? "Новое: нажми ТОЧКИ и отметь ЛЕВЫЙ конец полоски пыльцы (остальное можно ПРОПУСК) — без него мёд не сдаётся"
+            : "Готов. Встань в центр поля и жми СТАРТ");
 
     // ---------- главный цикл ----------
     var NAMES = { token: "к токену", memory: "к токену по памяти", check: "проверяю, что мелькнуло", escape: "обхожу препятствие", patrol: "кошу поле" };
@@ -1448,11 +1626,12 @@ function main() {
         }
         if (currentPackage() !== CFG.ROBLOX_PACKAGE) {
             setStatus("Жду Roblox на экране...");
+            state.cycleBroken = true;
             state.percQueue = []; // кадры чужого экрана мозгу не нужны
             sleep(500);
             continue;
         }
-        if (state.mode === "convert" || (state.perception.bagFull && canConvert())) {
+        if (state.mode === "convert" || (state.perception.bagFull && canConvert() && Date.now() >= state.convertAfter)) {
             convert();
             continue;
         }
@@ -1481,7 +1660,8 @@ function main() {
                 " | вижу: " + perc.tokens.length + " | помню: " + solid +
                 (b.kSamples > 30 ? " | камера изучена" : " | изучаю камеру") +
                 (perc.bagLevel !== null ? " | рюкзак " + Math.round(perc.bagLevel * 100) + "%" : "") +
-                (perc.bagFull ? " ПОЛНЫЙ" : "") +
+                (perc.bagFull ? (perc.bagLevel !== null ? " ПОЛНЫЙ" : " | рюкзак ПОЛНЫЙ") : "") +
+                (perc.bagFull && !canConvert() ? (needsBagStart() ? " — отметь левый конец полоски (ТОЧКИ)" : " — для сдачи отметь все точки") : "") +
                 (cycleSummary() ? "\n" + cycleSummary() : ""));
         }
     }
@@ -1492,7 +1672,7 @@ if (typeof floaty === "undefined") {
         CFG: CFG, clusterPoints: clusterPoints, looksLikeToken: looksLikeToken, blobsToTokens: blobsToTokens,
         mergeTokens: mergeTokens, snakeWaypoints: snakeWaypoints, medianColor: medianColor, colorDiff: colorDiff,
         angleToVec: angleToVec, intToHex: intToHex, joyStroke: joyStroke, inZone: inZone, escapeDir: escapeDir,
-        bagLevelFromFlags: bagLevelFromFlags, convertLimitMs: convertLimitMs, runConvert: runConvert,
+        bagLevelFromFlags: bagLevelFromFlags, convertFailurePolicy: convertFailurePolicy, convertLimitMs: convertLimitMs, runConvert: runConvert, readBag: readBag, isBarFill: isBarFill,
         newBrain: newBrain, observe: observe, plan: plan, addMove: addMove, posAt: posAt,
         makeDetectable: makeDetectable, isSolid: isSolid, bestTarget: bestTarget,
         clipBgPatches: clipBgPatches, matchBgPatches: matchBgPatches, rectHitsZone: rectHitsZone
