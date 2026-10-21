@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Тревога в школе № 17</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;600;800&family=Unbounded:wght@500;800&display=swap">
+  <link rel="stylesheet" href="css/school.css">
+  <!-- Three.js с CDN через import map (как в Open City). -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="ov-smoke"></div>
+  <div id="ov-hurt"></div>
+  <div id="ov-locker" hidden></div>
+
+  <div id="hud" hidden>
+    <section id="h-status">
+      <div class="h-row"><span id="h-clock">9:13</span><span id="h-phase" data-kind="calm">Перемена</span></div>
+      <div id="h-objective"></div>
+      <div id="h-timer" hidden></div>
+    </section>
+    <section id="h-mapbox">
+      <canvas id="minimap" width="300" height="104"></canvas>
+      <div id="h-floor"></div>
+    </section>
+    <section id="h-vitals">
+      <div class="hp"><div id="h-health"></div><span id="h-health-text">100</span></div>
+      <div id="h-item" hidden><span>предмет</span><div class="bar"><i id="h-item-bar"></i></div></div>
+      <div id="h-tags"><span id="h-seen" hidden></span><span id="h-stance" hidden></span><span id="h-followers" hidden></span></div>
+    </section>
+    <div id="h-context" hidden></div>
+    <div id="h-toast" hidden></div>
+    <div id="h-banner" hidden></div>
+    <div id="h-cmds"><b>1</b> За мной <b>2</b> Прячьтесь <b>3</b> Бей его! <b>4</b> Тихо <b>5</b> Ждите <b>6</b> К выходу · <b>M</b> карта <b>H</b> помощь <b>Esc</b> пауза</div>
+    <div id="bubbles"></div>
+  </div>
+
+  <div id="bigmap-wrap" hidden>
+    <canvas id="bigmap" width="960" height="560"></canvas>
+    <p>План школы · <b>M</b> — закрыть · жёлтые — учителя, зелёные — идут за тобой, красные — угроза (если видел)</p>
+  </div>
+
+  <div id="touch">
+    <div id="stick"><div id="stick-knob"></div></div>
+    <div id="look-zone"></div>
+    <div class="t-top">
+      <button data-act="map">Карта</button>
+      <button data-act="pause">Пауза</button>
+    </div>
+    <div class="t-cmds">
+      <button data-act="cmdFollow">За мной</button>
+      <button data-act="cmdHide">Прячьтесь</button>
+      <button data-act="cmdFight" class="warn">Бей его!</button>
+      <button data-act="cmdQuiet">Тихо</button>
+      <button data-act="cmdWait">Ждите</button>
+      <button data-act="cmdRun">К выходу</button>
+    </div>
+    <div class="t-btns">
+      <button data-act="lock" id="t-lock" hidden>Запереть</button>
+      <button data-act="barricade" id="t-barricade" hidden>Баррикада</button>
+      <button data-act="throw" id="t-throw" hidden>Бросить</button>
+      <button data-act="crouch">Присесть</button>
+      <button data-act="attack" class="hit">Удар</button>
+      <button data-act="interact" id="t-interact" class="big">Действие</button>
+    </div>
+  </div>
+
+  <div id="loading"><div class="ld-title">Школа № 17</div><div class="ld-text">Строим школу…</div></div>
+
+  <div id="menu" class="screen" hidden>
+    <div class="board">
+      <div class="eyebrow">16 октября · четверг · 2-й урок</div>
+      <h1>Школа № 17<span>Тревога</span></h1>
+      <p class="lead">Обычный школьный день. Перемена, звонок, урок физики в 104-м. А потом — в случайный момент — что-то пойдёт не так. Спасайся сам и помогай другим.</p>
+      <div class="field">
+        <div class="label">Что случится</div>
+        <div class="chips" data-key="type">
+          <button data-v="random" class="on">Случайно<small>пожар или теракт</small></button>
+          <button data-v="fire">Пожар<small>дым, огонь, эвакуация</small></button>
+          <button data-v="attack">Теракт<small>прятаться и выжить</small></button>
+          <button data-v="zombie">Зомби<small>держаться вместе</small></button>
+        </div>
+      </div>
+      <div class="field two">
+        <div>
+          <div class="label">Сложность</div>
+          <div class="chips small" data-key="difficulty">
+            <button data-v="0">Лёгкая</button><button data-v="1" class="on">Обычная</button><button data-v="2">Трудная</button>
+          </div>
+        </div>
+        <div>
+          <div class="label">Когда тревога</div>
+          <div class="chips small" data-key="alarmMode">
+            <button data-v="random" class="on">В случайный момент</button><button data-v="soon">Почти сразу</button>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="label">Кто ты</div>
+        <div class="chips small" data-key="fem">
+          <button data-v="0">Ученик</button><button data-v="1">Ученица</button>
+        </div>
+      </div>
+      <button id="btn-start" class="primary">Начать день</button>
+      <p class="keys desk-only"><b>WASD</b> ходить · <b>Shift</b> бег · <b>C</b> присесть · <b>E</b> действие · <b>R</b> замок · <b>B</b> баррикада · <b>F</b> удар · <b>Q</b> бросить · <b>1–6</b> команды · <b>M</b> карта</p>
+      <p class="keys touch-only">Джойстик слева (до упора — бег), справа — обзор. Кнопки «Действие», «Удар», команды одноклассникам.</p>
+    </div>
+  </div>
+
+  <div id="pause" class="screen dim" hidden>
+    <div class="card">
+      <h2>Пауза</h2>
+      <button id="btn-resume" class="primary">Продолжить</button>
+      <button id="btn-help">Управление и советы</button>
+      <button id="btn-restart">Начать день заново</button>
+      <button id="btn-menu">В главное меню</button>
+    </div>
+  </div>
+
+  <div id="help" class="screen dim" hidden>
+    <div class="card wide">
+      <h2>Управление</h2>
+      <table>
+        <tr><td><b>WASD</b> / джойстик</td><td>ходить; <b>Shift</b> или джойстик до упора — бег</td></tr>
+        <tr><td><b>Мышь</b> / палец справа</td><td>обзор; <b>V</b> — вид от первого лица</td></tr>
+        <tr><td><b>C</b></td><td>присесть: тише шаги, ниже дыма, хуже видно</td></tr>
+        <tr><td><b>E</b></td><td>двери, спрятаться (шкафчик, под стол, кабинка), взять предмет, свет, пожарная кнопка, окно 1 этажа, сесть за парту</td></tr>
+        <tr><td><b>R</b> / <b>B</b></td><td>изнутри кабинета: запереть дверь / придвинуть парту</td></tr>
+        <tr><td><b>F</b></td><td>удар; с огнетушителем — держи, чтобы тушить или ослепить</td></tr>
+        <tr><td><b>Q</b></td><td>бросить предмет в цель</td></tr>
+        <tr><td><b>1–6</b></td><td>За мной · Прячьтесь · Бей его! · Тихо · Ждите · К выходу</td></tr>
+        <tr><td><b>M</b> · <b>N</b> · <b>Esc</b></td><td>карта · звук · пауза</td></tr>
+      </table>
+      <h3>Как выжить</h3>
+      <ul>
+        <li><b>Пожар:</b> выходи сразу, пригибайся в дыму, закрывай двери, иди к месту сбора на стадионе.</li>
+        <li><b>Нападение:</b> уйди, если можешь. Нет — запрись, выключи свет, отойди от двери, молчи. Нападать — только вместе и когда он перезаряжается.</li>
+        <li><b>Зомби:</b> не шуми, баррикадируйся, бери биту в инвентарной спортзала, дождись автобуса МЧС.</li>
+      </ul>
+      <button id="btn-help-close" class="primary">Понятно</button>
+    </div>
+  </div>
+
+  <div id="end" class="screen dim" hidden>
+    <div class="card wide">
+      <div id="end-stars"></div>
+      <h2 id="end-title"></h2>
+      <p id="end-why"></p>
+      <div id="end-nums"></div>
+      <table id="end-lines"></table>
+      <h3>Что важно запомнить</h3>
+      <ul id="end-tips"></ul>
+      <div class="row">
+        <button id="btn-again" class="primary">Ещё раз</button>
+        <button id="btn-end-menu">Другой сценарий</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="school/main.js"></script>
+</body>
+</html>
