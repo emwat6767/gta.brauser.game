@@ -79,11 +79,17 @@ var CFG = {
     TAP_EVERY_MS: 120,
 
     // рюкзак и улей
-    BAG_DIFF: 60,             // насколько должен измениться цвет конца полоски, чтобы считать её полной
+    BAG_DIFF: 60,             // насколько цвет полоски должен отличаться от пустой, чтобы считать место заполненным
     BAG_FULL_MS: 2000,
+    BAG_SAMPLES: 48,          // сколько точек полоски пыльцы смотреть, чтобы знать уровень рюкзака
     RESPAWN_MS: 8000,
-    CONVERT_TIMEOUT_MS: 6 * 60 * 1000,
-    AFTER_CONVERT_MS: 3000,
+    CONVERT_TRIES: 3,         // столько раз (ресет + Make Honey) пробуем, потом стоп с причиной
+    HONEY_TAPS: 2,            // столько нажатий Make Honey за одну попытку (второе может выключить — не больше)
+    CONVERT_START_MS: 12000,  // за это время рюкзак должен пойти вниз, иначе Make Honey не сработала
+    CONVERT_START_DROP: 0.02, // настолько должен опуститься рюкзак, чтобы поверить, что мёд делается
+    CONVERT_EMPTY: 0.04,      // рюкзак почти пуст — мёд готов
+    CONVERT_STALL_MS: 15000,  // рюкзак столько не убывает — переработка встала
+    CONVERT_TIMEOUT_MS: 6 * 60 * 1000, // жёсткий предел (дальше бот подбирает его по своим прошлым сдачам)
     // Маршруты: список [угол, миллисекунды]. 90 = вперёд, 0 = вправо, 180 = влево, 270 = назад.
     HIVE_WALK: [],            // от точки респавна до места, где появляется Make Honey
     ROUTE_TO_FIELD: []        // от улья до центра поля, например [[90, 4000], [0, 1500]]
@@ -94,7 +100,8 @@ var POINTS = [
     { id: "joy", name: "туда, где ставишь палец для ХОДЬБЫ (слева)" },
     { id: "tap", name: "на пустое место справа, куда тапаешь, чтобы МАХАТЬ инструментом" },
     { id: "jump", name: "на кнопку ПРЫЖКА" },
-    { id: "bag", name: "на правый конец полоски ПЫЛЬЦЫ (рюкзак сейчас НЕ полный)" },
+    { id: "bagStart", name: "на ЛЕВЫЙ конец полоски ПЫЛЬЦЫ (рюкзака)" },
+    { id: "bag", name: "на ПРАВЫЙ конец полоски ПЫЛЬЦЫ (рюкзак сейчас НЕ полный)" },
     { id: "honey", name: "на кнопку MAKE HONEY (стой у улья; если не у улья — ПРОПУСК)" },
     { id: "menu", name: "на значок МЕНЮ Roblox (слева сверху) — бот сам его откроет" },
     { id: "reset", name: "на пункт RESET CHARACTER в открывшемся меню" },
@@ -738,6 +745,83 @@ function joyStroke(jx, jy, vx, vy, R, ms) {
     return path;
 }
 
+// ===================== МЁД: сдача с проверкой =====================
+
+// уровень рюкзака по точкам полоски слева направо (true = заполнено).
+// Полоска заполняется слева: считаем сплошной кусок от левого края, мелкие разрывы (цифры поверх) прощаем.
+function bagLevelFromFlags(flags, maxGap) {
+    var last = -1, gap = 0;
+    for (var i = 0; i < flags.length; i++) {
+        if (flags[i]) {
+            last = i;
+            gap = 0;
+        } else if (++gap > maxGap) {
+            break;
+        }
+    }
+    return (last + 1) / flags.length;
+}
+
+// сколько максимум ждать переработку: по прошлым сдачам (время на целый рюкзак), но в разумных пределах
+function convertLimitMs(history, cfg) {
+    var perBag = history.filter(function (h) { return h.drop > 0.3; }).map(function (h) { return h.ms / h.drop; });
+    if (perBag.length < 2) return cfg.CONVERT_TIMEOUT_MS;
+    return clamp(2.5 * median(perBag), 60000, cfg.CONVERT_TIMEOUT_MS);
+}
+
+// Сдача мёда, где каждый шаг подтверждается тем, что видно на экране (уровнем рюкзака).
+// io: tap(id, waitMs) и wait(ms) → false, если бота остановили; level() → 0..1 или null;
+//     walk(route) → bool; status(text); now() → мс.
+// Итог: {result: "ok" | "stopped" | "not_started" | "no_level", tries, ms, from, to, stalled}
+function runConvert(io, cfg, history) {
+    var t0 = io.now(), from = io.level();
+    if (from === null) return { result: "no_level", tries: 0, ms: 0, from: 0, to: 0 };
+    var limit = convertLimitMs(history, cfg);
+    function stopped(tries) {
+        return { result: "stopped", tries: tries, ms: io.now() - t0, from: from, to: from };
+    }
+    for (var tryNo = 1; tryNo <= cfg.CONVERT_TRIES; tryNo++) {
+        io.status("Рюкзак полный → в улей" + (tryNo > 1 ? " (попытка " + tryNo + ")" : ""));
+        if (!io.tap("menu", 900) || !io.tap("reset", 700) || !io.tap("resetOk", cfg.RESPAWN_MS)) return stopped(tryNo);
+        if (!io.walk(cfg.HIVE_WALK)) return stopped(tryNo);
+        var base = io.level();
+        if (base === null) base = from;
+        // нажать Make Honey и дождаться, что рюкзак правда пошёл вниз
+        var started = false;
+        for (var k = 0; k < cfg.HONEY_TAPS && !started; k++) {
+            if (!io.tap("honey", 0)) return stopped(tryNo);
+            var until = io.now() + cfg.CONVERT_START_MS;
+            while (io.now() < until) {
+                if (!io.wait(500)) return stopped(tryNo);
+                var l = io.level();
+                if (l !== null && l < base - cfg.CONVERT_START_DROP) {
+                    started = true;
+                    break;
+                }
+            }
+        }
+        if (!started) continue; // не у улья или кнопка не нажалась — ещё раз через ресет
+        // ждать, пока рюкзак не опустеет или не перестанет убывать
+        io.status("Делаю мёд...");
+        var best = io.level(), lastDrop = io.now(), hard = io.now() + limit, stalled = false;
+        if (best === null) best = base;
+        while (best > cfg.CONVERT_EMPTY) {
+            if (!io.wait(1000)) return stopped(tryNo);
+            var lv = io.level();
+            if (lv !== null && lv < best - 0.01) {
+                best = lv;
+                lastDrop = io.now();
+            }
+            if (io.now() - lastDrop > cfg.CONVERT_STALL_MS || io.now() > hard) {
+                stalled = true;
+                break;
+            }
+        }
+        return { result: "ok", tries: tryNo, ms: io.now() - t0, from: from, to: best, stalled: stalled };
+    }
+    return { result: "not_started", tries: cfg.CONVERT_TRIES, ms: io.now() - t0, from: from, to: from };
+}
+
 // ===================== ТЕЛЕФОН =====================
 
 // Кусочки поля в стороне от персонажа: в следующем кадре ищем, куда они сдвинулись.
@@ -815,11 +899,14 @@ function main() {
     var tokenColors = store.get("colors", []); // [{c: "#RRGGBB", w: важность}]
     var bagEmpty = store.get("bagEmpty", null);
     var learnedK = store.get("k", null);       // выученный масштаб камеры (доли ширины экрана)
+    // статистика циклов: сколько собирается рюкзак и сколько сдаётся (хранится между запусками)
+    var stats = store.get("stats", null) || { fills: [], converts: [], fails: 0 };
 
     var state = {
         running: false,
         mode: "gather",
-        perception: { tokens: [], zones: [], bagFull: false, t: 0, frame: -1 },
+        perception: { tokens: [], zones: [], bagFull: false, bagLevel: null, t: 0, frame: -1 },
+        gatherFrom: null,                      // {t, level} — когда начали собирать этот рюкзак
         percQueue: [],                         // все кадры с прошлого решения — мозг смотрит каждый
         requests: [],                          // пробы цвета для потока зрения
         status: "BSS AI Gather",
@@ -861,7 +948,7 @@ function main() {
         }
     }
 
-    var BUBBLE_DP = 60, MENU_DP = 270, MENU_H_DP = 290;
+    var BUBBLE_DP = 60, MENU_DP = 270, MENU_H_DP = 320;
     var bubble = rawWindow(
         '<button id="btn" text="БОТ" w="60" h="60" textSize="14sp" textColor="#ffffff" bg="#cc333333"/>'
     );
@@ -869,7 +956,7 @@ function main() {
         '<vertical id="root" w="270" bg="#ee1b1b1b" padding="8">' +
         '  <horizontal>' +
         '    <text id="swatch" w="16" h="16" bg="#00000000" margin="4"/>' +
-        '    <text id="status" text="BSS AI Gather" textColor="#ffffff" textSize="13sp" maxLines="3" w="230"/>' +
+        '    <text id="status" text="BSS AI Gather" textColor="#ffffff" textSize="13sp" maxLines="5" w="230"/>' +
         '  </horizontal>' +
         '  <button id="start" text="▶ СТАРТ" w="*" h="46" textSize="16sp"/>' +
         '  <horizontal>' +
@@ -1064,6 +1151,7 @@ function main() {
             state.mode = "gather";
             brain = newBrain(CFG, screenW(), learnedK); // СТАРТ = стою в центре поля
             state.percQueue = [];
+            state.gatherFrom = null;
             setMenuOpen(false);
             setStatus("Поехали");
         } else {
@@ -1193,7 +1281,18 @@ function main() {
                 bagSince = 0;
             }
         }
-        state.perception = { tokens: tokens, zones: zones, flow: flow, bagFull: bagFull, t: shotT, frame: frame++ };
+        var bagLevel = null;
+        if (P.bag && P.bagStart && bagEmpty) {
+            var flags = [];
+            for (var bi = 0; bi < CFG.BAG_SAMPLES; bi++) {
+                var f = (bi + 0.5) / CFG.BAG_SAMPLES;
+                var bx = Math.round(P.bagStart.x + (P.bag.x - P.bagStart.x) * f);
+                var by = Math.round(P.bagStart.y + (P.bag.y - P.bagStart.y) * f);
+                flags.push(colorDiff(intToHex(images.pixel(img, bx, by)), bagEmpty) > CFG.BAG_DIFF);
+            }
+            bagLevel = bagLevelFromFlags(flags, 2);
+        }
+        state.perception = { tokens: tokens, zones: zones, flow: flow, bagFull: bagFull, bagLevel: bagLevel, t: shotT, frame: frame++ };
         state.percQueue.push(state.perception);
         if (state.percQueue.length > 15) state.percQueue.shift();
         sleep(20);
@@ -1260,7 +1359,7 @@ function main() {
     }
 
     function canConvert() {
-        return P.menu && P.reset && P.resetOk && P.honey && P.bag && bagEmpty;
+        return P.menu && P.reset && P.resetOk && P.honey && P.bag && P.bagStart && bagEmpty;
     }
 
     function stopRunning(msg) {
@@ -1269,24 +1368,59 @@ function main() {
         setStatus(msg);
     }
 
+    function saveStats() {
+        stats.fills = stats.fills.slice(-20);
+        stats.converts = stats.converts.slice(-20);
+        store.put("stats", stats);
+    }
+
+    // сводка из статистики: минут на сбор рюкзака, на сдачу, и сколько рюкзаков мёда в час
+    function cycleSummary() {
+        var fill = stats.fills.map(function (f) { return f.ms / f.gain; });
+        var conv = stats.converts.map(function (c) { return c.ms; });
+        if (!fill.length || !conv.length) return "";
+        var fm = median(fill) / 60000, cm = median(conv) / 60000;
+        return "рюкзак: сбор " + fm.toFixed(1) + " мин, сдача " + cm.toFixed(1) + " мин ≈ " + (60 / (fm + cm)).toFixed(1) + " рюкз./час";
+    }
+
+    var convertIO = {
+        tap: function (id, after) {
+            if (P[id]) press(P[id].x, P[id].y, 80);
+            return waitMs(after);
+        },
+        wait: waitMs,
+        level: function () { return state.perception.bagLevel; },
+        walk: walkRoute,
+        status: setStatus,
+        now: function () { return Date.now(); }
+    };
+
     function convert() {
         state.mode = "convert";
         saveK();
-        setStatus("Рюкзак полный → в улей");
-        if (!tapPoint("menu", 900) || !tapPoint("reset", 700) || !tapPoint("resetOk", CFG.RESPAWN_MS)) return;
-        if (!walkRoute(CFG.HIVE_WALK)) return;
-        if (!tapPoint("honey", 2000)) return;
-        setStatus("Делаю мёд...");
-        var end = Date.now() + CFG.CONVERT_TIMEOUT_MS;
-        while (state.perception.bagFull && Date.now() < end) {
-            if (!waitMs(1000)) return;
-        }
-        if (!waitMs(CFG.AFTER_CONVERT_MS)) return;
-        if (!CFG.ROUTE_TO_FIELD.length) {
-            stopRunning("Мёд готов. Маршрут на поле не задан — доведи персонажа и жми СТАРТ");
+        var g = state.gatherFrom, lvl = state.perception.bagLevel;
+        if (g && lvl !== null && lvl - g.level > 0.3) stats.fills.push({ ms: Date.now() - g.t, gain: lvl - g.level });
+        state.gatherFrom = null;
+        var res = runConvert(convertIO, CFG, stats.converts);
+        if (res.result === "stopped") return; // нажали СТОП
+        if (res.result !== "ok") {
+            stats.fails++;
+            saveStats();
+            state.mode = "gather";
+            stopRunning(res.result === "no_level"
+                ? "Не вижу уровень рюкзака: заново отметь концы полоски пыльцы (ТОЧКИ)"
+                : "Мёд не пошёл ни с " + res.tries + " попыток. Проверь точку MAKE HONEY и маршрут HIVE_WALK, потом СТАРТ");
             return;
         }
-        setStatus("Бегу на поле");
+        stats.converts.push({ ms: res.ms, drop: res.from - res.to, stalled: res.stalled });
+        saveStats();
+        var done = "Сдано " + Math.round((res.from - res.to) * 100) + "% рюкзака за " + Math.round(res.ms / 1000) + " с" +
+            (res.stalled && res.to > 0.3 ? " (переработка встала раньше)" : "");
+        if (!CFG.ROUTE_TO_FIELD.length) {
+            stopRunning(done + ". Маршрут на поле не задан — доведи персонажа и жми СТАРТ");
+            return;
+        }
+        setStatus(done + ". Бегу на поле");
         if (!walkRoute(CFG.ROUTE_TO_FIELD)) return;
         brain = newBrain(CFG, screenW(), learnedK);
         state.percQueue = [];
@@ -1331,6 +1465,7 @@ function main() {
             });
         }
         var now = Date.now();
+        if (!state.gatherFrom && perc.bagLevel !== null) state.gatherFrom = { t: now, level: perc.bagLevel };
         var dec = plan(b, now);
         addMove(b, Date.now(), CFG.STEP_MS, dec.fx, dec.fy);
         step(dec.fx, -dec.fy, CFG.STEP_MS, { tap: CFG.AUTO_TAP, jump: dec.jump });
@@ -1345,7 +1480,9 @@ function main() {
             setStatus(NAMES[dec.mode] +
                 " | вижу: " + perc.tokens.length + " | помню: " + solid +
                 (b.kSamples > 30 ? " | камера изучена" : " | изучаю камеру") +
-                (perc.bagFull ? " | рюкзак ПОЛНЫЙ" : ""));
+                (perc.bagLevel !== null ? " | рюкзак " + Math.round(perc.bagLevel * 100) + "%" : "") +
+                (perc.bagFull ? " ПОЛНЫЙ" : "") +
+                (cycleSummary() ? "\n" + cycleSummary() : ""));
         }
     }
 }
@@ -1355,6 +1492,7 @@ if (typeof floaty === "undefined") {
         CFG: CFG, clusterPoints: clusterPoints, looksLikeToken: looksLikeToken, blobsToTokens: blobsToTokens,
         mergeTokens: mergeTokens, snakeWaypoints: snakeWaypoints, medianColor: medianColor, colorDiff: colorDiff,
         angleToVec: angleToVec, intToHex: intToHex, joyStroke: joyStroke, inZone: inZone, escapeDir: escapeDir,
+        bagLevelFromFlags: bagLevelFromFlags, convertLimitMs: convertLimitMs, runConvert: runConvert,
         newBrain: newBrain, observe: observe, plan: plan, addMove: addMove, posAt: posAt,
         makeDetectable: makeDetectable, isSolid: isSolid, bestTarget: bestTarget,
         clipBgPatches: clipBgPatches, matchBgPatches: matchBgPatches, rectHitsZone: rectHitsZone
