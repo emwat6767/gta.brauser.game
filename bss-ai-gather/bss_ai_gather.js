@@ -72,6 +72,28 @@ var CFG = {
     WAYPOINT_REACH: 0.35,
     LEASH: 5.0,               // дальше этого от центра поля за токенами не бегаем
 
+    // тикеты — приоритет №1
+    TICKET_WEIGHT: 40,        // важность тикета (обычный токен 1, важный 3): тикет перевешивает почти всё в пределах ~16 с пути
+    LEASH_TICKET: 8.0,        // за тикетом можно уйти дальше от центра поля
+    TICKET_DEFER_DIST: 4.0,   // рюкзак полный, а тикет в пределах 4 с пути — сперва тикет, потом в улей
+    TICKET_DEFER_MS: 15000,   // ...но не дольше 15 с на один рюкзак
+
+    // маршруты (записываются по картинке, проходятся с поправкой по картинке)
+    REC_STEP: 0.4,            // точка маршрута каждые 0.4 с ходьбы
+    REC_MAX_LOST: 0.15,       // больше 15% записи без сдвига фона — маршрут ненадёжный, не сохраняем
+    ROUTE_TOL: 0.3,           // дошли, если ближе этого к концу маршрута
+    ROUTE_STUCK_MS: 4000,     // столько не приближаемся к концу — застряли
+    ROUTE_MAX_ESCAPES: 6,
+    BTN_DIFF: 30,             // кнопка у цели «на месте», если её цвет отличается от запомненного не больше этого
+    SIG_MIN: 0.55,            // насколько вид после ресета должен совпадать с записанным (иначе камера развёрнута)
+
+    // Wealth Clock — каждый час
+    CLOCK_PERIOD_MS: 3600000,
+    CLOCK_MARGIN_MS: 15000,   // запас после часа
+    CLOCK_COMBINE_MS: 60000,  // рюкзак наполнится в пределах минуты — часы совмещаем со сдачей мёда
+    CLOCK_TRIES: 2,           // попыток за один заход
+    CLOCK_FAIL_OFF: 3,        // столько неудачных заходов подряд — часы выключаются (сбор идёт дальше)
+
     // руки
     JOY_RADIUS: 0.06,         // насколько оттягивать джойстик (доля ширины)
     STEP_MS: 300,             // длина одного движения, потом новое решение
@@ -326,7 +348,8 @@ function newBrain(cfg, W, learnedK) {
         checkTrust: 0.5,          // как часто проверки находили настоящий токен
         lastCmd: { x: 0, y: 1 },
         wp: snakeWaypoints(cfg.FIELD_RADIUS, cfg.SNAKE_STEP),
-        wpIdx: 0
+        wpIdx: 0,
+        pickedTickets: []         // где недавно «подобрали тикет» (защита от ложного тикета, который не исчезает)
     };
 }
 
@@ -567,10 +590,13 @@ function observe(b, perc, P, detectable) {
         }
         if (t - m.seen < cfg.MEMORY_MS) keep.push(m);
     });
+    b.pickedTickets = b.pickedTickets.filter(function (p) { return t - p.t < 60000; });
     obs.forEach(function (o) {
         if (o.used) return;
-        keep.push({ id: b.nextId++, f: toField(b, o, P, pos), w: o.w, hits: 1, missed: 0,
-            lastT: t, seen: t, sx: o.x, sy: o.y, spd: 0, fr: 0, fd: 0, fp: 0, fn: 0, ok: false, banUntil: 0 });
+        var nf = toField(b, o, P, pos), ban = 0;
+        if (o.w >= cfg.TICKET_WEIGHT && b.pickedTickets.some(function (p) { return dist(p, nf) < 0.4; })) ban = t + 60000;
+        keep.push({ id: b.nextId++, f: nf, w: o.w, hits: 1, missed: 0, banUntil: ban,
+            lastT: t, seen: t, sx: o.x, sy: o.y, spd: 0, fr: 0, fd: 0, fp: 0, fn: 0, ok: false });
     });
     b.map = keep;
 
@@ -592,6 +618,7 @@ function checkResult(b, found) {
 }
 
 function tokenValue(m, cfg) {
+    if (isTicket(m, cfg)) return m.w; // тикет ценен и за краем поля
     return m.w * (len(m.f) > cfg.FIELD_RADIUS * 1.25 ? cfg.OUTSIDE_VALUE : 1);
 }
 
@@ -616,23 +643,21 @@ function bestTarget(cands, pos, currentId, cfg) {
 // куда отходить, когда упёрлись: назад, назад-вбок, вбок, вперёд-вбок — по очереди, мимо запрещённых
 var ESCAPE_ANGLES = [180, 135, -135, 90, -90, 45, -45];
 
-function escapeDir(b, base, tryNo) {
-    for (var i = 0; i < ESCAPE_ANGLES.length; i++) {
-        var a = ESCAPE_ANGLES[(tryNo + i) % ESCAPE_ANGLES.length] * Math.PI / 180;
+function escapeDir(b, base, tryNo, angles, ignoreBans) {
+    angles = angles || ESCAPE_ANGLES;
+    for (var i = 0; i < angles.length; i++) {
+        var a = angles[(tryNo + i) % angles.length] * Math.PI / 180;
         var x = base.x * Math.cos(a) - base.y * Math.sin(a), y = base.x * Math.sin(a) + base.y * Math.cos(a);
-        if (!banned(b, x, y)) return { x: x, y: y };
+        if (ignoreBans || !banned(b, x, y)) return { x: x, y: y };
     }
     return { x: -base.x, y: -base.y };
 }
 
-// решение на следующий шаг: направление джойстика в координатах поля
-function plan(b, now) {
-    var cfg = b.cfg, pos = posAt(b, now);
-    var out = { fx: 0, fy: 0, jump: false, mode: "patrol", target: null };
-    b.bans = b.bans.filter(function (x) { return x.until > now; });
-
+// Упёрлись (поле на экране перестало сдвигаться) — направление под запрет, манёвр обхода с прыжком.
+// Возвращает решение на шаг, пока идёт манёвр, иначе null.
+function handleBlocked(b, now, angles, ignoreBans) {
+    var cfg = b.cfg, out = null;
     if (b.blockedFrames >= cfg.BLOCKED_FRAMES) {
-        // упёрлись: направление и цель — под запрет, отходим с прыжком
         // (позицию уже поправила визуальная одометрия: картинка показала, что мы стоим)
         b.blockedFrames = 0;
         var d = b.lastCmd;
@@ -646,24 +671,53 @@ function plan(b, now) {
             b.escapeTry = 0;
             b.escapeBase = d;
         }
-        var e = escapeDir(b, b.escapeBase, b.escapeTry);
+        var e = escapeDir(b, b.escapeBase, b.escapeTry, angles, ignoreBans);
         b.escape = { until: now + cfg.ESCAPE_MS, x: e.x, y: e.y, started: now };
         b.blockGraceUntil = now + 200; // кадры, снятые до начала манёвра, не в счёт
-        out.jump = true;
+        out = { jump: true };
     }
     if (b.escape && now < b.escape.until) {
+        out = out || { jump: false };
         out.fx = b.escape.x;
         out.fy = b.escape.y;
         out.mode = "escape";
         b.lastCmd = { x: out.fx, y: out.fy };
         return out;
     }
+    return null;
+}
+
+function isTicket(m, cfg) {
+    return m.w >= cfg.TICKET_WEIGHT;
+}
+
+// рюкзак полный, но рядом тикет — сперва за ним (токены собираются и с полным рюкзаком)
+function ticketNearby(b, now) {
+    var cfg = b.cfg, pos = posAt(b, now);
+    return b.map.some(function (m) {
+        return isTicket(m, cfg) && isSolid(m, cfg) && !(m.banUntil > now) && dist(m.f, pos) <= cfg.TICKET_DEFER_DIST;
+    });
+}
+
+// решение на следующий шаг: направление джойстика в координатах поля
+function plan(b, now) {
+    var cfg = b.cfg, pos = posAt(b, now);
+    var out = { fx: 0, fy: 0, jump: false, mode: "patrol", target: null };
+    b.bans = b.bans.filter(function (x) { return x.until > now; });
+
+    var esc = handleBlocked(b, now);
+    if (esc) return { fx: esc.fx, fy: esc.fy, jump: esc.jump, mode: "escape", target: null };
 
     var cands = [];
     b.map = b.map.filter(function (m) {
         if (!isSolid(m, cfg)) return true;
-        if (dist(m.f, pos) < cfg.REACH) return false; // дошли до токена — подобран
-        if (m.banUntil > now || len(m.f) > cfg.LEASH || banned(b, m.f.x - pos.x, m.f.y - pos.y)) return true;
+        if (dist(m.f, pos) < cfg.REACH) {
+            // дошли — подобран; место тикета запомним: если «тикет» тут же появится снова, это не тикет
+            if (isTicket(m, cfg)) b.pickedTickets.push({ x: m.f.x, y: m.f.y, t: now });
+            return false;
+        }
+        var leash = isTicket(m, cfg) ? cfg.LEASH_TICKET : cfg.LEASH;
+        if (m.banUntil > now || len(m.f) > leash || banned(b, m.f.x - pos.x, m.f.y - pos.y)) return true;
         cands.push(m);
         return true;
     });
@@ -680,7 +734,7 @@ function plan(b, now) {
         var tgt = bestTarget(cands, pos, b.target, cfg);
         if (tgt.id !== b.target) {
             b.target = tgt.id;
-            b.targetDeadline = now + dist(tgt.f, pos) * 1000 * cfg.BUDGET_FACTOR + cfg.BUDGET_MS;
+            b.targetDeadline = now + dist(tgt.f, pos) * 1000 * cfg.BUDGET_FACTOR * (isTicket(tgt, cfg) ? 2 : 1) + cfg.BUDGET_MS;
         }
         var v = norm(tgt.f.x - pos.x, tgt.f.y - pos.y);
         out.fx = v.x;
@@ -746,6 +800,98 @@ function joyStroke(jx, jy, vx, vy, R, ms) {
         path.push(i % 2 ? [Math.round(ex), Math.round(ey)] : [Math.round(ex + px), Math.round(ey + py)]);
     }
     return path;
+}
+
+// ===================== МАРШРУТЫ =====================
+// Записываются, пока ты идёшь сам: позиция берётся из сдвига картинки поля (визуальная одометрия).
+// Проходятся с поправкой по той же картинке: бот видит, где он, обходит препятствия и честно
+// говорит, если не дошёл (в отличие от слепого «иди вперёд 4 секунды»).
+
+function newRecorder(t0) {
+    return { pts: [[0, 0]], lostMs: 0, lastT: t0, t0: t0 };
+}
+
+// hadFlow — был ли в кадре сдвиг фона (без него позиция в записи не обновляется)
+function recordSample(rec, t, pos, hadFlow, cfg) {
+    if (!hadFlow) rec.lostMs += Math.max(0, t - rec.lastT);
+    rec.lastT = t;
+    var p = rec.pts[rec.pts.length - 1];
+    if (Math.sqrt(Math.pow(pos.x - p[0], 2) + Math.pow(pos.y - p[1], 2)) >= cfg.REC_STEP) rec.pts.push([pos.x, pos.y]);
+}
+
+function routeLength(pts, from) {
+    var L = 0;
+    for (var i = (from || 0) + 1; i < pts.length; i++) L += Math.sqrt(Math.pow(pts[i][0] - pts[i - 1][0], 2) + Math.pow(pts[i][1] - pts[i - 1][1], 2));
+    return L;
+}
+
+// k — масштаб камеры, с которым писали (px на секунду ходьбы); с ним же маршрут и проходится
+function finishRecording(rec, pos, k, W, cfg) {
+    var ms = rec.lastT - rec.t0, p = rec.pts[rec.pts.length - 1];
+    if (Math.sqrt(Math.pow(pos.x - p[0], 2) + Math.pow(pos.y - p[1], 2)) > 0.05) rec.pts.push([pos.x, pos.y]);
+    if (ms <= 0 || rec.lostMs / ms > cfg.REC_MAX_LOST) return { error: "lost" };
+    if (routeLength(rec.pts) < 0.5) return { error: "short" };
+    return { pts: rec.pts, k: { x: k.x / W, y: k.y / W }, ms: ms };
+}
+
+var ROUTE_ESCAPE = [0, 45, -45, 90, -90, 180]; // на маршруте сперва прыжок вперёд (ступенька, бортик)
+
+function newRouteRun(route, now) {
+    return { pts: route.pts, i: 0, deadline: now + 2 * route.ms + 5000, bestRem: Infinity, progT: now, escapes: 0 };
+}
+
+// шаг по маршруту: {fx, fy, jump, done: null | "ok" | "stuck" | "timeout"}
+function routeStep(b, rt, now, cfg) {
+    var esc = handleBlocked(b, now, ROUTE_ESCAPE, true);
+    if (esc) {
+        if (esc.jump) rt.escapes++;
+        if (rt.escapes > cfg.ROUTE_MAX_ESCAPES) return { fx: 0, fy: 0, jump: false, done: "stuck" };
+        return { fx: esc.fx, fy: esc.fy, jump: esc.jump, done: null };
+    }
+    var pos = posAt(b, now), pts = rt.pts, last = pts.length - 1;
+    function d(j) {
+        return Math.sqrt(Math.pow(pts[j][0] - pos.x, 2) + Math.pow(pts[j][1] - pos.y, 2));
+    }
+    // ближайшая из следующих точек (если проскочили), дальше — пока точка уже достигнута
+    var bi = rt.i;
+    for (var j = rt.i + 1; j <= Math.min(last, rt.i + 2); j++) if (d(j) < d(bi)) bi = j;
+    rt.i = bi;
+    while (rt.i < last && d(rt.i) < cfg.WAYPOINT_REACH) rt.i++;
+    if (d(last) < cfg.ROUTE_TOL && rt.i >= last - 1) return { fx: 0, fy: 0, jump: false, done: "ok" };
+    var rem = d(rt.i) + routeLength(pts, rt.i);
+    if (rem < rt.bestRem - 0.3) {
+        rt.bestRem = rem;
+        rt.progT = now;
+    }
+    if (now - rt.progT > cfg.ROUTE_STUCK_MS) return { fx: 0, fy: 0, jump: false, done: "stuck" };
+    if (now > rt.deadline) return { fx: 0, fy: 0, jump: false, done: "timeout" };
+    var v = norm(pts[rt.i][0] - pos.x, pts[rt.i][1] - pos.y);
+    b.lastCmd = v;
+    return { fx: v.x, fy: v.y, jump: false, done: null };
+}
+
+// кнопка у цели (например, у часов) видна: цвет в точке близок к запомненному
+function buttonVisible(hexNow, verify, cfg) {
+    return !!verify && colorDiff(hexNow, verify.hex) <= cfg.BTN_DIFF;
+}
+
+// ===================== WEALTH CLOCK =====================
+// clk = {lastOk, failStreak, retryAt, off}. Решение: "wait" | "now" | "combine" (вместе со сдачей мёда)
+function clockPlan(now, clk, level, fillMsPerBag, cfg) {
+    if (clk.off) return "wait";
+    var due = (clk.lastOk || 0) + cfg.CLOCK_PERIOD_MS + cfg.CLOCK_MARGIN_MS;
+    if (now < Math.max(due, clk.retryAt || 0)) return "wait";
+    if (level === null || fillMsPerBag === null) return "now";
+    // рюкзак скоро наполнится — подождать и сходить к часам заодно со сдачей (меньше ресетов и дороги)
+    var eta = Math.max(0, 0.96 - level) * fillMsPerBag + cfg.BAG_FULL_MS;
+    return eta <= cfg.CLOCK_COMBINE_MS ? "combine" : "now";
+}
+
+function clockAfterResult(clk, ok, now, cfg) {
+    if (ok) return { lastOk: now, failStreak: 0, retryAt: 0, off: false };
+    var streak = (clk.failStreak || 0) + 1;
+    return { lastOk: clk.lastOk || 0, failStreak: streak, off: streak >= cfg.CLOCK_FAIL_OFF,
+        retryAt: now + Math.min(5 * 60000 * Math.pow(2, streak - 1), 30 * 60000) };
 }
 
 // ===================== МЁД: сдача с проверкой =====================
@@ -1005,6 +1151,8 @@ function main() {
     var bagEmpty = store.get("bagEmpty", null);
     var learnedK = store.get("k", null);       // выученный масштаб камеры (доли ширины экрана)
     // статистика циклов: сколько собирается рюкзак и сколько сдаётся (хранится между запусками)
+    var routes = store.get("routes", null) || {};    // записанные маршруты: clock (к часам), field (на поле)
+    var clk = store.get("clock", null) || { lastOk: 0, failStreak: 0, retryAt: 0, off: false };
     var stats = store.get("stats", null) || { fills: [], converts: [], cycles: [], fails: 0 };
     stats.cycles = stats.cycles || [];
 
@@ -1017,6 +1165,9 @@ function main() {
         cycleBroken: false,                    // в этом цикле была пауза — его время не честное
         convertFails: 0,                       // неудачных заходов в улей подряд
         convertAfter: 0,                       // раньше этого времени в улей не идём (после неудачи)
+        recording: false,                      // идёт запись маршрута (зрение работает и без СТАРТ)
+        recStop: false,
+        deferSince: 0,                         // с какого момента откладываем сдачу ради тикета рядом
         percQueue: [],                         // все кадры с прошлого решения — мозг смотрит каждый
         requests: [],                          // пробы цвета для потока зрения
         status: "BSS AI Gather",
@@ -1032,6 +1183,12 @@ function main() {
     if (!requestScreenCapture(true)) {
         toast("Нет разрешения на снимок экрана");
         exit();
+    }
+    // одна кнопка: скрипт сам открывает Roblox, меню появляется поверх него
+    try {
+        if (currentPackage() !== CFG.ROBLOX_PACKAGE && !app.launchPackage(CFG.ROBLOX_PACKAGE)) toast("Не нашёл Roblox на телефоне");
+    } catch (e) {
+        console.warn("Запуск Roblox: " + e);
     }
 
     function metrics() {
@@ -1058,7 +1215,7 @@ function main() {
         }
     }
 
-    var BUBBLE_DP = 60, MENU_DP = 270, MENU_H_DP = 320;
+    var BUBBLE_DP = 60, MENU_DP = 270, MENU_H_DP = 330;
     var bubble = rawWindow(
         '<button id="btn" text="БОТ" w="60" h="60" textSize="14sp" textColor="#ffffff" bg="#cc333333"/>'
     );
@@ -1066,22 +1223,29 @@ function main() {
         '<vertical id="root" w="270" bg="#ee1b1b1b" padding="8">' +
         '  <horizontal>' +
         '    <text id="swatch" w="16" h="16" bg="#00000000" margin="4"/>' +
-        '    <text id="status" text="BSS AI Gather" textColor="#ffffff" textSize="13sp" maxLines="5" w="230"/>' +
+        '    <text id="status" text="BSS AI Gather" textColor="#ffffff" textSize="12sp" maxLines="4" w="230"/>' +
         '  </horizontal>' +
-        '  <button id="start" text="▶ СТАРТ" w="*" h="46" textSize="16sp"/>' +
+        '  <button id="start" text="▶ СТАРТ" w="*" h="44" textSize="16sp"/>' +
         '  <horizontal>' +
-        '    <button id="token" text="+ ТОКЕН" w="127" h="42"/>' +
-        '    <button id="vip" text="+ ВАЖНЫЙ" w="127" h="42"/>' +
-        '  </horizontal>' +
-        '  <horizontal>' +
-        '    <button id="points" text="ТОЧКИ" w="127" h="42"/>' +
-        '    <button id="clear" text="СБРОС ЦВЕТОВ" w="127" h="42" textSize="12sp"/>' +
+        '    <button id="token" text="+ ТОКЕН" w="127" h="38" textSize="12sp"/>' +
+        '    <button id="vip" text="+ ВАЖНЫЙ" w="127" h="38" textSize="12sp"/>' +
         '  </horizontal>' +
         '  <horizontal>' +
-        '    <button id="move" text="ПЕРЕНЕСТИ БОТ" w="127" h="42" textSize="12sp"/>' +
-        '    <button id="exit" text="ВЫКЛЮЧИТЬ" w="127" h="42" textSize="12sp"/>' +
+        '    <button id="ticket" text="+ ТИКЕТ ★" w="127" h="38" textSize="12sp"/>' +
+        '    <button id="clear" text="СБРОС ЦВЕТОВ" w="127" h="38" textSize="11sp"/>' +
         '  </horizontal>' +
-        '  <button id="hide" text="✕ ЗАКРЫТЬ" w="*" h="42"/>' +
+        '  <horizontal>' +
+        '    <button id="points" text="ТОЧКИ" w="127" h="38" textSize="12sp"/>' +
+        '    <button id="move" text="ПЕРЕНЕСТИ БОТ" w="127" h="38" textSize="11sp"/>' +
+        '  </horizontal>' +
+        '  <horizontal>' +
+        '    <button id="recClock" text="ПУТЬ К ЧАСАМ" w="127" h="38" textSize="11sp"/>' +
+        '    <button id="recField" text="ПУТЬ НА ПОЛЕ" w="127" h="38" textSize="11sp"/>' +
+        '  </horizontal>' +
+        '  <horizontal>' +
+        '    <button id="exit" text="ВЫКЛЮЧИТЬ" w="127" h="38" textSize="11sp"/>' +
+        '    <button id="hide" text="✕ ЗАКРЫТЬ" w="127" h="38" textSize="12sp"/>' +
+        '  </horizontal>' +
         '</vertical>'
     );
 
@@ -1198,7 +1362,7 @@ function main() {
     }
 
     function addTokenColor(weight) {
-        var r = pickPoint("Нажми на " + (weight > 1 ? "ВАЖНЫЙ " : "") + "токен на экране", false);
+        var r = pickPoint("Нажми на " + (weight >= CFG.TICKET_WEIGHT ? "ТИКЕТ" : weight > 1 ? "ВАЖНЫЙ токен" : "токен") + " на экране", false);
         if (r === "cancel") {
             setStatus("Отменено");
             return;
@@ -1249,6 +1413,10 @@ function main() {
     });
 
     bubble.btn.click(function () {
+        if (state.recording) { // запись маршрута: нажатие на БОТ = «дошёл»
+            state.recStop = true;
+            return;
+        }
         refit();
         if (!state.busy) setMenuOpen(!state.menuOpen);
     });
@@ -1283,6 +1451,9 @@ function main() {
 
     menu.token.click(function () { runFlow(function () { addTokenColor(1); }); });
     menu.vip.click(function () { runFlow(function () { addTokenColor(3); }); });
+    menu.ticket.click(function () { runFlow(function () { addTokenColor(CFG.TICKET_WEIGHT); }); });
+    menu.recClock.click(function () { runFlow(function () { recordRoute("clock"); }); });
+    menu.recField.click(function () { runFlow(function () { recordRoute("field"); }); });
 
     menu.clear.click(function () {
         tokenColors = [];
@@ -1316,7 +1487,7 @@ function main() {
     // ---------- поток зрения ----------
     var bagSince = 0, frame = 0, bgPatches = null, bgT = 0, bagDy = 0, bagFitT = 0;
     function see() {
-        if (!state.running && !state.requests.length) {
+        if (!state.running && !state.recording && !state.requests.length) {
             sleep(150);
             return;
         }
@@ -1328,6 +1499,39 @@ function main() {
 
         while (state.requests.length) {
             var rq = state.requests.shift();
+            if (rq.type === "sig-save" || rq.type === "sig-check") {
+                // «как выглядит место после ресета»: по нему видно, не развернулась ли камера
+                try {
+                    var reg = images.clip(img, Math.round(W * 0.1), Math.round(H * 0.55), Math.round(W * 0.8), Math.round(H * 0.4));
+                    var sm = images.scale(reg, 0.12, 0.12);
+                    reg.recycle();
+                    if (rq.type === "sig-save") rq.sig = images.toBase64(sm, "jpg", 70);
+                    else {
+                        var ref = images.fromBase64(rq.sig);
+                        var cw = Math.round(ref.getWidth() * 0.8), ch = Math.round(ref.getHeight() * 0.8);
+                        var core = images.clip(ref, Math.round((ref.getWidth() - cw) / 2), Math.round((ref.getHeight() - ch) / 2), cw, ch);
+                        var m = images.matchTemplate(sm, core, { threshold: 0.2, max: 1, level: 0 }).best();
+                        rq.score = m ? m.similarity : 0;
+                        core.recycle();
+                        ref.recycle();
+                    }
+                    sm.recycle();
+                } catch (e) {
+                    console.warn("Снимок места: " + e);
+                    rq.score = 1; // не смогли сравнить — не мешаем
+                }
+                rq.done = true;
+                continue;
+            }
+            if (rq.type === "probe") {
+                var pp = [];
+                for (var qx = -2; qx <= 2; qx++) {
+                    for (var qy = -2; qy <= 2; qy++) pp.push(images.pixel(img, clamp(rq.x + qx, 0, W - 1), clamp(rq.y + qy, 0, H - 1)));
+                }
+                rq.hex = medianColor(pp);
+                rq.done = true;
+                continue;
+            }
             if (rq.type === "level") {
                 // проверка после настройки: читаем уровень рюкзака и показываем — совпадает ли с игрой
                 if (P.bag && P.bagStart) {
@@ -1357,7 +1561,7 @@ function main() {
             }
             ui.run(function () { menu.swatch.setBackgroundColor(android.graphics.Color.parseColor(hex)); });
         }
-        if (!state.running) return;
+        if (!state.running && !state.recording) return;
 
         var zones = [];
         if (state.bubbleRect) zones.push(state.bubbleRect);
@@ -1553,8 +1757,195 @@ function main() {
         now: function () { return Date.now(); }
     };
 
+    var ROUTE_CFG = Object.assign({}, CFG, { LEARN_RATE: 0 });
+
+    // запрос потоку зрения и ожидание ответа (не из UI-потока)
+    function ask(rq, timeoutMs) {
+        state.requests.push(rq);
+        var end = Date.now() + (timeoutMs || 3000);
+        while (!rq.done && Date.now() < end) sleep(50);
+        return rq.done ? rq : null;
+    }
+
+    function resetChar() {
+        return convertIO.tap("menu", 900) && convertIO.tap("reset", 700) && convertIO.tap("resetOk", CFG.RESPAWN_MS);
+    }
+
+    // ресет и проверка, что вид такой же, как при записи (камера могла развернуться) — до 3 ресетов
+    function resetAligned(route) {
+        for (var i = 0; i < 3; i++) {
+            if (!resetChar()) return false;
+            if (!route.sig) return true;
+            var r = ask({ type: "sig-check", sig: route.sig });
+            if (!r || r.score >= CFG.SIG_MIN) return true;
+            setStatus("Камера после ресета не та — ещё ресет");
+        }
+        return false;
+    }
+
+    // пройти записанный маршрут с поправкой по картинке: "ok" | "stuck" | "timeout" | "stopped"
+    function followRoute(route) {
+        var b = newBrain(ROUTE_CFG, screenW(), route.k), rt = newRouteRun(route, Date.now());
+        state.percQueue = [];
+        while (true) {
+            if (!alive() || !robloxOnTop()) return "stopped";
+            var q = state.percQueue;
+            state.percQueue = [];
+            if (screen.W) q.forEach(function (p) { observe(b, p, P.player, makeDetectable(screen.W, screen.H, p.zones, ROUTE_CFG)); });
+            var d = routeStep(b, rt, Date.now(), ROUTE_CFG);
+            if (d.done) return d.done;
+            addMove(b, Date.now(), CFG.STEP_MS, d.fx, d.fy);
+            step(d.fx, -d.fy, CFG.STEP_MS, { jump: d.jump });
+        }
+    }
+
+    // на поле: ресет (старт маршрута — всегда место после ресета) и записанный путь; без него — старый слепой
+    function goToField() {
+        if (routes.field) {
+            for (var i = 0; i < 2; i++) {
+                if (!resetAligned(routes.field)) return false;
+                var r = followRoute(routes.field);
+                if (r === "ok") return true;
+                if (r === "stopped") return false;
+                setStatus("Путь на поле: " + (r === "stuck" ? "застрял" : "не успел") + " — ещё раз");
+            }
+            return false;
+        }
+        return CFG.ROUTE_TO_FIELD.length > 0 && walkRoute(CFG.ROUTE_TO_FIELD);
+    }
+
+    function recordRoute(name) {
+        if (!(P.menu && P.reset && P.resetOk)) {
+            setStatus("Сначала отметь в ТОЧКИ: МЕНЮ, RESET CHARACTER и RESET");
+            return;
+        }
+        state.running = true; // для нажатий (alive) — сам бот при этом не ходит
+        setStatus("Ресет… Потом иди сам");
+        var ok = resetChar();
+        state.running = false;
+        ui.run(paintBubble);
+        if (!ok) return;
+        var sig = ask({ type: "sig-save" });
+        var b = newBrain(ROUTE_CFG, screenW(), learnedK), rec = newRecorder(Date.now());
+        state.percQueue = [];
+        state.recStop = false;
+        state.recording = true;
+        setStatus(name === "clock" ? "ЗАПИСЬ: иди сам к Wealth Clock (камеру не крути). Дошёл — нажми БОТ"
+            : "ЗАПИСЬ: иди сам в центр поля (камеру не крути). Дошёл — нажми БОТ");
+        var end = Date.now() + 180000;
+        try {
+            while (!state.recStop && Date.now() < end) {
+                var q = state.percQueue;
+                state.percQueue = [];
+                q.forEach(function (p) {
+                    if (screen.W) observe(b, p, P.player, makeDetectable(screen.W, screen.H, p.zones, ROUTE_CFG));
+                    recordSample(rec, p.t, posAt(b, p.t), !!p.flow, ROUTE_CFG);
+                });
+                sleep(100);
+            }
+        } finally {
+            state.recording = false;
+        }
+        var r = finishRecording(rec, posAt(b, rec.lastT), b.k, b.W, ROUTE_CFG);
+        if (r.error) {
+            setStatus(r.error === "lost" ? "Маршрут не записан: картинка поля часто не читалась (однотонно или крутил камеру). Попробуй ещё"
+                : "Маршрут не записан: слишком короткий");
+            return;
+        }
+        r.sig = sig ? sig.sig : null;
+        if (name === "clock") {
+            var pk = pickPoint("Нажми на кнопку часов вверху (Use) — бот запомнит, как она выглядит", false);
+            if (pk === "cancel") {
+                setStatus("Отменено");
+                return;
+            }
+            var pr = ask({ type: "probe", x: pk.x, y: pk.y });
+            if (!pr) {
+                setStatus("Не смог запомнить кнопку — попробуй ещё");
+                return;
+            }
+            r.verify = { x: pk.x, y: pk.y, hex: pr.hex };
+            clk = { lastOk: 0, failStreak: 0, retryAt: 0, off: false }; // новый маршрут — часы снова включены
+            store.put("clock", clk);
+        }
+        routes[name] = r;
+        store.put("routes", routes);
+        setStatus("Маршрут " + (name === "clock" ? "к часам" : "на поле") + " сохранён (" + Math.round(r.ms / 1000) + " с). Нажми БОТ ещё раз, если нужно");
+    }
+
+    function clockReady() {
+        return !!(routes.clock && routes.clock.verify && P.menu && P.reset && P.resetOk);
+    }
+
+    function fillMsPerBag() {
+        var f = stats.fills.map(function (x) { return x.ms / x.gain; });
+        return f.length ? median(f) : null;
+    }
+
+    // кнопка часов на месте: 2 кадра подряд; нет — чуть пошагать вокруг и проверить снова
+    function findClockButton(v) {
+        function seen() {
+            var hits = 0;
+            for (var i = 0; i < 6; i++) {
+                var r = ask({ type: "probe", x: v.x, y: v.y });
+                hits = r && buttonVisible(r.hex, v, CFG) ? hits + 1 : 0;
+                if (hits >= 2) return true;
+                sleep(150);
+            }
+            return false;
+        }
+        if (seen()) return true;
+        var dirs = [[0, 1], [1, 0], [0, -1], [-1, 0], [0, -1], [-1, 0], [0, 1], [0, 1]];
+        for (var k = 0; k < dirs.length; k++) {
+            if (!alive()) return false;
+            step(dirs[k][0], -dirs[k][1], 400, {});
+            if (seen()) return true;
+        }
+        return false;
+    }
+
+    // поход к часам: "ok" | "fail" | "stopped"
+    function runClock() {
+        var route = routes.clock;
+        for (var a = 1; a <= CFG.CLOCK_TRIES; a++) {
+            setStatus("Wealth Clock: иду" + (a > 1 ? " (попытка " + a + ")" : ""));
+            if (!alive()) return "stopped";
+            if (!resetAligned(route)) continue;
+            var r = followRoute(route);
+            if (r === "stopped") return "stopped";
+            if (findClockButton(route.verify)) {
+                press(route.verify.x, route.verify.y, 80);
+                sleep(1500);
+                return "ok";
+            }
+        }
+        return "fail";
+    }
+
+    function clockVisit() {
+        var r = runClock();
+        if (r === "stopped") return "stopped";
+        clk = clockAfterResult(clk, r === "ok", Date.now(), CFG);
+        store.put("clock", clk);
+        stats.clockOk = (stats.clockOk || 0) + (r === "ok" ? 1 : 0);
+        saveStats();
+        setStatus(r === "ok" ? "Wealth Clock собран ✓" : clk.off ? "Wealth Clock: 3 неудачи подряд — выключил. Перезапиши ПУТЬ К ЧАСАМ"
+            : "Wealth Clock не вышел — попробую через " + Math.round((clk.retryAt - Date.now()) / 60000) + " мин");
+        return r;
+    }
+
+    function clockStatus() {
+        if (!clockReady()) return "";
+        if (clk.off) return " | часы: выкл";
+        var left = Math.max((clk.lastOk || 0) + CFG.CLOCK_PERIOD_MS + CFG.CLOCK_MARGIN_MS, clk.retryAt || 0) - Date.now();
+        return left > 0 ? " | часы через " + Math.ceil(left / 60000) + " мин" : " | часы готовы";
+    }
+
     function convert() {
         state.mode = "convert";
+        state.deferSince = 0;
+        // часы готовы — сходим заодно (ресет всё равно будет)
+        if (clockReady() && clockPlan(Date.now(), clk, null, null, CFG) !== "wait" && clockVisit() === "stopped") return;
         saveK();
         var g = state.gatherFrom, lvl = state.perception.bagLevel;
         if (g && lvl !== null && lvl - g.level > 0.3) stats.fills.push({ ms: Date.now() - g.t, gain: lvl - g.level });
@@ -1579,7 +1970,7 @@ function main() {
             // попробуем позже: пока — на поле за токенами
             state.convertAfter = Date.now() + pol.cooldownMs;
             setStatus("Мёд не пошёл — попробую снова через " + Math.round(pol.cooldownMs / 1000) + " с");
-            if (CFG.ROUTE_TO_FIELD.length && walkRoute(CFG.ROUTE_TO_FIELD)) brain = newBrain(CFG, screenW(), learnedK);
+            if (goToField()) brain = newBrain(CFG, screenW(), learnedK);
             return;
         }
         state.convertFails = 0;
@@ -1592,12 +1983,15 @@ function main() {
         saveStats();
         var done = "Сдано " + Math.round((res.from - res.to) * 100) + "% рюкзака за " + Math.round(res.ms / 1000) + " с" +
             (res.hitLimit ? " (дольше обычного — ушёл по пределу)" : res.stalled && res.to > 0.3 ? " (переработка встала раньше)" : "");
-        if (!CFG.ROUTE_TO_FIELD.length) {
-            stopRunning(done + ". Маршрут на поле не задан — доведи персонажа и жми СТАРТ");
+        if (!routes.field && !CFG.ROUTE_TO_FIELD.length) {
+            stopRunning(done + ". Путь на поле не записан (ПУТЬ НА ПОЛЕ) — доведи персонажа и жми СТАРТ");
             return;
         }
         setStatus(done + ". Бегу на поле");
-        if (!walkRoute(CFG.ROUTE_TO_FIELD)) return;
+        if (!goToField()) {
+            if (alive()) stopRunning(done + ". Не дошёл до поля — доведи персонажа и жми СТАРТ (или перезапиши ПУТЬ НА ПОЛЕ)");
+            return;
+        }
         brain = newBrain(CFG, screenW(), learnedK);
         state.percQueue = [];
         state.mode = "gather";
@@ -1631,7 +2025,23 @@ function main() {
             sleep(500);
             continue;
         }
-        if (state.mode === "convert" || (state.perception.bagFull && canConvert() && Date.now() >= state.convertAfter)) {
+        // Wealth Clock по расписанию (если рюкзак вот-вот полный — пойдём вместе со сдачей)
+        if (state.mode === "gather" && clockReady() &&
+            clockPlan(Date.now(), clk, state.perception.bagLevel, fillMsPerBag(), CFG) === "now") {
+            if (clockVisit() === "stopped") continue;
+            if (goToField()) {
+                brain = newBrain(CFG, screenW(), learnedK);
+                state.percQueue = [];
+            } else if (alive()) stopRunning("Часы — всё. Не дошёл до поля: доведи персонажа и жми СТАРТ (или запиши ПУТЬ НА ПОЛЕ)");
+            continue;
+        }
+        var wantConvert = state.perception.bagFull && canConvert() && Date.now() >= state.convertAfter;
+        if (wantConvert && brain && ticketNearby(brain, Date.now())) {
+            // тикет рядом — сперва он (не дольше 15 с на рюкзак)
+            if (!state.deferSince) state.deferSince = Date.now();
+            if (Date.now() - state.deferSince < CFG.TICKET_DEFER_MS) wantConvert = false;
+        }
+        if (state.mode === "convert" || wantConvert) {
             convert();
             continue;
         }
@@ -1662,6 +2072,7 @@ function main() {
                 (perc.bagLevel !== null ? " | рюкзак " + Math.round(perc.bagLevel * 100) + "%" : "") +
                 (perc.bagFull ? (perc.bagLevel !== null ? " ПОЛНЫЙ" : " | рюкзак ПОЛНЫЙ") : "") +
                 (perc.bagFull && !canConvert() ? (needsBagStart() ? " — отметь левый конец полоски (ТОЧКИ)" : " — для сдачи отметь все точки") : "") +
+                clockStatus() +
                 (cycleSummary() ? "\n" + cycleSummary() : ""));
         }
     }
@@ -1672,7 +2083,10 @@ if (typeof floaty === "undefined") {
         CFG: CFG, clusterPoints: clusterPoints, looksLikeToken: looksLikeToken, blobsToTokens: blobsToTokens,
         mergeTokens: mergeTokens, snakeWaypoints: snakeWaypoints, medianColor: medianColor, colorDiff: colorDiff,
         angleToVec: angleToVec, intToHex: intToHex, joyStroke: joyStroke, inZone: inZone, escapeDir: escapeDir,
-        bagLevelFromFlags: bagLevelFromFlags, convertFailurePolicy: convertFailurePolicy, convertLimitMs: convertLimitMs, runConvert: runConvert, readBag: readBag, isBarFill: isBarFill,
+        bagLevelFromFlags: bagLevelFromFlags, convertFailurePolicy: convertFailurePolicy,
+        newRecorder: newRecorder, recordSample: recordSample, finishRecording: finishRecording, newRouteRun: newRouteRun,
+        routeStep: routeStep, routeLength: routeLength, buttonVisible: buttonVisible, clockPlan: clockPlan,
+        clockAfterResult: clockAfterResult, isTicket: isTicket, ticketNearby: ticketNearby, handleBlocked: handleBlocked, convertLimitMs: convertLimitMs, runConvert: runConvert, readBag: readBag, isBarFill: isBarFill,
         newBrain: newBrain, observe: observe, plan: plan, addMove: addMove, posAt: posAt,
         makeDetectable: makeDetectable, isSolid: isSolid, bestTarget: bestTarget,
         clipBgPatches: clipBgPatches, matchBgPatches: matchBgPatches, rectHitsZone: rectHitsZone
