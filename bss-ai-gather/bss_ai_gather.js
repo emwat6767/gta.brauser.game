@@ -841,8 +841,9 @@ function main() {
         return context.getResources().getDisplayMetrics();
     }
 
-    function screenW() {
-        return screen.W || metrics().widthPixels;
+    function screenW() { // Roblox всегда лёжа: ширина — большая сторона
+        var m = metrics();
+        return screen.W || Math.max(m.widthPixels, m.heightPixels);
     }
 
     // ---------- кнопка БОТ и меню: только обычные нажатия, без перетаскиваний ----------
@@ -850,11 +851,21 @@ function main() {
         return Math.round(v * metrics().density);
     }
 
+    // Не называть элементы close, x, y, width, height, setPosition... — это имена самого окна,
+    // window.close тогда вернёт функцию окна, а не кнопку.
+    function rawWindow(xmlText) {
+        try {
+            return floaty.rawWindow(xmlText);
+        } catch (e) {
+            return floaty.rawWindow(new XML(xmlText)); // AutoJs6 до 6.7.0 принимает только XML
+        }
+    }
+
     var BUBBLE_DP = 60, MENU_DP = 270, MENU_H_DP = 290;
-    var bubble = floaty.rawWindow(
+    var bubble = rawWindow(
         '<button id="btn" text="БОТ" w="60" h="60" textSize="14sp" textColor="#ffffff" bg="#cc333333"/>'
     );
-    var menu = floaty.rawWindow(
+    var menu = rawWindow(
         '<vertical id="root" w="270" bg="#ee1b1b1b" padding="8">' +
         '  <horizontal>' +
         '    <text id="swatch" w="16" h="16" bg="#00000000" margin="4"/>' +
@@ -873,13 +884,13 @@ function main() {
         '    <button id="move" text="ПЕРЕНЕСТИ БОТ" w="127" h="42" textSize="12sp"/>' +
         '    <button id="exit" text="ВЫКЛЮЧИТЬ" w="127" h="42" textSize="12sp"/>' +
         '  </horizontal>' +
-        '  <button id="close" text="✕ ЗАКРЫТЬ" w="*" h="42"/>' +
+        '  <button id="hide" text="✕ ЗАКРЫТЬ" w="*" h="42"/>' +
         '</vertical>'
     );
 
     var PICK_XML =
         '<frame id="root" w="*" h="*" bg="#26000000">' +
-        '  <vertical id="bar" layout_gravity="top|center_horizontal" bg="#ee1b1b1b" padding="8" margin="6">' +
+        '  <vertical id="bar" layout_gravity="bottom|center_horizontal" bg="#ee1b1b1b" padding="8" margin="6">' +
         '    <text id="msg" textColor="#ffffff" textSize="16sp" gravity="center" w="380"/>' +
         '    <horizontal layout_gravity="center_horizontal">' +
         '      <button id="skip" text="ПРОПУСК" w="140" h="44"/>' +
@@ -889,19 +900,30 @@ function main() {
         '</frame>';
 
     // кнопка БОТ: x, y — где должен быть её центр (px); место запоминается долями экрана
-    function placeBubble(x, y) { // только из UI-потока
+    function placeBubble(x, y, save) { // только из UI-потока
         var m = metrics(), s = dp(BUBBLE_DP);
         var px = clamp(Math.round(x - s / 2), 0, Math.max(0, m.widthPixels - s));
         var py = clamp(Math.round(y - s / 2), 0, Math.max(0, m.heightPixels - s));
         bubble.setPosition(px, py);
         state.bubbleRect = { x: px, y: py, w: s, h: s };
-        store.put("bubble", { fx: (px + s / 2) / m.widthPixels, fy: (py + s / 2) / m.heightPixels });
+        if (save) store.put("bubble", { fx: (px + s / 2) / m.widthPixels, fy: (py + s / 2) / m.heightPixels });
     }
 
     function placeBubbleSaved() { // только из UI-потока
         var m = metrics(), saved = store.get("bubble", null);
-        if (saved) placeBubble(saved.fx * m.widthPixels, saved.fy * m.heightPixels);
-        else placeBubble(dp(BUBBLE_DP / 2 + 2), m.heightPixels * 0.4);
+        if (saved) placeBubble(saved.fx * m.widthPixels, saved.fy * m.heightPixels, false);
+        else placeBubble(dp(BUBBLE_DP / 2 + 2), m.heightPixels * 0.4, false);
+    }
+
+    // экран повернулся (скрипт запустили в AutoJs6 стоя, а Roblox — лёжа) — вернуть кнопку и меню на экран
+    var fitW = 0, fitH = 0;
+    function refit() { // только из UI-потока
+        var m = metrics();
+        if (m.widthPixels === fitW && m.heightPixels === fitH) return;
+        fitW = m.widthPixels;
+        fitH = m.heightPixels;
+        placeBubbleSaved();
+        if (state.menuOpen) setMenuOpen(true);
     }
 
     // меню всегда по центру экрана; спрятанное меню — окно 0×0, нажатиям не мешает
@@ -933,7 +955,7 @@ function main() {
     // Звать только не из UI-потока.
     function pickPoint(message, allowSkip) {
         var result = null;
-        var w = floaty.rawWindow(PICK_XML);
+        var w = rawWindow(PICK_XML);
         ui.run(function () {
             w.setSize(-1, -1);
             w.setPosition(0, 0);
@@ -957,9 +979,16 @@ function main() {
     function runFlow(fn) { // только из UI-потока
         if (state.busy) return;
         state.busy = true;
+        if (state.running) {
+            // иначе нажатия самого бота попадут в подсказку как будто это ты нажал
+            state.running = false;
+            saveK();
+            paintBubble();
+        }
         setMenuOpen(false);
         threads.start(function () {
             try {
+                sleep(CFG.STEP_MS + 200); // дождаться, пока закончится движение, которое уже идёт
                 fn();
             } catch (e) {
                 console.error(e);
@@ -994,7 +1023,11 @@ function main() {
             if (r === "skip") continue;
             P[pt.id] = r;
             store.put("points", P);
-            if (pt.id === "bag") state.requests.push({ type: "bag", x: r.x, y: r.y });
+            if (pt.id === "bag") {
+                state.requests.push({ type: "bag", x: r.x, y: r.y });
+                var end = Date.now() + 3000;
+                while (state.requests.length && Date.now() < end) sleep(50); // цвет взят до следующей подсказки
+            }
             // пункты меню Roblox видны, только когда меню открыто — откроем его сами
             if (pt.id === "menu") {
                 press(r.x, r.y, 80);
@@ -1011,15 +1044,17 @@ function main() {
     }
 
     ui.run(function () {
-        placeBubbleSaved();
-        setMenuOpen(true); // при запуске меню сразу открыто
+        state.menuOpen = true; // при запуске меню сразу открыто
+        refit();
+        setMenuOpen(true);
     });
 
     bubble.btn.click(function () {
+        refit();
         if (!state.busy) setMenuOpen(!state.menuOpen);
     });
 
-    menu.close.click(function () {
+    menu.hide.click(function () {
         setMenuOpen(false);
     });
 
@@ -1052,15 +1087,13 @@ function main() {
     });
 
     menu.points.click(function () {
-        state.running = false;
-        paintBubble();
         runFlow(setupPoints);
     });
 
     menu.move.click(function () {
         runFlow(function () {
             var r = pickPoint("Нажми, куда поставить кнопку БОТ", false);
-            if (r !== "cancel") ui.run(function () { placeBubble(r.x, r.y); });
+            if (r !== "cancel") ui.run(function () { placeBubble(r.x, r.y, true); });
         });
     });
 
@@ -1265,8 +1298,13 @@ function main() {
     // ---------- главный цикл ----------
     var NAMES = { token: "к токену", memory: "к токену по памяти", check: "проверяю, что мелькнуло", escape: "обхожу препятствие", patrol: "кошу поле" };
     var lastStatus = 0, lastSave = Date.now();
+    var lastFit = 0;
     while (true) {
-        if (!state.running) {
+        if (Date.now() - lastFit > 1000) {
+            lastFit = Date.now();
+            ui.run(refit);
+        }
+        if (!state.running || state.busy) {
             sleep(100);
             continue;
         }
@@ -1284,6 +1322,7 @@ function main() {
             convert();
             continue;
         }
+        if (screen.W && brain.W !== screen.W) brain = newBrain(CFG, screen.W, learnedK);
         var b = brain, perc = state.perception, queue = state.percQueue;
         state.percQueue = [];
         if (screen.W) {
