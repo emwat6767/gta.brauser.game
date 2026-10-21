@@ -90,15 +90,15 @@ var CFG = {
 };
 
 var POINTS = [
-    { id: "player", name: "ПЕРСОНАЖ — центр твоего персонажа" },
-    { id: "joy", name: "ДЖОЙСТИК — где ставишь палец слева" },
-    { id: "tap", name: "ТАП — пустое место справа (махать инструментом)" },
-    { id: "jump", name: "ПРЫЖОК — кнопка прыжка" },
-    { id: "bag", name: "РЮКЗАК — конец полоски пыльцы (рюкзак НЕ полный)" },
-    { id: "menu", name: "МЕНЮ — значок Roblox слева сверху" },
-    { id: "reset", name: "RESET CHARACTER — открой меню и наведи" },
-    { id: "resetOk", name: "RESET — кнопка подтверждения" },
-    { id: "honey", name: "MAKE HONEY — встань у улья и наведи на кнопку" }
+    { id: "player", name: "на своего ПЕРСОНАЖА (в центр)" },
+    { id: "joy", name: "туда, где ставишь палец для ХОДЬБЫ (слева)" },
+    { id: "tap", name: "на пустое место справа, куда тапаешь, чтобы МАХАТЬ инструментом" },
+    { id: "jump", name: "на кнопку ПРЫЖКА" },
+    { id: "bag", name: "на правый конец полоски ПЫЛЬЦЫ (рюкзак сейчас НЕ полный)" },
+    { id: "honey", name: "на кнопку MAKE HONEY (стой у улья; если не у улья — ПРОПУСК)" },
+    { id: "menu", name: "на значок МЕНЮ Roblox (слева сверху) — бот сам его откроет" },
+    { id: "reset", name: "на пункт RESET CHARACTER в открывшемся меню" },
+    { id: "resetOk", name: "на кнопку подтверждения RESET (бот её НЕ нажмёт)" }
 ];
 
 // ===================== ЛОГИКА (без телефона) =====================
@@ -822,14 +822,14 @@ function main() {
         perception: { tokens: [], zones: [], bagFull: false, t: 0, frame: -1 },
         percQueue: [],                         // все кадры с прошлого решения — мозг смотрит каждый
         requests: [],                          // пробы цвета для потока зрения
-        aimCenter: null,
-        aimPending: false,
-        wizard: -1,
-        hudRect: null
+        status: "BSS AI Gather",
+        menuOpen: false,
+        busy: false,                           // идёт настройка касаниями
+        bubbleRect: null,
+        menuRect: null
     };
     var screen = { W: 0, H: 0 };
     var brain = null;
-    var aim = null;
 
     auto.waitFor();
     if (!requestScreenCapture(true)) {
@@ -845,144 +845,223 @@ function main() {
         return screen.W || metrics().widthPixels;
     }
 
-    // ---------- одна плавающая кнопка, панель раскрывается по нажатию ----------
-    var hud = floaty.rawWindow(
-        '<vertical>' +
-        '  <text id="bubble" text="🐝" textSize="24sp" gravity="center" w="54" h="54" bg="#cc333333"/>' +
-        '  <vertical id="body" bg="#e6111111" padding="4">' +
-        '    <horizontal>' +
-        '      <text id="swatch" w="14" h="14" bg="#00000000" margin="2"/>' +
-        '      <text id="status" text="BSS AI Gather" textColor="#ffffff" textSize="11sp" maxLines="3" w="190"/>' +
-        '    </horizontal>' +
-        '    <horizontal>' +
-        '      <button id="start" text="СТАРТ" w="72" h="38" textSize="10sp"/>' +
-        '      <button id="aim" text="ПРИЦЕЛ" w="72" h="38" textSize="10sp"/>' +
-        '      <button id="exit" text="ВЫХОД" w="72" h="38" textSize="10sp"/>' +
-        '    </horizontal>' +
-        '    <horizontal>' +
-        '      <button id="token" text="+ТОКЕН" w="72" h="38" textSize="10sp"/>' +
-        '      <button id="vip" text="+ВАЖНЫЙ" w="72" h="38" textSize="10sp"/>' +
-        '      <button id="clear" text="СБРОС" w="72" h="38" textSize="10sp"/>' +
-        '    </horizontal>' +
-        '    <horizontal>' +
-        '      <button id="point" text="ТОЧКИ" w="108" h="38" textSize="10sp"/>' +
-        '      <button id="skip" text="ПРОПУСК" w="108" h="38" textSize="10sp"/>' +
-        '    </horizontal>' +
-        '  </vertical>' +
+    // ---------- кнопка БОТ и меню: только обычные нажатия, без перетаскиваний ----------
+    function dp(v) {
+        return Math.round(v * metrics().density);
+    }
+
+    var BUBBLE_DP = 60, MENU_DP = 270, MENU_H_DP = 290;
+    var bubble = floaty.rawWindow(
+        '<button id="btn" text="БОТ" w="60" h="60" textSize="14sp" textColor="#ffffff" bg="#cc333333"/>'
+    );
+    var menu = floaty.rawWindow(
+        '<vertical id="root" w="270" bg="#ee1b1b1b" padding="8">' +
+        '  <horizontal>' +
+        '    <text id="swatch" w="16" h="16" bg="#00000000" margin="4"/>' +
+        '    <text id="status" text="BSS AI Gather" textColor="#ffffff" textSize="13sp" maxLines="3" w="230"/>' +
+        '  </horizontal>' +
+        '  <button id="start" text="▶ СТАРТ" w="*" h="46" textSize="16sp"/>' +
+        '  <horizontal>' +
+        '    <button id="token" text="+ ТОКЕН" w="127" h="42"/>' +
+        '    <button id="vip" text="+ ВАЖНЫЙ" w="127" h="42"/>' +
+        '  </horizontal>' +
+        '  <horizontal>' +
+        '    <button id="points" text="ТОЧКИ" w="127" h="42"/>' +
+        '    <button id="clear" text="СБРОС ЦВЕТОВ" w="127" h="42" textSize="12sp"/>' +
+        '  </horizontal>' +
+        '  <horizontal>' +
+        '    <button id="move" text="ПЕРЕНЕСТИ БОТ" w="127" h="42" textSize="12sp"/>' +
+        '    <button id="exit" text="ВЫКЛЮЧИТЬ" w="127" h="42" textSize="12sp"/>' +
+        '  </horizontal>' +
+        '  <button id="close" text="✕ ЗАКРЫТЬ" w="*" h="42"/>' +
         '</vertical>'
     );
-    var hudRoot = hud.bubble.getParent();
 
-    var AIM_XML =
-        '<frame id="root" w="90" h="90">' +
-        '  <text bg="#ff2020" w="3" h="34" layout_gravity="top|center_horizontal"/>' +
-        '  <text bg="#ff2020" w="3" h="34" layout_gravity="bottom|center_horizontal"/>' +
-        '  <text bg="#ff2020" w="34" h="3" layout_gravity="left|center_vertical"/>' +
-        '  <text bg="#ff2020" w="34" h="3" layout_gravity="right|center_vertical"/>' +
+    var PICK_XML =
+        '<frame id="root" w="*" h="*" bg="#26000000">' +
+        '  <vertical id="bar" layout_gravity="top|center_horizontal" bg="#ee1b1b1b" padding="8" margin="6">' +
+        '    <text id="msg" textColor="#ffffff" textSize="16sp" gravity="center" w="380"/>' +
+        '    <horizontal layout_gravity="center_horizontal">' +
+        '      <button id="skip" text="ПРОПУСК" w="140" h="44"/>' +
+        '      <button id="cancel" text="ОТМЕНА" w="140" h="44"/>' +
+        '    </horizontal>' +
+        '  </vertical>' +
         '</frame>';
 
-    function viewRect(view) {
-        var loc = java.lang.reflect.Array.newInstance(java.lang.Integer.TYPE, 2);
-        view.getLocationOnScreen(loc);
-        return { x: loc[0], y: loc[1], w: view.getWidth(), h: view.getHeight() };
+    // кнопка БОТ: x, y — где должен быть её центр (px); место запоминается долями экрана
+    function placeBubble(x, y) { // только из UI-потока
+        var m = metrics(), s = dp(BUBBLE_DP);
+        var px = clamp(Math.round(x - s / 2), 0, Math.max(0, m.widthPixels - s));
+        var py = clamp(Math.round(y - s / 2), 0, Math.max(0, m.heightPixels - s));
+        bubble.setPosition(px, py);
+        state.bubbleRect = { x: px, y: py, w: s, h: s };
+        store.put("bubble", { fx: (px + s / 2) / m.widthPixels, fy: (py + s / 2) / m.heightPixels });
     }
 
-    function refreshRects() {
-        try {
-            state.hudRect = viewRect(hudRoot);
-            state.aimCenter = null;
-            if (aim) {
-                var r = viewRect(aim.root);
-                state.aimCenter = { x: Math.round(r.x + r.w / 2), y: Math.round(r.y + r.h / 2) };
-            }
-        } catch (e) { /* окно ещё не разложено */ }
+    function placeBubbleSaved() { // только из UI-потока
+        var m = metrics(), saved = store.get("bubble", null);
+        if (saved) placeBubble(saved.fx * m.widthPixels, saved.fy * m.heightPixels);
+        else placeBubble(dp(BUBBLE_DP / 2 + 2), m.heightPixels * 0.4);
     }
 
-    function postUi(view, fn) {
-        view.post(new java.lang.Runnable({ run: fn }));
-    }
-
-    // таскать окно пальцем; короткое касание без сдвига = нажатие
-    function makeDraggable(win, view, onTap) {
-        var ME = android.view.MotionEvent;
-        var sx = 0, sy = 0, wx = 0, wy = 0, moved = false;
-        view.setOnTouchListener(function (v, ev) {
-            switch (ev.getAction()) {
-                case ME.ACTION_DOWN:
-                    sx = ev.getRawX();
-                    sy = ev.getRawY();
-                    wx = win.getX();
-                    wy = win.getY();
-                    moved = false;
-                    return true;
-                case ME.ACTION_MOVE:
-                    var dx = ev.getRawX() - sx, dy = ev.getRawY() - sy;
-                    if (Math.abs(dx) + Math.abs(dy) > 12) moved = true;
-                    if (moved) win.setPosition(Math.round(wx + dx), Math.round(wy + dy));
-                    return true;
-                case ME.ACTION_UP:
-                    if (!moved && onTap) onTap();
-                    refreshRects();
-                    return true;
-            }
-            return true;
-        });
-    }
-
-    function fitOnScreen() {
-        var m = metrics();
-        hud.setPosition(clamp(hud.getX(), 0, Math.max(0, m.widthPixels - hudRoot.getWidth())),
-            clamp(hud.getY(), 0, Math.max(0, m.heightPixels - hudRoot.getHeight())));
-    }
-
-    function setPanelOpen(open) { // только из UI-потока
-        hud.body.setVisibility(open ? 0 : 8);
-        postUi(hudRoot, function () {
-            fitOnScreen();
-            refreshRects();
-        });
+    // меню всегда по центру экрана; спрятанное меню — окно 0×0, нажатиям не мешает
+    function setMenuOpen(open) { // только из UI-потока
+        state.menuOpen = open;
+        if (open) {
+            var m = metrics(), w = dp(MENU_DP), h = dp(MENU_H_DP);
+            var x = Math.max(0, Math.round((m.widthPixels - w) / 2)), y = Math.max(0, Math.round((m.heightPixels - h) / 2));
+            menu.setPosition(x, y);
+            state.menuRect = { x: x, y: y, w: w, h: h };
+            menu.status.setText(state.status);
+        } else {
+            state.menuRect = null;
+        }
+        menu.root.setVisibility(open ? 0 : 8);
     }
 
     function paintBubble() { // только из UI-потока
-        hud.bubble.setBackgroundColor(android.graphics.Color.parseColor(state.running ? "#cc2e7d32" : "#cc333333"));
+        bubble.btn.setBackgroundColor(android.graphics.Color.parseColor(state.running ? "#cc2e7d32" : "#cc333333"));
+        menu.start.setText(state.running ? "■ СТОП" : "▶ СТАРТ");
     }
 
     function setStatus(s) {
-        ui.run(function () { hud.status.setText(s); });
+        state.status = s;
+        ui.run(function () { menu.status.setText(s); });
     }
 
-    function showAim() {
-        if (aim || state.aimPending) return;
-        state.aimPending = true;
-        threads.start(function () {
-            var w = floaty.rawWindow(AIM_XML);
-            ui.run(function () {
-                var m = metrics();
-                w.setPosition(Math.round(m.widthPixels / 2 - 45 * m.density), Math.round(m.heightPixels / 2 - 45 * m.density));
-                makeDraggable(w, w.root, null);
-                aim = w;
-                state.aimPending = false;
-                postUi(w.root, refreshRects);
+    // Подсказка на весь экран и ожидание одного касания. Возвращает {x, y}, "skip" или "cancel".
+    // Звать только не из UI-потока.
+    function pickPoint(message, allowSkip) {
+        var result = null;
+        var w = floaty.rawWindow(PICK_XML);
+        ui.run(function () {
+            w.setSize(-1, -1);
+            w.setPosition(0, 0);
+            w.msg.setText(message);
+            w.skip.setVisibility(allowSkip ? 0 : 8);
+            w.bar.setClickable(true); // касание по самой подсказке — не выбор точки
+            w.skip.click(function () { result = "skip"; });
+            w.cancel.click(function () { result = "cancel"; });
+            w.root.on("touch_down", function (e) {
+                e.consumed = true;
+                if (result === null) result = { x: Math.round(e.getRawX()), y: Math.round(e.getRawY()) };
             });
+        });
+        while (result === null) sleep(50);
+        ui.run(function () { w.close(); });
+        sleep(300); // подсказка убралась с экрана — теперь можно снимать картинку или нажимать
+        return result;
+    }
+
+    // сценарий в отдельном потоке: меню на это время прячется, потом открывается снова
+    function runFlow(fn) { // только из UI-потока
+        if (state.busy) return;
+        state.busy = true;
+        setMenuOpen(false);
+        threads.start(function () {
+            try {
+                fn();
+            } catch (e) {
+                console.error(e);
+                setStatus("Ошибка: " + e);
+            } finally {
+                state.busy = false;
+                ui.run(function () { setMenuOpen(true); });
+            }
         });
     }
 
-    function hideAim() { // только из UI-потока
-        if (aim) {
-            aim.close();
-            aim = null;
+    function addTokenColor(weight) {
+        var r = pickPoint("Нажми на " + (weight > 1 ? "ВАЖНЫЙ " : "") + "токен на экране", false);
+        if (r === "cancel") {
+            setStatus("Отменено");
+            return;
         }
-        state.aimCenter = null;
+        state.requests.push({ type: "token", x: r.x, y: r.y, extra: weight });
+        var end = Date.now() + 3000;
+        while (state.requests.length && Date.now() < end) sleep(50); // ждём, пока возьмётся цвет
+    }
+
+    function setupPoints() {
+        var openedMenu = false;
+        for (var i = 0; i < POINTS.length; i++) {
+            var pt = POINTS[i];
+            var r = pickPoint("Шаг " + (i + 1) + " из " + POINTS.length + ". Нажми: " + pt.name, true);
+            if (r === "cancel") {
+                setStatus("Настройка прервана. Отмеченное сохранено");
+                return;
+            }
+            if (r === "skip") continue;
+            P[pt.id] = r;
+            store.put("points", P);
+            if (pt.id === "bag") state.requests.push({ type: "bag", x: r.x, y: r.y });
+            // пункты меню Roblox видны, только когда меню открыто — откроем его сами
+            if (pt.id === "menu") {
+                press(r.x, r.y, 80);
+                sleep(1200);
+                openedMenu = true;
+            }
+            if (pt.id === "reset" && openedMenu) {
+                press(r.x, r.y, 80);
+                sleep(1000);
+            }
+        }
+        setStatus(openedMenu ? "Точки сохранены. Закрой меню Roblox (Cancel) и добавь цвета: + ТОКЕН"
+            : "Точки сохранены. Теперь добавь цвета: + ТОКЕН");
     }
 
     ui.run(function () {
-        hud.body.setVisibility(8);
-        var m = metrics();
-        hud.setPosition(Math.round(m.widthPixels - 64 * m.density), Math.round(m.heightPixels * 0.3));
-        makeDraggable(hud, hud.bubble, function () {
-            setPanelOpen(hud.body.getVisibility() !== 0);
+        placeBubbleSaved();
+        setMenuOpen(true); // при запуске меню сразу открыто
+    });
+
+    bubble.btn.click(function () {
+        if (!state.busy) setMenuOpen(!state.menuOpen);
+    });
+
+    menu.close.click(function () {
+        setMenuOpen(false);
+    });
+
+    menu.start.click(function () {
+        state.running = !state.running;
+        if (state.running) {
+            state.mode = "gather";
+            brain = newBrain(CFG, screenW(), learnedK); // СТАРТ = стою в центре поля
+            state.percQueue = [];
+            setMenuOpen(false);
+            setStatus("Поехали");
+        } else {
+            saveK();
+            setStatus("Пауза");
+        }
+        paintBubble();
+    });
+
+    menu.exit.click(function () {
+        exit();
+    });
+
+    menu.token.click(function () { runFlow(function () { addTokenColor(1); }); });
+    menu.vip.click(function () { runFlow(function () { addTokenColor(3); }); });
+
+    menu.clear.click(function () {
+        tokenColors = [];
+        store.put("colors", tokenColors);
+        setStatus("Цвета токенов сброшены");
+    });
+
+    menu.points.click(function () {
+        state.running = false;
+        paintBubble();
+        runFlow(setupPoints);
+    });
+
+    menu.move.click(function () {
+        runFlow(function () {
+            var r = pickPoint("Нажми, куда поставить кнопку БОТ", false);
+            if (r !== "cancel") ui.run(function () { placeBubble(r.x, r.y); });
         });
-        postUi(hudRoot, refreshRects);
     });
 
     function saveK() {
@@ -995,92 +1074,6 @@ function main() {
         try {
             saveK();
         } catch (e) { /* выходим всё равно */ }
-    });
-
-    function requestSample(type, extra) {
-        refreshRects();
-        if (!state.aimCenter) {
-            toast("Сначала включи ПРИЦЕЛ и наведи его");
-            return;
-        }
-        state.requests.push({ type: type, x: state.aimCenter.x, y: state.aimCenter.y, extra: extra });
-    }
-
-    function wizardText() {
-        return "Прицел на: " + POINTS[state.wizard].name + " → ТОЧКИ (сохранить) / ПРОПУСК";
-    }
-
-    function wizardNext() {
-        state.wizard++;
-        if (state.wizard >= POINTS.length) {
-            state.wizard = -1;
-            hideAim();
-            store.put("points", P);
-            setStatus("Точки сохранены. Добавь цвета токенов: ПРИЦЕЛ → +ТОКЕН");
-        } else {
-            setStatus(wizardText());
-        }
-    }
-
-    hud.start.click(function () {
-        state.running = !state.running;
-        if (state.running) {
-            state.mode = "gather";
-            brain = newBrain(CFG, screenW(), learnedK); // СТАРТ = стою в центре поля
-            state.percQueue = [];
-            state.wizard = -1;
-            hideAim();
-            setPanelOpen(false);
-            setStatus("Поехали");
-        } else {
-            saveK();
-            setStatus("Пауза");
-        }
-        hud.start.setText(state.running ? "СТОП" : "СТАРТ");
-        paintBubble();
-    });
-
-    hud.aim.click(function () {
-        if (aim) hideAim();
-        else showAim();
-    });
-
-    hud.exit.click(function () {
-        exit();
-    });
-
-    hud.token.click(function () { requestSample("token", 1); });
-    hud.vip.click(function () { requestSample("token", 3); });
-
-    hud.clear.click(function () {
-        tokenColors = [];
-        store.put("colors", tokenColors);
-        setStatus("Цвета токенов сброшены");
-    });
-
-    hud.point.click(function () {
-        if (state.wizard < 0) {
-            state.running = false;
-            hud.start.setText("СТАРТ");
-            paintBubble();
-            state.wizard = 0;
-            showAim();
-            setStatus(wizardText());
-            return;
-        }
-        refreshRects();
-        if (!state.aimCenter) {
-            toast("Прицел ещё появляется — нажми ещё раз");
-            return;
-        }
-        var pt = POINTS[state.wizard];
-        P[pt.id] = { x: state.aimCenter.x, y: state.aimCenter.y };
-        if (pt.id === "bag") state.requests.push({ type: "bag", x: P.bag.x, y: P.bag.y });
-        wizardNext();
-    });
-
-    hud.skip.click(function () {
-        if (state.wizard >= 0) wizardNext();
     });
 
     // ---------- поток зрения ----------
@@ -1114,12 +1107,13 @@ function main() {
                 bagEmpty = hex;
                 store.put("bagEmpty", hex);
             }
-            ui.run(function () { hud.swatch.setBackgroundColor(android.graphics.Color.parseColor(hex)); });
+            ui.run(function () { menu.swatch.setBackgroundColor(android.graphics.Color.parseColor(hex)); });
         }
         if (!state.running) return;
 
         var zones = [];
-        if (state.hudRect) zones.push(state.hudRect);
+        if (state.bubbleRect) zones.push(state.bubbleRect);
+        if (state.menuRect) zones.push(state.menuRect);
         if (P.player) zones.push({ x: P.player.x, y: P.player.y, r: CFG.PLAYER_IGNORE * W });
         ["joy", "jump", "tap", "menu"].forEach(function (id) {
             if (P[id]) zones.push({ x: P[id].x, y: P[id].y, r: CFG.BUTTON_IGNORE * W });
@@ -1238,10 +1232,7 @@ function main() {
 
     function stopRunning(msg) {
         state.running = false;
-        ui.run(function () {
-            hud.start.setText("СТАРТ");
-            paintBubble();
-        });
+        ui.run(paintBubble);
         setStatus(msg);
     }
 
